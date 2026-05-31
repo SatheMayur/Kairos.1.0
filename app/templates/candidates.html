@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Candidates{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left"><h1>Candidates</h1><p>All sourced profiles</p></div>
+  <button class="btn btn-primary" onclick="showModal('add-modal')">＋ Add Manually</button>
+</div>
+
+<div id="alert-area"></div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title" id="cand-count">Candidates</span>
+    <div class="flex gap-2">
+      <select id="source-filter" onchange="loadCandidates()" class="btn btn-secondary btn-sm" style="padding:5px 10px">
+        <option value="">All sources</option>
+        <option value="NAUKRI">Naukri</option>
+        <option value="LINKEDIN">LinkedIn</option>
+        <option value="INDEED">Indeed</option>
+        <option value="APNA">Apna</option>
+        <option value="WORKINDIA">WorkIndia</option>
+        <option value="FOUNDIT">Foundit</option>
+        <option value="MOCK">Mock</option>
+        <option value="MANUAL">Manual</option>
+      </select>
+      <input type="text" id="search-input" placeholder="Search name / skill…" oninput="filterTable()" style="padding:5px 10px;width:180px">
+    </div>
+  </div>
+  <div id="cand-table-body">
+    <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+<!-- Add Candidate Modal -->
+<div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;overflow-y:auto;padding:40px 20px">
+  <div style="max-width:640px;margin:0 auto;background:#18181b;border:1px solid #27272a;border-radius:16px;padding:28px">
+    <div class="flex justify-between items-center" style="margin-bottom:20px">
+      <h2 style="font-size:16px;font-weight:700">Add Candidate</h2>
+      <button class="btn btn-secondary btn-sm" onclick="hideModal('add-modal')">✕</button>
+    </div>
+    <div class="grid-2">
+      <div class="form-group"><label>Full Name *</label><input type="text" id="a-name" placeholder="Priya Sharma"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="a-email" placeholder="priya@example.com"></div>
+      <div class="form-group"><label>Phone</label><input type="text" id="a-phone" placeholder="+91…"></div>
+      <div class="form-group"><label>WhatsApp</label><input type="text" id="a-whatsapp" placeholder="+91…"></div>
+      <div class="form-group"><label>Experience (yrs)</label><input type="number" id="a-exp" placeholder="3.5"></div>
+      <div class="form-group"><label>Location</label><input type="text" id="a-loc" placeholder="Bangalore"></div>
+      <div class="form-group"><label>Expected Salary (₹)</label><input type="number" id="a-exsal" placeholder="1000000"></div>
+      <div class="form-group"><label>Notice Period (days)</label><input type="number" id="a-notice" placeholder="30"></div>
+      <div class="form-group"><label>Current Role</label><input type="text" id="a-role" placeholder="Software Engineer"></div>
+      <div class="form-group"><label>Current Employer</label><input type="text" id="a-employer" placeholder="TCS"></div>
+    </div>
+    <div class="form-group"><label>Skills (comma-separated)</label><input type="text" id="a-skills" placeholder="Python, FastAPI, SQL"></div>
+    <div class="form-group"><label>Education</label><input type="text" id="a-edu" placeholder="B.Tech"></div>
+    <button class="btn btn-primary" onclick="addCandidate()">＋ Add Candidate</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allCandidates = [];
+
+const srcColors = {
+  NAUKRI:'badge-blue', LINKEDIN:'badge-blue', INDEED:'badge-blue',
+  MOCK:'badge-grey', MANUAL:'badge-purple',
+  APNA:'badge-yellow', WORKINDIA:'badge-yellow', FOUNDIT:'badge-green',
+};
+
+async function loadCandidates() {
+  const source = document.getElementById('source-filter').value;
+  const url = '/api/v1/candidates?limit=500' + (source ? '&source='+source : '');
+  allCandidates = await api(url);
+  document.getElementById('cand-count').textContent = `Candidates (${allCandidates.length})`;
+  renderTable(allCandidates);
+}
+
+function filterTable() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  if (!q) { renderTable(allCandidates); return; }
+  const filtered = allCandidates.filter(c =>
+    c.name.toLowerCase().includes(q) ||
+    (c.skills||[]).some(s => s.toLowerCase().includes(q)) ||
+    (c.location||'').toLowerCase().includes(q) ||
+    (c.current_role||'').toLowerCase().includes(q)
+  );
+  renderTable(filtered);
+}
+
+function renderTable(data) {
+  const body = document.getElementById('cand-table-body');
+  if (!data.length) {
+    body.innerHTML = '<div class="empty-state"><p>No candidates found.</p></div>'; return;
+  }
+  body.innerHTML = `<div class="table-wrap"><table>
+    <tr><th>Name</th><th>Skills</th><th>Exp</th><th>Location</th><th>Expected ₹</th><th>Source</th><th>Actions</th></tr>
+    ${data.map(c => `<tr>
+      <td>
+        <strong>${esc(c.name)}</strong><br>
+        <span class="text-muted text-sm">${esc(c.current_role||'')}${c.current_employer?' @ '+esc(c.current_employer):''}</span>
+      </td>
+      <td>${(c.skills||[]).slice(0,3).map(s=>`<span class="badge badge-grey" style="margin:1px;font-size:10px">${esc(s)}</span>`).join('')}${(c.skills||[]).length>3?`<span class="text-muted text-sm"> +${c.skills.length-3}</span>`:''}</td>
+      <td class="text-muted">${c.experience_years!=null?c.experience_years+'y':'–'}</td>
+      <td class="text-muted">${esc(c.location||'–')}</td>
+      <td class="text-muted">${c.expected_salary ? '₹'+(c.expected_salary/100000).toFixed(1)+'L' : '–'}</td>
+      <td><span class="badge ${srcColors[c.source]||'badge-grey'}" style="font-size:10px">${c.source}</span></td>
+      <td>
+        <a href="mailto:${esc(c.email||'')}" class="btn btn-secondary btn-sm" title="${esc(c.email||'No email')}">✉</a>
+        ${c.phone?`<a href="tel:${esc(c.phone)}" class="btn btn-secondary btn-sm" style="margin-left:4px" title="${esc(c.phone)}">📞</a>`:''}
+      </td>
+    </tr>`).join('')}
+  </table></div>`;
+}
+
+async function addCandidate() {
+  const name = document.getElementById('a-name').value.trim();
+  if (!name) { showToast('Name is required', 'error'); return; }
+  const skills = document.getElementById('a-skills').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const body = {
+    name,
+    email: document.getElementById('a-email').value||undefined,
+    phone: document.getElementById('a-phone').value||undefined,
+    whatsapp: document.getElementById('a-whatsapp').value||undefined,
+    experience_years: parseFloat(document.getElementById('a-exp').value)||undefined,
+    location: document.getElementById('a-loc').value||undefined,
+    expected_salary: parseFloat(document.getElementById('a-exsal').value)||undefined,
+    notice_period_days: parseInt(document.getElementById('a-notice').value)||undefined,
+    current_role: document.getElementById('a-role').value||undefined,
+    current_employer: document.getElementById('a-employer').value||undefined,
+    education: document.getElementById('a-edu').value||undefined,
+    skills,
+    source: 'MANUAL',
+  };
+  try {
+    await api('/api/v1/candidates', {method:'POST', body});
+    showToast('Candidate added', 'success');
+    hideModal('add-modal'); loadCandidates();
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+loadCandidates();
+</script>
+{% endblock %}

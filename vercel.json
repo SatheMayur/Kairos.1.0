@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb"
+      }
+    }
+  ],
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "env": {
+    "APP_ENV": "production",
+    "DATABASE_URL": "sqlite+aiosqlite:////tmp/recruitment.db",
+    "LOG_LEVEL": "WARNING",
+    "USE_MOCK_ADAPTERS": "false",
+    "AUTO_OUTREACH_ENABLED": "false",
+    "EMAIL_FROM_NAME": "Kirti | K. Girdharlal International",
+    "EMAIL_FROM_ADDRESS": "kirti@kgirdharlal.com"
+  }
+}

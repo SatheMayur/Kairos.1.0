@@ -1,0 +1,37 @@
+Senior Python Developer
+
+Company: K. Girdharlal International, Surat
+
+About the Role:
+We are looking for a Senior Python Developer with strong backend experience to build
+scalable APIs and data pipelines for our global operations team.
+
+Requirements:
+- 3–6 years of professional experience in Python
+- Strong expertise in FastAPI, Django, or Flask
+- Proficient in SQL (PostgreSQL or MySQL)
+- Experience with Docker, Kubernetes, and AWS
+- Familiarity with REST API design and GraphQL
+- Knowledge of Git, Linux, and CI/CD pipelines
+- Excellent problem-solving and communication skills
+
+Good to Have:
+- Experience with Machine Learning or data science workflows
+- Familiarity with Celery, Redis, or APScheduler
+- Exposure to Agile / Scrum methodology
+
+Education:
+- B.Tech / B.E. in Computer Science or related field
+- Postgraduate degree is a plus
+
+Location: Bangalore (Hybrid — 3 days office, 2 days WFH)
+Job Type: Full-time
+Notice Period: 30 days or less preferred
+
+Salary: ₹15 LPA – ₹22 LPA (based on experience)
+
+Perks:
+- Health insurance
+- Annual performance bonus
+- Remote-friendly team
+- Paid learning budget ₹25,000/year

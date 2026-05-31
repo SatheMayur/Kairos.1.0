@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Outreach{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left"><h1>Outreach</h1><p>All messages sent to candidates</p></div>
+</div>
+
+<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">
+  <div class="kpi green"><div class="kpi-label">Sent</div><div class="kpi-value" id="kpi-sent">–</div></div>
+  <div class="kpi yellow"><div class="kpi-label">Pending</div><div class="kpi-value" id="kpi-pending">–</div></div>
+  <div class="kpi red"><div class="kpi-label">Failed</div><div class="kpi-value" id="kpi-failed">–</div></div>
+  <div class="kpi blue"><div class="kpi-label">Replied</div><div class="kpi-value" id="kpi-replied">–</div></div>
+  <div class="kpi purple"><div class="kpi-label">Total</div><div class="kpi-value" id="kpi-total">–</div></div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title" id="ol-count">Outreach Log</span>
+    <div class="flex gap-2">
+      <select id="channel-filter" onchange="loadOutreach()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;color:#e4e4e7;font-size:12px">
+        <option value="">All channels</option>
+        <option value="EMAIL">Email</option>
+        <option value="WHATSAPP">WhatsApp</option>
+        <option value="SMS">SMS</option>
+        <option value="CALL">Call</option>
+      </select>
+      <select id="ostatus-filter" onchange="loadOutreach()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;color:#e4e4e7;font-size:12px">
+        <option value="">All statuses</option>
+        <option value="SENT">Sent</option>
+        <option value="PENDING">Pending</option>
+        <option value="FAILED">Failed</option>
+        <option value="REPLIED">Replied</option>
+        <option value="BOUNCED">Bounced</option>
+      </select>
+    </div>
+  </div>
+  <div id="outreach-table-body">
+    <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CH_ICONS = {EMAIL:'📧', WHATSAPP:'💬', SMS:'📱', CALL:'📞'};
+const ST_COLORS = {SENT:'badge-green', PENDING:'badge-yellow', FAILED:'badge-red', REPLIED:'badge-blue', BOUNCED:'badge-grey'};
+const TYPE_COLORS = {INITIAL_CONTACT:'badge-blue', FOLLOW_UP:'badge-yellow', SLOT_PROPOSAL:'badge-purple', CONFIRMATION:'badge-green', REMINDER:'badge-grey', REJECTION:'badge-red'};
+
+async function loadOutreach() {
+  const channel = document.getElementById('channel-filter').value;
+  const status = document.getElementById('ostatus-filter').value;
+  let url = '/api/v1/outreach?limit=200';
+  const all = await api(url);
+
+  // KPIs
+  document.getElementById('kpi-sent').textContent = all.filter(o=>o.status==='SENT').length;
+  document.getElementById('kpi-pending').textContent = all.filter(o=>o.status==='PENDING').length;
+  document.getElementById('kpi-failed').textContent = all.filter(o=>o.status==='FAILED').length;
+  document.getElementById('kpi-replied').textContent = all.filter(o=>o.status==='REPLIED').length;
+  document.getElementById('kpi-total').textContent = all.length;
+
+  let filtered = all;
+  if (channel) filtered = filtered.filter(o => o.channel===channel);
+  if (status) filtered = filtered.filter(o => o.status===status);
+
+  document.getElementById('ol-count').textContent = `Outreach Log (${filtered.length})`;
+  const body = document.getElementById('outreach-table-body');
+  if (!filtered.length) {
+    body.innerHTML = '<div class="empty-state"><p>No outreach records found.</p></div>'; return;
+  }
+
+  body.innerHTML = `<div class="table-wrap"><table>
+    <tr><th>Channel</th><th>Type</th><th>Subject / Message</th><th>Status</th><th>Sent</th><th>Error</th></tr>
+    ${filtered.map(o => `<tr>
+      <td>${CH_ICONS[o.channel]||''} <strong>${o.channel}</strong></td>
+      <td><span class="badge ${TYPE_COLORS[o.outreach_type]||'badge-grey'}" style="font-size:10px">${o.outreach_type.replace(/_/g,' ')}</span></td>
+      <td>
+        <span style="color:#e4e4e7;font-size:12px">${esc(o.subject||'')}</span><br>
+        <span class="text-muted text-sm">${esc((o.message||'').slice(0,80))}${(o.message||'').length>80?'…':''}</span>
+      </td>
+      <td><span class="badge ${ST_COLORS[o.status]||'badge-grey'}">${o.status}</span></td>
+      <td class="text-muted text-sm">${o.sent_at ? new Date(o.sent_at).toLocaleString() : '–'}</td>
+      <td class="text-sm" style="color:#f87171;max-width:200px">${esc(o.error_detail||'')}</td>
+    </tr>`).join('')}
+  </table></div>`;
+}
+
+loadOutreach();
+</script>
+{% endblock %}

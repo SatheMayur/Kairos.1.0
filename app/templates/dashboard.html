@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Dashboard</h1>
+    <p id="last-updated">Loading…</p>
+  </div>
+  <div class="live-badge"><div class="pulse"></div> Live</div>
+</div>
+
+<div class="kpi-grid" id="kpi-grid">
+  <div class="kpi blue"><div class="kpi-label">Active Jobs</div><div class="kpi-value" id="kpi-jobs">–</div><div class="kpi-sub">open requisitions</div></div>
+  <div class="kpi green"><div class="kpi-label">Candidates</div><div class="kpi-value" id="kpi-candidates">–</div><div class="kpi-sub">total sourced</div></div>
+  <div class="kpi yellow"><div class="kpi-label">Shortlisted</div><div class="kpi-value" id="kpi-shortlisted">–</div><div class="kpi-sub">ready for outreach</div></div>
+  <div class="kpi purple"><div class="kpi-label">Interviews</div><div class="kpi-value" id="kpi-interviews">–</div><div class="kpi-sub">proposed / confirmed</div></div>
+</div>
+
+<div class="grid-2">
+  <!-- Recent Jobs -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Jobs</span>
+      <a href="/ui/jobs" class="btn btn-secondary btn-sm">View All</a>
+    </div>
+    <div id="recent-jobs-body">
+      <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+    </div>
+  </div>
+
+  <!-- Pipeline Summary -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Pipeline Summary</span>
+    </div>
+    <div class="card-body" id="pipeline-body">
+      <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Outreach -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Recent Outreach</span>
+    <a href="/ui/outreach" class="btn btn-secondary btn-sm">View All</a>
+  </div>
+  <div id="recent-outreach-body">
+    <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STATUSES = {
+  SHORTLISTED:'badge-green', PENDING:'badge-yellow', REJECTED:'badge-red',
+  CONTACTED:'badge-blue', INTERESTED:'badge-green', NOT_INTERESTED:'badge-red',
+  INTERVIEW_SCHEDULED:'badge-purple', HIRED:'badge-green', DROPPED:'badge-grey'
+};
+
+async function loadDashboard() {
+  const [jobs, candidates, shortlist, interviews] = await Promise.all([
+    api('/api/v1/jobs?limit=5'),
+    api('/api/v1/candidates?limit=1'),
+    api('/api/v1/shortlist?limit=200'),
+    api('/api/v1/interviews?limit=200'),
+  ]);
+
+  // KPIs
+  const activeJobs = jobs.filter(j => j.status === 'ACTIVE').length;
+  const shortlisted = shortlist.filter(s => s.status === 'SHORTLISTED').length;
+  const pendingInterviews = interviews.filter(i => ['PROPOSED','CONFIRMED'].includes(i.status)).length;
+
+  document.getElementById('kpi-jobs').textContent = activeJobs;
+  document.getElementById('kpi-candidates').textContent = candidates.length > 0
+    ? (await api('/api/v1/candidates?limit=1000')).length : 0;
+  document.getElementById('kpi-shortlisted').textContent = shortlisted;
+  document.getElementById('kpi-interviews').textContent = pendingInterviews;
+  document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+  // Recent jobs table
+  const jobsHtml = jobs.length === 0
+    ? '<div class="empty-state"><p>No jobs yet. <a href="/ui/jobs" style="color:#10b981">Create one →</a></p></div>'
+    : `<div class="table-wrap"><table>
+        <tr><th>Title</th><th>Skills</th><th>Location</th><th>Status</th><th></th></tr>
+        ${jobs.map(j => `<tr>
+          <td><strong>${esc(j.title)}</strong><br><span class="text-muted text-sm">${esc(j.company||'')}</span></td>
+          <td>${(j.skills||[]).slice(0,3).map(s=>`<span class="badge badge-grey" style="margin:1px">${esc(s)}</span>`).join('')}</td>
+          <td class="text-muted">${esc(j.location||'–')}</td>
+          <td><span class="badge ${j.status==='ACTIVE'?'badge-green':j.status==='PAUSED'?'badge-yellow':'badge-grey'}">${j.status}</span></td>
+          <td><a href="/ui/jobs" class="btn btn-secondary btn-sm">View</a></td>
+        </tr>`).join('')}
+      </table></div>`;
+  document.getElementById('recent-jobs-body').innerHTML = jobsHtml;
+
+  // Pipeline summary
+  const statusCounts = {};
+  shortlist.forEach(s => { statusCounts[s.status] = (statusCounts[s.status]||0)+1; });
+  const pipelineHtml = Object.keys(statusCounts).length === 0
+    ? '<p class="text-muted text-sm">No pipeline data yet.</p>'
+    : Object.entries(statusCounts).sort((a,b)=>b[1]-a[1]).map(([status, count]) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #27272a">
+          <span class="badge ${STATUSES[status]||'badge-grey'}">${status.replace('_',' ')}</span>
+          <strong>${count}</strong>
+        </div>`).join('');
+  document.getElementById('pipeline-body').innerHTML = pipelineHtml || '<p class="text-muted text-sm">No data.</p>';
+
+  // Recent outreach
+  const outreach = await api('/api/v1/outreach?limit=5');
+  const chIcons = {EMAIL:'📧', WHATSAPP:'💬', SMS:'📱', CALL:'📞'};
+  const stColors = {SENT:'badge-green', PENDING:'badge-yellow', FAILED:'badge-red', REPLIED:'badge-blue', BOUNCED:'badge-grey'};
+  const outreachHtml = outreach.length === 0
+    ? '<div class="empty-state"><p>No outreach sent yet.</p></div>'
+    : `<div class="table-wrap"><table>
+        <tr><th>Channel</th><th>Subject</th><th>Status</th><th>Sent</th></tr>
+        ${outreach.map(o => `<tr>
+          <td>${chIcons[o.channel]||''} ${o.channel}</td>
+          <td>${esc(o.subject||o.outreach_type)}</td>
+          <td><span class="badge ${stColors[o.status]||'badge-grey'}">${o.status}</span></td>
+          <td class="text-muted text-sm">${o.sent_at ? new Date(o.sent_at).toLocaleString() : '–'}</td>
+        </tr>`).join('')}
+      </table></div>`;
+  document.getElementById('recent-outreach-body').innerHTML = outreachHtml;
+}
+
+loadDashboard();
+setInterval(loadDashboard, 30000);
+</script>
+{% endblock %}

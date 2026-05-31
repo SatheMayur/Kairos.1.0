@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}Interviews{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left"><h1>Interviews</h1><p>Schedule and track interview pipeline</p></div>
+  <button class="btn btn-primary" onclick="showModal('propose-modal')">＋ Propose Slots</button>
+</div>
+
+<div id="alert-area"></div>
+
+<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">
+  <div class="kpi yellow"><div class="kpi-label">Proposed</div><div class="kpi-value" id="kpi-proposed">–</div></div>
+  <div class="kpi green"><div class="kpi-label">Confirmed</div><div class="kpi-value" id="kpi-confirmed">–</div></div>
+  <div class="kpi blue"><div class="kpi-label">Completed</div><div class="kpi-value" id="kpi-completed">–</div></div>
+  <div class="kpi red"><div class="kpi-label">Cancelled</div><div class="kpi-value" id="kpi-cancelled">–</div></div>
+  <div class="kpi purple"><div class="kpi-label">Total</div><div class="kpi-value" id="kpi-total">–</div></div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <span class="card-title">Filters</span>
+    <button class="btn btn-secondary btn-sm" onclick="triggerReminders()">🔔 Send Reminders Now</button>
+  </div>
+  <div class="card-body flex gap-3" style="flex-wrap:wrap">
+    <div>
+      <label style="font-size:11px;color:#71717a;display:block;margin-bottom:4px">Status</label>
+      <select id="istatus-filter" onchange="loadInterviews()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;color:#e4e4e7;font-size:13px">
+        <option value="">All</option>
+        <option value="PROPOSED">Proposed</option>
+        <option value="CONFIRMED">Confirmed</option>
+        <option value="COMPLETED">Completed</option>
+        <option value="CANCELLED">Cancelled</option>
+        <option value="NO_SHOW">No Show</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;color:#71717a;display:block;margin-bottom:4px">Round</label>
+      <select id="iround-filter" onchange="loadInterviews()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;color:#e4e4e7;font-size:13px">
+        <option value="">All rounds</option>
+        <option value="SCREENING">Screening</option>
+        <option value="TECHNICAL">Technical</option>
+        <option value="HR">HR</option>
+        <option value="FINAL">Final</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span class="card-title" id="iv-count">Interviews</span></div>
+  <div id="iv-table-body">
+    <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+<!-- Propose Modal -->
+<div id="propose-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;overflow-y:auto;padding:40px 20px">
+  <div style="max-width:540px;margin:0 auto;background:#18181b;border:1px solid #27272a;border-radius:16px;padding:28px">
+    <div class="flex justify-between items-center" style="margin-bottom:20px">
+      <h2 style="font-size:16px;font-weight:700">Propose Interview Slots</h2>
+      <button class="btn btn-secondary btn-sm" onclick="hideModal('propose-modal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Job *</label>
+      <select id="p-job" style="width:100%;background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px">
+        <option value="">Select job…</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Candidate ID *</label>
+      <input type="number" id="p-cand" placeholder="Enter candidate ID from Candidates page">
+    </div>
+    <div class="form-group">
+      <label>Round</label>
+      <select id="p-round" style="width:100%;background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px">
+        <option value="SCREENING">Screening</option>
+        <option value="TECHNICAL">Technical</option>
+        <option value="HR">HR</option>
+        <option value="FINAL">Final</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Interviewer Name</label>
+      <input type="text" id="p-interviewer" placeholder="e.g. Kirti">
+    </div>
+    <button class="btn btn-primary" onclick="proposeSlots()">📅 Propose &amp; Send Email</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ISTAT_COLORS = {PROPOSED:'badge-yellow', CONFIRMED:'badge-green', COMPLETED:'badge-blue', CANCELLED:'badge-red', RESCHEDULED:'badge-grey', NO_SHOW:'badge-red'};
+const ROUND_COLORS = {SCREENING:'badge-blue', TECHNICAL:'badge-purple', HR:'badge-yellow', FINAL:'badge-green'};
+
+async function initSelects() {
+  const jobs = await api('/api/v1/jobs?limit=100');
+  const sel = document.getElementById('p-job');
+  jobs.forEach(j => {
+    const opt = document.createElement('option');
+    opt.value = j.id; opt.textContent = j.title;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadInterviews() {
+  const status = document.getElementById('istatus-filter').value;
+  const round = document.getElementById('iround-filter').value;
+  let url = '/api/v1/interviews?limit=200';
+  if (status) url += '&status='+status;
+  if (round) url += '&round='+round; // note: round filter not in API yet, filtered client-side
+  const all = await api('/api/v1/interviews?limit=200');
+
+  // KPIs
+  document.getElementById('kpi-proposed').textContent = all.filter(i=>i.status==='PROPOSED').length;
+  document.getElementById('kpi-confirmed').textContent = all.filter(i=>i.status==='CONFIRMED').length;
+  document.getElementById('kpi-completed').textContent = all.filter(i=>i.status==='COMPLETED').length;
+  document.getElementById('kpi-cancelled').textContent = all.filter(i=>i.status==='CANCELLED').length;
+  document.getElementById('kpi-total').textContent = all.length;
+
+  let filtered = all;
+  if (status) filtered = filtered.filter(i=>i.status===status);
+  if (round) filtered = filtered.filter(i=>i.round===round);
+
+  document.getElementById('iv-count').textContent = `Interviews (${filtered.length})`;
+  const body = document.getElementById('iv-table-body');
+  if (!filtered.length) {
+    body.innerHTML = '<div class="empty-state"><p>No interviews found. Propose slots above.</p></div>'; return;
+  }
+
+  body.innerHTML = `<div class="table-wrap"><table>
+    <tr><th>Round</th><th>Candidate</th><th>Job</th><th>Scheduled</th><th>Status</th><th>Meet</th><th>Actions</th></tr>
+    ${filtered.map(i => `<tr>
+      <td><span class="badge ${ROUND_COLORS[i.round]||'badge-grey'}" style="font-size:10px">${i.round}</span></td>
+      <td class="text-muted">#${i.candidate_id}</td>
+      <td class="text-muted">#${i.job_id}</td>
+      <td class="text-sm">${i.scheduled_at ? new Date(i.scheduled_at).toLocaleString() : '<span class="text-muted">Awaiting confirmation</span>'}</td>
+      <td>
+        <select class="badge ${ISTAT_COLORS[i.status]||'badge-grey'}" onchange="updateInterview(${i.id}, this.value)"
+          style="background:transparent;border:none;cursor:pointer;font-size:11px;font-weight:600;outline:none">
+          ${['PROPOSED','CONFIRMED','COMPLETED','CANCELLED','RESCHEDULED','NO_SHOW'].map(s=>`<option value="${s}" ${s===i.status?'selected':''} style="background:#27272a;color:#e4e4e7">${s}</option>`).join('')}
+        </select>
+      </td>
+      <td>${i.meet_link ? `<a href="${esc(i.meet_link)}" target="_blank" class="btn btn-secondary btn-sm">🔗 Join</a>` : '<span class="text-muted text-sm">–</span>'}</td>
+      <td>
+        ${i.confirmation_token ? `<button class="btn btn-secondary btn-sm" onclick="copyConfirmLink('${esc(i.confirmation_token)}')" title="Copy confirmation link">📋</button>` : ''}
+        ${i.reminder_sent ? '<span class="badge badge-grey text-sm" style="margin-left:4px">Reminded</span>' : ''}
+      </td>
+    </tr>`).join('')}
+  </table></div>`;
+}
+
+async function updateInterview(id, status) {
+  try {
+    await api('/api/v1/interviews/'+id, {method:'PATCH', body:{status}});
+    showToast('Status updated to '+status, 'success');
+  } catch(e) { showToast('Update failed', 'error'); loadInterviews(); }
+}
+
+async function proposeSlots() {
+  const jobId = parseInt(document.getElementById('p-job').value);
+  const candidateId = parseInt(document.getElementById('p-cand').value);
+  if (!jobId || !candidateId) { showToast('Select job and enter candidate ID', 'error'); return; }
+  const body = {
+    job_id: jobId, candidate_id: candidateId,
+    round: document.getElementById('p-round').value,
+    interviewer_name: document.getElementById('p-interviewer').value || undefined,
+  };
+  try {
+    const interview = await api('/api/v1/interviews/propose', {method:'POST', body});
+    showToast(`Interview #${interview.id} proposed — slot email sent`, 'success');
+    hideModal('propose-modal'); loadInterviews();
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+async function triggerReminders() {
+  try {
+    const res = await api('/api/v1/interviews/reminders', {method:'POST'});
+    showToast(`${res.reminders_sent} reminder(s) sent`, 'success');
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+function copyConfirmLink(token) {
+  const url = window.location.origin + '/api/v1/interviews/confirm/' + token;
+  navigator.clipboard.writeText(url);
+  showToast('Confirmation link copied', 'info');
+}
+
+initSelects();
+loadInterviews();
+</script>
+{% endblock %}

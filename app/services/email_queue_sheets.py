@@ -8,10 +8,11 @@ Sheet columns (1-indexed):
   A=To  B=Subject  C=Body  D=Status  E=Created_At
   F=Sent_At  G=Candidate_Name  H=Role  I=Priority
 
-Auth priority:
-  1. GOOGLE_SA_CREDENTIALS_JSON env var (service account JSON string)
-  2. GOOGLE_SA_CREDENTIALS_FILE env var (path to SA JSON file)
-  3. Application Default Credentials (ADC) — works on GCP / Cloud Run
+Write path priority (first success wins):
+  1. Apps Script Web App POST (APPS_SCRIPT_WEB_APP_URL) — no SA credentials needed
+  2. Sheets REST API with SA credentials (GOOGLE_SA_CREDENTIALS_JSON env var)
+  3. Sheets REST API with SA file (GOOGLE_SA_CREDENTIALS_FILE env var)
+  4. Application Default Credentials (ADC) — works on GCP / Cloud Run
 """
 from __future__ import annotations
 
@@ -43,26 +44,87 @@ async def queue_email(
     """Append a PENDING row to the Email Queue sheet.
 
     Returns True if queued, False on any error (caller falls back to SMTP).
-    Retries up to 3 times on transient network / quota errors.
+    Tries Apps Script web app first (no SA credentials needed), then falls
+    back to the Sheets REST API with SA / ADC credentials.
     """
     from app.config import get_settings
     settings = get_settings()
 
+    payload = {
+        "to": to,
+        "subject": subject,
+        "body": body,
+        "candidate_name": candidate_name,
+        "role": role,
+        "priority": priority,
+    }
+
+    # Path 1: Apps Script Web App (preferred — no SA credentials required)
+    if settings.apps_script_web_app_url:
+        ok = await _queue_via_web_app(settings, payload)
+        if ok:
+            return True
+        logger.warning("EmailQueue: web app failed, falling back to Sheets API")
+
+    # Path 2-4: Sheets REST API (requires SA or ADC)
+    return await _queue_via_sheets_api(settings, payload)
+
+
+async def _queue_via_web_app(settings, payload: dict) -> bool:
+    """POST to the Apps Script Web App — no SA credentials needed."""
+    import asyncio
+    import httpx
+    data = dict(payload)
+    if settings.apps_script_webhook_secret:
+        data["secret"] = settings.apps_script_webhook_secret
+
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.post(
+                    settings.apps_script_web_app_url,
+                    json=data,
+                )
+                if resp.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("success"):
+                    logger.info("EmailQueue (web app): queued → %s | %s", payload["to"], payload["subject"][:60])
+                    return True
+                logger.warning("EmailQueue (web app): script error: %s", result.get("error"))
+                return False
+        except httpx.TimeoutException:
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(2 ** attempt)
+                continue
+            logger.error("EmailQueue (web app): timed out after %d attempts", _MAX_RETRIES)
+        except Exception as exc:
+            logger.error("EmailQueue (web app): attempt %d failed: %s", attempt, exc)
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(2 ** attempt)
+                continue
+    return False
+
+
+async def _queue_via_sheets_api(settings, payload: dict) -> bool:
+    """Append a row using the Sheets REST API (requires SA or ADC credentials)."""
     token = await _get_access_token(settings)
     if not token:
         logger.warning("EmailQueue: no Google credentials — falling back to SMTP")
         return False
 
     row = [
-        to,
-        subject,
-        body,
+        payload["to"],
+        payload["subject"],
+        payload["body"],
         "PENDING",
         datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "",
-        candidate_name,
-        role,
-        priority,
+        payload.get("candidate_name", ""),
+        payload.get("role", ""),
+        payload.get("priority", "NORMAL"),
     ]
 
     import asyncio
@@ -89,13 +151,13 @@ async def queue_email(
                     await asyncio.sleep(wait)
                     continue
                 resp.raise_for_status()
-            logger.info("EmailQueue: queued → %s | %s", to, subject[:60])
+            logger.info("EmailQueue (Sheets API): queued → %s | %s", payload["to"], payload["subject"][:60])
             return True
         except httpx.TimeoutException:
             if attempt < _MAX_RETRIES:
                 await asyncio.sleep(2 ** attempt)
                 continue
-            logger.error("EmailQueue: timed out after %d attempts for %s", _MAX_RETRIES, to)
+            logger.error("EmailQueue: timed out after %d attempts for %s", _MAX_RETRIES, payload["to"])
         except Exception as exc:
             logger.error("EmailQueue: sheet write failed (attempt %d): %s", attempt, exc)
             if attempt < _MAX_RETRIES:

@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     sheets_master_id: str = "1ni68KrCfUmV-5iooy2wI201mfPgKnHOcVzQA2i4XSDI"
     use_sheets_email_queue: bool = True    # route emails through queue sheet
 
+    # Apps Script Web App (no-SA alternative — see AI_HR_AutoSend_v4.gs)
+    # Deploy the web app in Apps Script editor → set this URL in Vercel env
+    apps_script_web_app_url: str = ""      # e.g. https://script.google.com/macros/s/.../exec
+    apps_script_webhook_secret: str = ""   # shared secret — set in both Script Properties + Vercel
+
     # Cron security
     cron_secret: str = ""                  # set in Vercel env — protects /cron/* endpoints
 

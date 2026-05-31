@@ -100,7 +100,19 @@ async def _job_send_reminders():
 
 
 def start_scheduler() -> None:
-    """Register all jobs and start the scheduler (called on app startup)."""
+    """Register all jobs and start the scheduler (called on app startup).
+
+    Skipped automatically in serverless environments (Vercel, Lambda) — use
+    Vercel Cron Jobs or an external scheduler hitting /api/v1/cron/* instead.
+    """
+    import os
+    if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        logger.info(
+            "Serverless environment — APScheduler skipped. "
+            "Use /api/v1/cron/* endpoints with Vercel Cron or cron-job.org."
+        )
+        return
+
     scheduler.add_job(
         _job_auto_source,
         trigger=IntervalTrigger(hours=6),

@@ -87,9 +87,24 @@ HR Team | {job.company or 'K. Girdharlal International'}
 
 # ── Channel implementations ────────────────────────────────────────────────────
 
-@with_retry(max_attempts=3, exceptions=(Exception,))
-async def _send_email(to: str, subject: str, body: str) -> str:
-    """Send via SMTP. Returns a synthetic message ID."""
+async def _send_email(to: str, subject: str, body: str, candidate_name: str = "", role: str = "") -> str:
+    """Send email: Google Sheets Email Queue (primary) → SMTP (fallback)."""
+    # Primary: write to Sheets Email Queue (Apps Script sends within 5 min)
+    if settings.use_sheets_email_queue:
+        from app.services.email_queue_sheets import queue_email
+        queued = await queue_email(
+            to=to, subject=subject, body=body,
+            candidate_name=candidate_name, role=role,
+        )
+        if queued:
+            return f"queue-{hash(to + subject)}"
+
+    # If no SMTP password configured, mock immediately (avoids hanging TCP connection)
+    if not settings.smtp_password:
+        logger.warning("MOCK email (dev) to %s | %s", to, subject[:60])
+        return f"mock-email-{hash(to)}"
+
+    # Fallback: direct SMTP
     try:
         import aiosmtplib
         from email.message import EmailMessage
@@ -105,12 +120,12 @@ async def _send_email(to: str, subject: str, body: str) -> str:
             username=settings.smtp_user,
             password=settings.smtp_password,
             start_tls=True,
+            timeout=10,
         )
-        logger.info("Email sent to %s subject=%r", to, subject)
+        logger.info("Email sent (SMTP) to %s subject=%r", to, subject)
         return f"email-{hash(to + subject)}"
     except Exception as exc:
         if settings.app_env == "development":
-            # In dev, log and pretend it worked so the pipeline keeps running
             logger.warning("MOCK email to %s | %s | %s", to, subject, str(exc)[:80])
             return f"mock-email-{hash(to)}"
         raise
@@ -164,6 +179,16 @@ async def _send_call(to: str, body: str) -> str:
     return f"call-placeholder-{hash(to)}"
 
 
+async def _send_platform_message(profile_url: str, body: str) -> str:
+    """Log a message intended for a closed platform (CAD Crowd, LinkedIn, etc).
+
+    No API access to these platforms, so the message is stored for the
+    recruiter to send manually through the platform's interface.
+    """
+    logger.info("PLATFORM_MESSAGE logged for %s — send manually: %s", profile_url, body[:80])
+    return f"platform-{hash(profile_url)}"
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 async def send_outreach(
@@ -210,15 +235,31 @@ async def send_outreach(
     await db.flush()
 
     try:
-        recipient = _get_recipient(candidate, channel)
-        if not recipient:
-            raise ValueError(f"No {channel.value} contact for candidate {candidate.id}")
+        effective_channel, recipient = _resolve_channel(candidate, channel)
 
-        if channel == OutreachChannel.EMAIL:
-            msg_id = await _send_email(recipient, subject or "", body)
-        elif channel == OutreachChannel.WHATSAPP:
+        # Update log with the actual channel used (may differ from requested)
+        log.channel = effective_channel
+
+        if effective_channel == OutreachChannel.UNREACHABLE:
+            log.status = OutreachStatus.FAILED
+            log.error_detail = "No reachable contact — no email, phone, or platform profile"
+            logger.warning(
+                "Outreach UNREACHABLE: candidate=%d (%s) job=%d",
+                candidate.id, candidate.name, log.job_id,
+            )
+            return log
+
+        if effective_channel == OutreachChannel.PLATFORM_MESSAGE:
+            msg_id = await _send_platform_message(recipient, body)
+        elif effective_channel == OutreachChannel.EMAIL:
+            msg_id = await _send_email(
+                recipient, subject or "", body,
+                candidate_name=candidate.name,
+                role=candidate.current_role or "",
+            )
+        elif effective_channel == OutreachChannel.WHATSAPP:
             msg_id = await _send_whatsapp(recipient, body)
-        elif channel == OutreachChannel.SMS:
+        elif effective_channel == OutreachChannel.SMS:
             msg_id = await _send_sms(recipient, body)
         else:
             msg_id = await _send_call(recipient, body)
@@ -226,7 +267,10 @@ async def send_outreach(
         log.status = OutreachStatus.SENT
         log.sent_at = datetime.utcnow()
         log.provider_message_id = msg_id
-        logger.info("Outreach sent: log_id=%d channel=%s candidate=%d", log.id, channel, candidate.id)
+        logger.info(
+            "Outreach sent: log_id=%d channel=%s candidate=%d",
+            log.id, effective_channel, candidate.id,
+        )
 
     except Exception as exc:
         log.status = OutreachStatus.FAILED
@@ -236,14 +280,32 @@ async def send_outreach(
     return log
 
 
-def _get_recipient(candidate: Candidate, channel: OutreachChannel) -> Optional[str]:
-    if channel == OutreachChannel.EMAIL:
-        return candidate.email
-    if channel == OutreachChannel.WHATSAPP:
-        return candidate.whatsapp or candidate.phone
-    if channel in (OutreachChannel.SMS, OutreachChannel.CALL):
-        return candidate.phone
-    return None
+def _resolve_channel(
+    candidate: Candidate, requested: OutreachChannel
+) -> tuple[OutreachChannel, str]:
+    """Return (channel, recipient) choosing the best available contact method.
+
+    Priority: requested channel → email → phone (WhatsApp/SMS) → platform profile → unreachable
+    """
+    # Try the explicitly requested channel first
+    if requested == OutreachChannel.EMAIL and candidate.email:
+        return OutreachChannel.EMAIL, candidate.email
+    if requested == OutreachChannel.WHATSAPP and (candidate.whatsapp or candidate.phone):
+        return OutreachChannel.WHATSAPP, candidate.whatsapp or candidate.phone
+    if requested in (OutreachChannel.SMS, OutreachChannel.CALL) and candidate.phone:
+        return requested, candidate.phone
+    if requested == OutreachChannel.PLATFORM_MESSAGE and candidate.source_ref:
+        return OutreachChannel.PLATFORM_MESSAGE, candidate.source_ref
+
+    # Auto-fallback chain
+    if candidate.email:
+        return OutreachChannel.EMAIL, candidate.email
+    if candidate.whatsapp or candidate.phone:
+        return OutreachChannel.WHATSAPP, candidate.whatsapp or candidate.phone
+    if candidate.source_ref:
+        return OutreachChannel.PLATFORM_MESSAGE, candidate.source_ref
+
+    return OutreachChannel.UNREACHABLE, ""
 
 
 async def send_bulk_outreach(

@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     calendar_base_url: str = "https://calendar.example.com"
     interview_confirmation_base_url: str = "http://localhost:8000"
 
+    # Google Sheets integration (email queue + master sheet)
+    google_sa_credentials_json: str = ""   # full JSON string (for Vercel env vars)
+    google_sa_credentials_file: str = ""   # path to .json file (for local dev)
+    sheets_email_queue_id: str = "1u9hSfBLiAZW06x8zVNa_AAYrI-biMKQX2c7rXwiOl5c"
+    sheets_master_id: str = "1ni68KrCfUmV-5iooy2wI201mfPgKnHOcVzQA2i4XSDI"
+    use_sheets_email_queue: bool = True    # route emails through queue sheet
+
+    # Cron security
+    cron_secret: str = ""                  # set in Vercel env — protects /cron/* endpoints
+
     # Feature flags
     use_mock_adapters: bool = True
     auto_outreach_enabled: bool = True

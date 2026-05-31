@@ -12,6 +12,8 @@ class OutreachChannel(str, enum.Enum):
     WHATSAPP = "WHATSAPP"
     SMS = "SMS"
     CALL = "CALL"
+    PLATFORM_MESSAGE = "PLATFORM_MESSAGE"  # CAD Crowd / LinkedIn / portal DM
+    UNREACHABLE = "UNREACHABLE"            # no contact info of any kind
 
 
 class OutreachStatus(str, enum.Enum):

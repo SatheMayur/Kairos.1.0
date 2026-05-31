@@ -12,12 +12,20 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ],
+  "crons": [
+    { "path": "/api/v1/cron/source",    "schedule": "0 */6 * * *" },
+    { "path": "/api/v1/cron/outreach",  "schedule": "0 * * * *"   },
+    { "path": "/api/v1/cron/reminders", "schedule": "0 8 * * *"   }
+  ],
   "env": {
     "APP_ENV": "production",
     "DATABASE_URL": "sqlite+aiosqlite:////tmp/recruitment.db",
     "LOG_LEVEL": "WARNING",
     "USE_MOCK_ADAPTERS": "false",
     "AUTO_OUTREACH_ENABLED": "false",
+    "USE_SHEETS_EMAIL_QUEUE": "true",
+    "SHEETS_EMAIL_QUEUE_ID": "1u9hSfBLiAZW06x8zVNa_AAYrI-biMKQX2c7rXwiOl5c",
+    "SHEETS_MASTER_ID": "1ni68KrCfUmV-5iooy2wI201mfPgKnHOcVzQA2i4XSDI",
     "EMAIL_FROM_NAME": "Kirti | K. Girdharlal International",
     "EMAIL_FROM_ADDRESS": "kirti@kgirdharlal.com"
   }

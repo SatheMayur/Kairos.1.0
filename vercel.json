@@ -5,6 +5,11 @@
       "maxDuration": 30
     }
   },
+  "crons": [
+    { "path": "/api/v1/cron/source",    "schedule": "0 1 * * *" },
+    { "path": "/api/v1/cron/outreach",  "schedule": "0 2 * * *" },
+    { "path": "/api/v1/cron/reminders", "schedule": "30 2 * * *" }
+  ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/index" }
   ],

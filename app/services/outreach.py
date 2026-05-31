@@ -87,6 +87,7 @@ HR Team | {job.company or 'K. Girdharlal International'}
 
 # ── Channel implementations ────────────────────────────────────────────────────
 
+@with_retry(max_attempts=3, wait_min=1.0, wait_max=8.0, exceptions=(Exception,))
 async def _send_email(to: str, subject: str, body: str, candidate_name: str = "", role: str = "") -> str:
     """Send email: Google Sheets Email Queue (primary) → SMTP (fallback)."""
     # Primary: write to Sheets Email Queue (Apps Script sends within 5 min)
@@ -316,10 +317,18 @@ async def send_bulk_outreach(
     outreach_type: OutreachType,
     db: AsyncSession,
     delay_seconds: float = 2.0,
+    max_per_minute: int = 20,
 ) -> list[OutreachLog]:
-    """Send outreach to many candidates with a configurable delay between sends."""
+    """Send outreach to many candidates with rate limiting.
+
+    Enforces max_per_minute to avoid triggering Gmail / Twilio rate limits.
+    Default 2s delay between sends = 30/min, well under Gmail's 100/min quota.
+    """
     logs: list[OutreachLog] = []
-    for candidate in candidates:
+    min_delay = 60.0 / max_per_minute
+    effective_delay = max(delay_seconds, min_delay)
+
+    for i, candidate in enumerate(candidates):
         log = await send_outreach(
             candidate=candidate,
             job=job,
@@ -328,6 +337,30 @@ async def send_bulk_outreach(
             db=db,
         )
         logs.append(log)
-        if delay_seconds > 0:
-            await asyncio.sleep(delay_seconds)
+        if effective_delay > 0 and i < len(candidates) - 1:
+            await asyncio.sleep(effective_delay)
     return logs
+
+
+async def queue_email_direct(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    candidate_name: str = "",
+    role: str = "",
+    priority: str = "NORMAL",
+) -> bool:
+    """Queue an email without a DB session — for use from cron handlers or admin scripts.
+
+    Uses the Google Sheets Email Queue (Apps Script sends within 5 min).
+    Returns True on success, False if credentials not configured.
+    """
+    if not settings.use_sheets_email_queue:
+        logger.warning("queue_email_direct: Sheets queue disabled in config")
+        return False
+    from app.services.email_queue_sheets import queue_email
+    return await queue_email(
+        to=to, subject=subject, body=body,
+        candidate_name=candidate_name, role=role, priority=priority,
+    )

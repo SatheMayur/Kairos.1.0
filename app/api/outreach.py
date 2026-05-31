@@ -9,7 +9,8 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.shortlist import ShortlistEntry, ShortlistStatus
 from app.schemas.outreach import OutreachLogCreate, OutreachLogRead
-from app.services.outreach import send_outreach, send_bulk_outreach
+from app.services.outreach import send_outreach, send_bulk_outreach, queue_email_direct
+from pydantic import BaseModel
 from app.config import get_settings
 from app.utils.logging import get_logger
 
@@ -79,6 +80,39 @@ async def bulk_outreach(
         entry.status = ShortlistStatus.CONTACTED
 
     return {"sent": len([l for l in logs if l.status.value == "SENT"]), "total": len(logs)}
+
+
+class DirectEmailRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+    candidate_name: str = ""
+    role: str = ""
+    priority: str = "NORMAL"
+
+
+@router.post("/queue-direct", summary="Queue a one-off email without a DB candidate record")
+async def queue_direct(req: DirectEmailRequest):
+    """Push any email straight into the Google Sheets Email Queue.
+
+    Useful for acknowledgements, one-off replies, and admin messages.
+    Apps Script picks it up within 5 minutes and sends automatically.
+    """
+    ok = await queue_email_direct(
+        to=req.to,
+        subject=req.subject,
+        body=req.body,
+        candidate_name=req.candidate_name,
+        role=req.role,
+        priority=req.priority,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=503,
+            detail="Email queue unavailable — Google SA credentials not configured. "
+                   "Set GOOGLE_SA_CREDENTIALS_JSON in Vercel env vars.",
+        )
+    return {"status": "QUEUED", "to": req.to, "subject": req.subject}
 
 
 @router.get("", response_model=list[OutreachLogRead])

@@ -1,7 +1,10 @@
 """Adapter registry — one place that maps portal names to adapter instances.
 
-Real adapters are thin stubs here; swap mock→real by setting USE_MOCK_ADAPTERS=false
-and filling in the relevant API keys in .env.
+Real adapters:
+  - ApifyLinkedInAdapter  — when APIFY_API_TOKEN is set
+  - ApifyNaukriAdapter    — when APIFY_API_TOKEN is set
+
+All other portals fall back to MockAdapter until real credentials are provided.
 """
 from app.adapters.base import BasePortalAdapter
 from app.adapters.mock import MockAdapter
@@ -10,22 +13,22 @@ from app.config import get_settings
 
 
 def _stub(src: CandidateSource) -> BasePortalAdapter:
-    """Return a mock adapter labelled with the real portal source."""
     return MockAdapter(source=src, default_limit=10)
 
 
-def build_registry(use_mock: bool) -> dict[str, BasePortalAdapter]:
-    """Return {portal_name: adapter} mapping.
-
-    When use_mock is True every adapter falls back to the mock implementation.
-    Add real adapter classes here as they are implemented.
-    """
+def build_registry(use_mock: bool, apify_token: str = "") -> dict[str, BasePortalAdapter]:
+    """Return {portal_name: adapter} mapping."""
     adapters: dict[str, BasePortalAdapter] = {}
 
-    portals = [
-        CandidateSource.LINKEDIN,
+    # Real Apify adapters — activated automatically when APIFY_API_TOKEN is set
+    if apify_token and not use_mock:
+        from app.adapters.apify import ApifyLinkedInAdapter, ApifyNaukriAdapter
+        adapters[CandidateSource.LINKEDIN.value] = ApifyLinkedInAdapter(apify_token)
+        adapters[CandidateSource.NAUKRI.value]   = ApifyNaukriAdapter(apify_token)
+
+    # Stub every other portal (replace with real classes as credentials arrive)
+    stub_portals = [
         CandidateSource.INDEED,
-        CandidateSource.NAUKRI,
         CandidateSource.APNA,
         CandidateSource.WORKINDIA,
         CandidateSource.JOBHAI,
@@ -39,9 +42,13 @@ def build_registry(use_mock: bool) -> dict[str, BasePortalAdapter]:
         CandidateSource.JORA,
         CandidateSource.FOUNDIT,
     ]
+    # Only stub LinkedIn/Naukri if Apify not configured
+    if not apify_token or use_mock:
+        stub_portals = [CandidateSource.LINKEDIN, CandidateSource.NAUKRI] + stub_portals
 
-    for portal in portals:
-        adapters[portal.value] = _stub(portal)  # replace _stub() with real class when ready
+    for portal in stub_portals:
+        if portal.value not in adapters:
+            adapters[portal.value] = _stub(portal)
 
     return adapters
 
@@ -53,5 +60,14 @@ def get_registry() -> dict[str, BasePortalAdapter]:
     global _registry
     if _registry is None:
         settings = get_settings()
-        _registry = build_registry(use_mock=settings.use_mock_adapters)
+        _registry = build_registry(
+            use_mock=settings.use_mock_adapters,
+            apify_token=settings.apify_api_token,
+        )
     return _registry
+
+
+def reset_registry() -> None:
+    """Force re-build on next get_registry() call (useful after config changes)."""
+    global _registry
+    _registry = None

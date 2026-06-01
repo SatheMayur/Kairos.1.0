@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     sheets_master_id: str = "1ni68KrCfUmV-5iooy2wI201mfPgKnHOcVzQA2i4XSDI"
     use_sheets_email_queue: bool = True    # route emails through queue sheet
 
+    # Apify — web scraping for LinkedIn / Naukri sourcing
+    apify_api_token: str = ""              # from apify.com account settings
+
     # Apps Script Web App (no-SA alternative — see AI_HR_AutoSend_v4.gs)
     # Deploy the web app in Apps Script editor → set this URL in Vercel env
     apps_script_web_app_url: str = ""      # e.g. https://script.google.com/macros/s/.../exec

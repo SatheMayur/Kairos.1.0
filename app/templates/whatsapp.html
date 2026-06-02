@@ -1,0 +1,425 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp Dashboard{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>WhatsApp Dashboard</h1>
+    <p>Conversations · Queue · Auto-reply logic · Manual send</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <div id="bridge-badge" class="live-badge" style="background:rgba(113,113,122,.1);border-color:rgba(113,113,122,.2);color:#71717a">
+      <div class="pulse" style="background:#71717a"></div> Checking bridge…
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="loadAll()">↺ Refresh</button>
+  </div>
+</div>
+
+<!-- KPI Row -->
+<div class="kpi-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:24px">
+  <div class="kpi green"><div class="kpi-label">Queue Sent</div><div class="kpi-value" id="kpi-sent" style="font-size:24px">–</div></div>
+  <div class="kpi yellow"><div class="kpi-label">Queue Pending</div><div class="kpi-value" id="kpi-pending" style="font-size:24px">–</div></div>
+  <div class="kpi red"><div class="kpi-label">Queue Failed</div><div class="kpi-value" id="kpi-failed" style="font-size:24px">–</div></div>
+  <div class="kpi blue"><div class="kpi-label">Outreach Sent</div><div class="kpi-value" id="kpi-outreach" style="font-size:24px">–</div></div>
+  <div class="kpi purple"><div class="kpi-label">Replied</div><div class="kpi-value" id="kpi-replied" style="font-size:24px">–</div></div>
+  <div class="kpi green"><div class="kpi-label">Interested</div><div class="kpi-value" id="kpi-interested" style="font-size:24px">–</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start">
+
+  <!-- LEFT: Conversations + Queue tabs -->
+  <div>
+    <div class="card">
+      <div class="card-header" style="padding-bottom:0;border-bottom:none">
+        <div style="display:flex;gap:0">
+          <button id="tab-conv" class="tab-btn active" onclick="switchTab('conv')">💬 Conversations</button>
+          <button id="tab-queue" class="tab-btn" onclick="switchTab('queue')">📤 Queue</button>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input type="text" id="search" placeholder="Search name / phone…" oninput="filterTable()" style="width:180px;padding:6px 10px;font-size:12px;background:#27272a;border:1px solid #3f3f46;border-radius:8px;color:#e4e4e7">
+          <select id="filter-status" onchange="filterTable()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;color:#e4e4e7;font-size:12px">
+            <option value="">All statuses</option>
+            <option value="SENT">Sent</option>
+            <option value="REPLIED">Replied</option>
+            <option value="FAILED">Failed</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Conversations tab -->
+      <div id="panel-conv">
+        <div class="table-wrap">
+          <table id="conv-table">
+            <thead><tr>
+              <th>Candidate</th>
+              <th>Phone</th>
+              <th>Job</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Pipeline</th>
+              <th>Sent</th>
+              <th>Reply</th>
+              <th>Action</th>
+            </tr></thead>
+            <tbody id="conv-body">
+              <tr><td colspan="9" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Queue tab -->
+      <div id="panel-queue" style="display:none">
+        <div class="table-wrap">
+          <table id="queue-table">
+            <thead><tr>
+              <th>ID</th>
+              <th>Phone</th>
+              <th>Message</th>
+              <th>Status</th>
+              <th>Queued</th>
+              <th>Sent</th>
+            </tr></thead>
+            <tbody id="queue-body">
+              <tr><td colspan="6" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Logic + Manual send -->
+  <div>
+
+    <!-- Manual Send -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">📤 Manual Send</span></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Candidate</label>
+          <select id="ms-candidate" onchange="fillPhone()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:8px 10px;color:#e4e4e7;font-size:12px;width:100%">
+            <option value="">Select or type phone below…</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Phone (10-digit)</label>
+          <input type="text" id="ms-phone" placeholder="9876543210">
+        </div>
+        <div class="form-group">
+          <label>Message</label>
+          <textarea id="ms-msg" rows="4" placeholder="Type your WhatsApp message…"></textarea>
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="manualSend()">💬 Send WhatsApp</button>
+        <div id="ms-result" style="margin-top:8px;font-size:12px"></div>
+      </div>
+    </div>
+
+    <!-- Auto-reply Logic -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">🤖 Auto-Reply Logic</span></div>
+      <div class="card-body" style="font-size:12px;line-height:1.8">
+        <div style="margin-bottom:12px;color:#a1a1aa">Every inbound WhatsApp is classified automatically:</div>
+
+        <div class="logic-row">
+          <span class="badge badge-green">YES / Interested</span>
+          <div class="logic-arrow">→</div>
+          <div class="logic-text">
+            Status → <strong>INTERESTED</strong><br>
+            Sends 3 interview slot options via WhatsApp<br>
+            Creates Interview record (PROPOSED)
+          </div>
+        </div>
+
+        <div class="logic-row">
+          <span class="badge badge-grey">1 / 2 / 3</span>
+          <div class="logic-arrow">→</div>
+          <div class="logic-text">
+            Confirms chosen slot<br>
+            Status → <strong>INTERVIEW_SCHEDULED</strong><br>
+            Sends confirmation with date/time
+          </div>
+        </div>
+
+        <div class="logic-row">
+          <span class="badge badge-red">NO / Not interested</span>
+          <div class="logic-arrow">→</div>
+          <div class="logic-text">
+            Status → <strong>NOT_INTERESTED</strong><br>
+            Sends polite goodbye message<br>
+            No rejection email sent
+          </div>
+        </div>
+
+        <div class="logic-row">
+          <span class="badge badge-yellow">Anything else</span>
+          <div class="logic-arrow">→</div>
+          <div class="logic-text">
+            Sends clarification: "Reply YES or NO"<br>
+            Status unchanged
+          </div>
+        </div>
+
+        <div class="logic-row">
+          <span class="badge badge-purple">Unknown number</span>
+          <div class="logic-arrow">→</div>
+          <div class="logic-text">Silently ignored (no candidate match)</div>
+        </div>
+
+        <div style="margin-top:16px;padding:10px;background:#0f0f11;border-radius:8px;border:1px solid #27272a">
+          <div style="font-size:11px;color:#71717a;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Keyword lists</div>
+          <div style="color:#34d399;margin-bottom:4px">✅ Positive: yes, haan, ok, sure, interested, apply, send, great, confirm, proceed…</div>
+          <div style="color:#f87171">❌ Negative: no, nahi, not interested, busy, already placed, stop, unsubscribe…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bridge status card -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">🔌 Bridge Status</span></div>
+      <div class="card-body" style="font-size:12px">
+        <div id="bridge-detail" class="text-muted">Checking…</div>
+        <div style="margin-top:12px;padding:10px;background:#0f0f11;border-radius:8px;border:1px solid #27272a">
+          <div style="color:#71717a;font-size:11px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Architecture</div>
+          <div style="color:#a1a1aa;line-height:1.7">
+            Bridge polls <code>/api/v1/wa/poll</code> every 3s<br>
+            Inbound → <code>/api/v1/wa/inbound</code><br>
+            Works on port 443 only — no public URL needed
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.tab-btn{background:none;border:none;color:#71717a;font-size:13px;font-weight:600;padding:12px 18px;cursor:pointer;border-bottom:2px solid transparent;font-family:inherit}
+.tab-btn.active{color:#fff;border-bottom-color:#10b981}
+.tab-btn:hover{color:#e4e4e7}
+.logic-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.logic-arrow{color:#52525b;font-size:16px;margin-top:1px;flex-shrink:0}
+.logic-text{color:#a1a1aa;font-size:12px;line-height:1.6}
+code{background:#27272a;padding:1px 5px;border-radius:4px;font-size:11px;color:#a78bfa}
+</style>
+<script>
+let allConversations = [];
+let allQueue = [];
+
+function switchTab(name) {
+  document.getElementById('tab-conv').classList.toggle('active', name==='conv');
+  document.getElementById('tab-queue').classList.toggle('active', name==='queue');
+  document.getElementById('panel-conv').style.display = name==='conv' ? '' : 'none';
+  document.getElementById('panel-queue').style.display = name==='queue' ? '' : 'none';
+}
+
+async function loadStats() {
+  const s = await api('/api/v1/wa/dashboard/stats').catch(()=>null);
+  if (!s) return;
+  document.getElementById('kpi-sent').textContent     = s.queue_sent;
+  document.getElementById('kpi-pending').textContent  = s.queue_pending;
+  document.getElementById('kpi-failed').textContent   = s.queue_failed;
+  document.getElementById('kpi-outreach').textContent = s.outreach_sent;
+  document.getElementById('kpi-replied').textContent  = s.replied;
+  document.getElementById('kpi-interested').textContent = s.interested;
+}
+
+async function loadBridgeStatus() {
+  const badge = document.getElementById('bridge-badge');
+  const detail = document.getElementById('bridge-detail');
+  try {
+    const r = await fetch('/api/v1/webhook/whatsapp/status');
+    const d = await r.json();
+    if (!d.configured) {
+      badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
+      badge.innerHTML = '<div class="pulse" style="background:#f87171;width:7px;height:7px;border-radius:50%"></div> Not configured';
+      detail.innerHTML = '❌ OPENCLAW_API_URL not set — bridge not configured';
+    } else if (d.status === 'WORKING' || d.status === 'CONNECTED' || d.status === 'authenticated') {
+      badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:#10b981;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
+      badge.innerHTML = '<div class="pulse" style="width:7px;height:7px;border-radius:50%;background:#10b981;position:relative"></div> Bridge Connected';
+      detail.innerHTML = '✅ ' + (d.message || 'WhatsApp session active. Polling every 3s.');
+    } else {
+      // Check if polling bridge is running by hitting the poll endpoint with wrong key (get 401 = server up)
+      const pollCheck = await fetch('/api/v1/wa/poll', {headers:{'x-bridge-key':'wrong'}});
+      if (pollCheck.status === 401) {
+        badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);color:#fbbf24;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
+        badge.innerHTML = '<div class="pulse" style="background:#fbbf24;width:7px;height:7px;border-radius:50%"></div> Bridge API Ready';
+        detail.innerHTML = `⚠️ ${d.message || 'WAHA not responding but bridge API is running'}<br><span style="color:#52525b">Run bridge.js and enter pairing code to activate WhatsApp</span>`;
+      } else {
+        badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);color:#fbbf24;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
+        badge.innerHTML = '<div class="pulse" style="background:#fbbf24;width:7px;height:7px;border-radius:50%"></div> Disconnected';
+        detail.innerHTML = '⚠️ ' + (d.message || 'Bridge not connected. Pairing code needed.');
+      }
+    }
+  } catch(e) {
+    detail.innerHTML = '? Could not reach bridge status endpoint';
+  }
+}
+
+async function loadConversations() {
+  allConversations = await api('/api/v1/wa/dashboard/conversations').catch(()=>[]);
+  renderConversations(allConversations);
+}
+
+function renderConversations(rows) {
+  const tbody = document.getElementById('conv-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><p>No WhatsApp conversations yet.</p></td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const statusBadge = {
+      SENT:'badge-blue', REPLIED:'badge-green', FAILED:'badge-red',
+      PENDING:'badge-yellow'
+    }[r.status] || 'badge-grey';
+
+    const pipelineColor = {
+      INTERESTED:'badge-green', INTERVIEW_SCHEDULED:'badge-purple',
+      NOT_INTERESTED:'badge-red', CONTACTED:'badge-blue',
+      SHORTLISTED:'badge-yellow'
+    }[r.pipeline_status] || 'badge-grey';
+
+    const typeBadge = r.type === 'INITIAL_CONTACT' ? 'badge-blue'
+      : r.type === 'FOLLOW_UP' ? 'badge-yellow'
+      : r.type === 'SLOT_PROPOSAL' ? 'badge-purple' : 'badge-grey';
+
+    const sentTime = r.sent_at ? new Date(r.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
+    const replySnippet = r.reply ? `<span class="badge badge-green" title="${esc(r.reply)}" style="cursor:help;max-width:120px;overflow:hidden;text-overflow:ellipsis;display:inline-block">${esc(r.reply.substring(0,20))}${r.reply.length>20?'…':''}</span>` : '<span class="text-muted">–</span>';
+
+    return `<tr>
+      <td><strong>${esc(r.candidate_name)}</strong></td>
+      <td class="text-muted" style="font-size:12px">${esc(r.candidate_phone||'–')}</td>
+      <td class="text-muted" style="font-size:12px">${esc(r.job_title)}</td>
+      <td><span class="badge ${typeBadge}" style="font-size:10px">${r.type.replace(/_/g,' ')}</span></td>
+      <td><span class="badge ${statusBadge}">${r.status}</span></td>
+      <td>${r.pipeline_status ? `<span class="badge ${pipelineColor}" style="font-size:10px">${r.pipeline_status.replace(/_/g,' ')}</span>` : '–'}</td>
+      <td class="text-muted" style="font-size:11px;white-space:nowrap">${sentTime}</td>
+      <td>${replySnippet}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm" onclick="viewMsg(${r.id})" title="View full message">👁</button>
+        <button class="btn btn-secondary btn-sm" onclick="quickReply('${esc(r.candidate_phone||'')}','${esc(r.candidate_name)}')" title="Send WhatsApp">💬</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadQueue() {
+  allQueue = await api('/api/v1/wa/dashboard/queue').catch(()=>[]);
+  const tbody = document.getElementById('queue-body');
+  if (!allQueue.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><p>No messages in queue yet.</p></td></tr>';
+    return;
+  }
+  tbody.innerHTML = allQueue.map(r => {
+    const badge = {PENDING:'badge-yellow',SENT:'badge-green',FAILED:'badge-red'}[r.status]||'badge-grey';
+    const created = r.created_at ? new Date(r.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
+    const sent    = r.sent_at    ? new Date(r.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
+    return `<tr>
+      <td class="text-muted">#${r.id}</td>
+      <td>${esc(r.phone)}</td>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${esc(r.message)}">${esc(r.message.substring(0,80))}${r.message.length>80?'…':''}</td>
+      <td><span class="badge ${badge}">${r.status}${r.error?` <span title="${esc(r.error)}" style="cursor:help">⚠</span>`:''}</span></td>
+      <td class="text-muted" style="font-size:11px">${created}</td>
+      <td class="text-muted" style="font-size:11px">${sent}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const st = document.getElementById('filter-status').value;
+  const filtered = allConversations.filter(r => {
+    const matchQ = !q || r.candidate_name.toLowerCase().includes(q) || (r.candidate_phone||'').includes(q) || r.job_title.toLowerCase().includes(q);
+    const matchSt = !st || r.status === st;
+    return matchQ && matchSt;
+  });
+  renderConversations(filtered);
+}
+
+function viewMsg(id) {
+  const r = allConversations.find(x=>x.id===id);
+  if (!r) return;
+  const html = `
+    <div style="padding:4px 0">
+      <strong>${esc(r.candidate_name)}</strong> — ${esc(r.job_title)}<br>
+      <span class="text-muted text-sm">Sent: ${r.sent_at ? new Date(r.sent_at).toLocaleString('en-IN') : '–'}</span>
+    </div>
+    <div style="background:#0f0f11;border-radius:8px;padding:12px;margin:12px 0;font-size:12px;white-space:pre-wrap;color:#d4d4d8;border:1px solid #27272a">${esc(r.message)}</div>
+    ${r.reply ? `<div style="margin-top:8px"><span class="badge badge-green">Reply</span> <span style="font-size:13px;color:#34d399">${esc(r.reply)}</span></div>` : ''}
+  `;
+  showModal('Message Details', html);
+}
+
+function quickReply(phone, name) {
+  document.getElementById('ms-phone').value = phone;
+  document.getElementById('ms-msg').value = `Hi ${name.split(' ')[0]}, `;
+  document.getElementById('ms-msg').focus();
+  document.getElementById('ms-msg').setSelectionRange(9999,9999);
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+async function fillPhone() {
+  const sel = document.getElementById('ms-candidate');
+  const cid = sel.value;
+  if (!cid) return;
+  const cands = await api('/api/v1/candidates?limit=100').catch(()=>[]);
+  const c = cands.find(x=>x.id==cid);
+  if (c) document.getElementById('ms-phone').value = c.whatsapp || c.phone || '';
+}
+
+async function loadCandidates() {
+  const cands = await api('/api/v1/candidates?limit=200').catch(()=>[]);
+  const sel = document.getElementById('ms-candidate');
+  sel.innerHTML = '<option value="">Select candidate…</option>' +
+    cands.map(c=>`<option value="${c.id}">${esc(c.name)} ${c.phone?'('+c.phone+')':''}</option>`).join('');
+}
+
+async function manualSend() {
+  const phone = document.getElementById('ms-phone').value.trim();
+  const message = document.getElementById('ms-msg').value.trim();
+  const result = document.getElementById('ms-result');
+  if (!phone || !message) { showToast('Phone and message are required','error'); return; }
+  result.style.color='#fbbf24'; result.textContent='Sending…';
+  try {
+    const r = await api('/api/v1/wa/dashboard/send',{method:'POST',body:{phone,message}});
+    result.style.color='#34d399';
+    result.textContent=`✅ Queued (${r.id})`;
+    showToast('WhatsApp queued','success');
+    document.getElementById('ms-msg').value='';
+    setTimeout(loadAll, 2000);
+  } catch(e) {
+    result.style.color='#f87171';
+    result.textContent='❌ '+e.message;
+    showToast(e.message,'error');
+  }
+}
+
+function showModal(title, html) {
+  let m = document.getElementById('wa-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'wa-modal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;display:flex;align-items:center;justify-content:center';
+    m.onclick = e => { if(e.target===m) m.remove(); };
+    document.body.appendChild(m);
+  }
+  m.innerHTML = `<div style="background:#18181b;border:1px solid #27272a;border-radius:14px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <strong style="font-size:14px">${esc(title)}</strong>
+      <button onclick="document.getElementById('wa-modal').remove()" style="background:none;border:none;color:#71717a;font-size:18px;cursor:pointer">✕</button>
+    </div>
+    ${html}
+  </div>`;
+}
+
+async function loadAll() {
+  await Promise.all([loadStats(), loadConversations(), loadQueue(), loadBridgeStatus()]);
+}
+
+loadAll();
+loadCandidates();
+// Auto-refresh every 15s
+setInterval(loadAll, 15000);
+</script>
+{% endblock %}

@@ -7,12 +7,16 @@ The bridge (bridge.js) calls these endpoints every few seconds:
 
 This eliminates the need for any public URL on the bridge machine.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.config import get_settings
+from app.models.candidate import Candidate
+from app.models.job import Job
+from app.models.outreach import OutreachLog, OutreachChannel, OutreachStatus
+from app.models.shortlist import ShortlistEntry, ShortlistStatus
 from app.models.wa_queue import WAQueue, WAQueueStatus
 from app.utils.logging import get_logger
 
@@ -83,3 +87,122 @@ async def inbound_message(
 async def bridge_status(_: None = Depends(_auth)):
     """Returns 200 if the bridge API is reachable (used by bridge health check)."""
     return {"status": "ok"}
+
+
+# ── Dashboard endpoints (no auth — used by /ui/whatsapp) ──────────────────
+
+@router.get("/dashboard/stats")
+async def wa_dashboard_stats(db: AsyncSession = Depends(get_db)):
+    """KPI counts for the WhatsApp dashboard."""
+    # Queue stats
+    q_res = await db.execute(select(WAQueue))
+    queue_rows = q_res.scalars().all()
+    q_pending = sum(1 for r in queue_rows if r.status == WAQueueStatus.PENDING)
+    q_sent    = sum(1 for r in queue_rows if r.status == WAQueueStatus.SENT)
+    q_failed  = sum(1 for r in queue_rows if r.status == WAQueueStatus.FAILED)
+
+    # Outreach log WA stats
+    ol_res = await db.execute(
+        select(OutreachLog).where(OutreachLog.channel == OutreachChannel.WHATSAPP)
+    )
+    wa_logs = ol_res.scalars().all()
+    replied   = sum(1 for l in wa_logs if l.status == OutreachStatus.REPLIED)
+    interested = sum(1 for l in wa_logs if l.reply_text and any(
+        kw in (l.reply_text or "").lower() for kw in ["yes","haan","interested","ok","sure"]))
+
+    return {
+        "queue_pending": q_pending,
+        "queue_sent": q_sent,
+        "queue_failed": q_failed,
+        "outreach_sent": len(wa_logs),
+        "replied": replied,
+        "interested": interested,
+    }
+
+
+@router.get("/dashboard/conversations")
+async def wa_conversations(db: AsyncSession = Depends(get_db)):
+    """Return all WhatsApp outreach logs enriched with candidate + job info."""
+    ol_res = await db.execute(
+        select(OutreachLog)
+        .where(OutreachLog.channel == OutreachChannel.WHATSAPP)
+        .order_by(OutreachLog.created_at.desc())
+        .limit(200)
+    )
+    logs = ol_res.scalars().all()
+
+    # Build candidate + job maps
+    cand_ids = list({l.candidate_id for l in logs})
+    job_ids  = list({l.job_id for l in logs})
+
+    cands = {}
+    if cand_ids:
+        cr = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
+        cands = {c.id: c for c in cr.scalars().all()}
+
+    jobs = {}
+    if job_ids:
+        jr = await db.execute(select(Job).where(Job.id.in_(job_ids)))
+        jobs = {j.id: j for j in jr.scalars().all()}
+
+    # Shortlist statuses
+    sl_res = await db.execute(
+        select(ShortlistEntry).where(ShortlistEntry.candidate_id.in_(cand_ids))
+    )
+    sl_map = {}
+    for e in sl_res.scalars().all():
+        sl_map[(e.candidate_id, e.job_id)] = e.status.value
+
+    result = []
+    for log in logs:
+        c = cands.get(log.candidate_id)
+        j = jobs.get(log.job_id)
+        result.append({
+            "id": log.id,
+            "candidate_id": log.candidate_id,
+            "candidate_name": c.name if c else f"#{log.candidate_id}",
+            "candidate_phone": c.whatsapp or c.phone if c else "",
+            "job_id": log.job_id,
+            "job_title": j.title if j else f"Job #{log.job_id}",
+            "type": log.outreach_type.value,
+            "status": log.status.value,
+            "message": log.message,
+            "reply": log.reply_text,
+            "pipeline_status": sl_map.get((log.candidate_id, log.job_id), ""),
+            "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+            "replied_at": log.replied_at.isoformat() if log.replied_at else None,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        })
+    return result
+
+
+@router.get("/dashboard/queue")
+async def wa_queue_list(db: AsyncSession = Depends(get_db)):
+    """Return recent wa_queue entries for the dashboard."""
+    res = await db.execute(
+        select(WAQueue).order_by(WAQueue.created_at.desc()).limit(100)
+    )
+    rows = res.scalars().all()
+    return [{
+        "id": r.id,
+        "phone": r.phone,
+        "message": r.message,
+        "status": r.status.value,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+        "error": r.error,
+    } for r in rows]
+
+
+@router.post("/dashboard/send")
+async def wa_manual_send(payload: dict, db: AsyncSession = Depends(get_db)):
+    """Queue a manual WhatsApp message from the dashboard."""
+    phone = (payload.get("phone") or "").strip()
+    message = (payload.get("message") or "").strip()
+    if not phone or not message:
+        raise HTTPException(status_code=422, detail="phone and message required")
+    from app.services.whatsapp_openclaw import send_whatsapp
+    result = await send_whatsapp(phone, message, db=db)
+    if result:
+        return {"queued": True, "id": result}
+    raise HTTPException(status_code=502, detail="Failed to queue message")

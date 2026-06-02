@@ -136,7 +136,7 @@ async def _run_import_pipeline(
                 log = await send_outreach(
                     candidate=candidate,
                     job=job,
-                    channel=OutreachChannel.EMAIL,
+                    channel=OutreachChannel.WHATSAPP,
                     outreach_type=OutreachType.INITIAL_CONTACT,
                     db=db,
                 )

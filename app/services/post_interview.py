@@ -172,5 +172,19 @@ HR Team | {job.company or 'K. Girdharlal International'}""",
             "Slot nudge sent — interview %d candidate=%d %s",
             interview.id, candidate.id, candidate.name,
         )
+        # Also nudge via WhatsApp
+        wa_phone = candidate.whatsapp or candidate.phone
+        if wa_phone and slots:
+            try:
+                from app.models.wa_queue import WAQueue
+                slot_lines_wa = "\n".join(f"{i+1}. {s}" for i, s in enumerate(slots[:3]))
+                wa_nudge = (
+                    f"Hi {candidate.name.split()[0]}, I sent you *{job.title}* interview "
+                    f"slots 2 days ago — please confirm!\n\n"
+                    f"{slot_lines_wa}\n\nReply *1*, *2*, or *3* to book. 🙏"
+                )
+                db.add(WAQueue(phone=wa_phone, message=wa_nudge))
+            except Exception:
+                pass
 
     return {"auto_completed": auto_completed, "slot_nudges_sent": slot_nudges_sent}

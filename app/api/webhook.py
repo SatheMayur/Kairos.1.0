@@ -13,7 +13,7 @@ import json
 import re
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal
@@ -108,7 +108,10 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
         # Find candidate by phone (match last 10 digits)
         result = await db.execute(
             select(Candidate).where(
-                Candidate.phone.like(f"%{phone_10}")
+                or_(
+                    Candidate.phone.like(f"%{phone_10}"),
+                    Candidate.whatsapp.like(f"%{phone_10}"),
+                )
             )
         )
         candidate = result.scalars().first()
@@ -183,6 +186,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                     f"Hi {candidate.name.split()[0]}, great! I already sent you interview "
                     f"slot options — please check and confirm. "
                     f"If you need new slots, just say 'reschedule'.",
+                    db=db,
                 )
             else:
                 # Propose interview slots via WhatsApp
@@ -203,6 +207,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                     f"{slot_lines}\n\n"
                     f"Reply with *1*, *2*, or *3* to confirm your preferred slot. "
                     f"The interview is ~30 minutes via Google Meet.",
+                    db=db,
                 )
                 logger.info(
                     "WhatsApp slot proposal sent to candidate %d (%s)",
@@ -229,6 +234,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                 f"Hi {candidate.name.split()[0]}, no problem at all! "
                 f"Thank you for letting us know. We'll keep you in mind for "
                 f"future opportunities. Wishing you all the best! 🙏",
+                db=db,
             )
             logger.info(
                 "Candidate %d marked NOT_INTERESTED via WhatsApp", candidate.id
@@ -252,7 +258,12 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                     slots_raw = json.loads(interview.proposed_slots or "[]")
                     if slot_choice < len(slots_raw):
                         from datetime import datetime
-                        interview.scheduled_at = datetime.fromisoformat(slots_raw[slot_choice])
+                        raw_slot = slots_raw[slot_choice]
+                        try:
+                            interview.scheduled_at = datetime.fromisoformat(raw_slot)
+                        except ValueError:
+                            clean = raw_slot.replace(" IST", "")
+                            interview.scheduled_at = datetime.strptime(clean, "%A, %d %B %Y %I:%M %p")
                         interview.status = InterviewStatus.CONFIRMED
                         interview.meet_link = f"https://meet.google.com/new"
                         entry.status = ShortlistStatus.INTERVIEW_SCHEDULED
@@ -265,6 +276,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                             f"🔗 Google Meet link will be sent 1 hour before.\n"
                             f"Role: {job.title} at {job.company or 'K. Girdharlal International'}\n\n"
                             f"Please join 2 minutes early. See you then! 👋",
+                            db=db,
                         )
                         logger.info(
                             "Interview %d CONFIRMED via WhatsApp — candidate %d slot %d",
@@ -277,6 +289,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                     phone_wa,
                     "I couldn't find an active slot proposal for you. "
                     "Please reply *YES* and I'll send fresh slots right away.",
+                    db=db,
                 )
 
         else:
@@ -287,6 +300,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                 f"Are you interested in the *{job.title}* role at "
                 f"{job.company or 'K. Girdharlal International'}?\n\n"
                 f"Reply *YES* to proceed or *NO* if not interested.",
+                db=db,
             )
 
         await db.commit()

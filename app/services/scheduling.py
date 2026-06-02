@@ -176,6 +176,21 @@ async def send_interview_reminders(db: AsyncSession) -> int:
             scheduled_at=interview.scheduled_at,
             meet_link=interview.meet_link,
         )
+        # Also queue a WhatsApp reminder when candidate has phone
+        wa_phone = candidate.whatsapp or candidate.phone
+        if wa_phone:
+            try:
+                from app.models.wa_queue import WAQueue
+                slot_str = interview.scheduled_at.strftime("%A %d %b at %I:%M %p IST")
+                wa_msg = (
+                    f"Hi {candidate.name.split()[0]}, reminder: your *{job.title}* interview "
+                    f"is tomorrow — *{slot_str}*.\n"
+                    f"{'🔗 Meet: ' + interview.meet_link if interview.meet_link else '🔗 Link coming shortly.'}\n"
+                    f"Please join 2 min early. All the best! 👍"
+                )
+                db.add(WAQueue(phone=wa_phone, message=wa_msg))
+            except Exception:
+                pass
         interview.reminder_sent = True
         sent += 1
 

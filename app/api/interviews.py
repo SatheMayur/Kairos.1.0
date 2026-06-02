@@ -1,6 +1,7 @@
 """Interviews API — schedule, confirm, and track interview slots."""
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.api.deps import get_db
@@ -124,6 +125,48 @@ async def update_interview(
     for field, value in payload.model_dump(exclude_none=True).items():
         setattr(interview, field, value)
     return interview
+
+
+class InterviewOutcome(BaseModel):
+    outcome: str  # HIRED | NEXT_ROUND | REJECTED | NO_SHOW
+    notes: Optional[str] = None
+
+
+@router.post("/{interview_id}/outcome")
+async def log_interview_outcome(
+    interview_id: int,
+    payload: InterviewOutcome,
+    db: AsyncSession = Depends(get_db),
+):
+    """Log interview result and advance pipeline. outcome: HIRED | NEXT_ROUND | REJECTED | NO_SHOW"""
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+
+    interview = await db.get(Interview, interview_id)
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+
+    interview.status = InterviewStatus.COMPLETED
+    if payload.notes:
+        interview.notes = payload.notes
+
+    sl_res = await db.execute(
+        select(ShortlistEntry).where(
+            ShortlistEntry.candidate_id == interview.candidate_id,
+            ShortlistEntry.job_id == interview.job_id,
+        )
+    )
+    entry = sl_res.scalar_one_or_none()
+
+    status_map = {
+        "HIRED": ShortlistStatus.HIRED,
+        "NEXT_ROUND": ShortlistStatus.SHORTLISTED,
+        "REJECTED": ShortlistStatus.REJECTED,
+        "NO_SHOW": ShortlistStatus.DROPPED,
+    }
+    if entry and payload.outcome in status_map:
+        entry.status = status_map[payload.outcome]
+
+    return {"ok": True, "interview_id": interview_id, "outcome": payload.outcome}
 
 
 async def _get_or_404(interview_id: int, db: AsyncSession) -> Interview:

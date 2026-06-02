@@ -108,12 +108,9 @@ async def cron_outreach():
                     candidates.append(c)
 
             try:
-                # Use WhatsApp as primary channel when OpenClaw is configured
-                primary_channel = (
-                    OutreachChannel.WHATSAPP
-                    if settings.openclaw_api_url
-                    else OutreachChannel.EMAIL
-                )
+                # Always prefer WhatsApp (Baileys bridge polls DB queue)
+                # Falls back to email if candidate has no phone
+                primary_channel = OutreachChannel.WHATSAPP
                 logs = await send_bulk_outreach(
                     candidates=candidates,
                     job=job,

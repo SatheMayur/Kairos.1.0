@@ -86,6 +86,27 @@
     <button class="btn btn-primary" onclick="proposeSlots()">📅 Propose &amp; Send Email</button>
   </div>
 </div>
+
+<!-- Outcome Modal -->
+<div id="outcome-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;padding:40px 20px">
+  <div style="max-width:480px;margin:0 auto;background:#18181b;border:1px solid #27272a;border-radius:16px;padding:28px">
+    <div class="flex justify-between items-center" style="margin-bottom:20px">
+      <h2 style="font-size:16px;font-weight:700">Log Interview Outcome</h2>
+      <button class="btn btn-secondary btn-sm" onclick="hideModal('outcome-modal')">✕</button>
+    </div>
+    <p id="outcome-subtitle" style="font-size:13px;color:#a1a1aa;margin-bottom:20px"></p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+      <button class="btn" style="background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);padding:14px;font-size:14px" onclick="submitOutcome('HIRED')">🎉 Hired</button>
+      <button class="btn" style="background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.3);padding:14px;font-size:14px" onclick="submitOutcome('NEXT_ROUND')">→ Next Round</button>
+      <button class="btn" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);padding:14px;font-size:14px" onclick="submitOutcome('REJECTED')">✗ Rejected</button>
+      <button class="btn" style="background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3);padding:14px;font-size:14px" onclick="submitOutcome('NO_SHOW')">🚫 No Show</button>
+    </div>
+    <div class="form-group">
+      <label>Notes (optional)</label>
+      <textarea id="outcome-notes" placeholder="e.g. Good communication, strong CAD skills…" style="min-height:70px"></textarea>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -111,6 +132,14 @@ async function loadInterviews() {
   if (round) url += '&round='+round; // note: round filter not in API yet, filtered client-side
   const all = await api('/api/v1/interviews?limit=200');
 
+  // Resolve names
+  const [allCands, allJobs] = await Promise.all([
+    api('/api/v1/candidates?limit=500'),
+    api('/api/v1/jobs?limit=100'),
+  ]);
+  const candMap = Object.fromEntries(allCands.map(c => [c.id, c.name]));
+  const jobMap  = Object.fromEntries(allJobs.map(j => [j.id, j.title]));
+
   // KPIs
   document.getElementById('kpi-proposed').textContent = all.filter(i=>i.status==='PROPOSED').length;
   document.getElementById('kpi-confirmed').textContent = all.filter(i=>i.status==='CONFIRMED').length;
@@ -132,8 +161,8 @@ async function loadInterviews() {
     <tr><th>Round</th><th>Candidate</th><th>Job</th><th>Scheduled</th><th>Status</th><th>Meet</th><th>Actions</th></tr>
     ${filtered.map(i => `<tr>
       <td><span class="badge ${ROUND_COLORS[i.round]||'badge-grey'}" style="font-size:10px">${i.round}</span></td>
-      <td class="text-muted">#${i.candidate_id}</td>
-      <td class="text-muted">#${i.job_id}</td>
+      <td>${candMap[i.candidate_id] || '#'+i.candidate_id}</td>
+      <td class="text-muted text-sm">${jobMap[i.job_id] || '#'+i.job_id}</td>
       <td class="text-sm">${i.scheduled_at ? new Date(i.scheduled_at).toLocaleString() : '<span class="text-muted">Awaiting confirmation</span>'}</td>
       <td>
         <select class="badge ${ISTAT_COLORS[i.status]||'badge-grey'}" onchange="updateInterview(${i.id}, this.value)"
@@ -142,9 +171,10 @@ async function loadInterviews() {
         </select>
       </td>
       <td>${i.meet_link ? `<a href="${esc(i.meet_link)}" target="_blank" class="btn btn-secondary btn-sm">🔗 Join</a>` : '<span class="text-muted text-sm">–</span>'}</td>
-      <td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         ${i.confirmation_token ? `<button class="btn btn-secondary btn-sm" onclick="copyConfirmLink('${esc(i.confirmation_token)}')" title="Copy confirmation link">📋</button>` : ''}
-        ${i.reminder_sent ? '<span class="badge badge-grey text-sm" style="margin-left:4px">Reminded</span>' : ''}
+        ${['CONFIRMED','COMPLETED'].includes(i.status) ? `<button class="btn btn-primary btn-sm" onclick="showOutcomeModal(${i.id},'${esc(candMap[i.candidate_id]||'Candidate')}','${esc(jobMap[i.job_id]||'Role')}')">✓ Outcome</button>` : ''}
+        ${i.reminder_sent ? '<span class="badge badge-grey text-sm">Reminded</span>' : ''}
       </td>
     </tr>`).join('')}
   </table></div>`;
@@ -177,6 +207,24 @@ async function triggerReminders() {
   try {
     const res = await api('/api/v1/interviews/reminders', {method:'POST'});
     showToast(`${res.reminders_sent} reminder(s) sent`, 'success');
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+let _outcomeInterviewId = null;
+function showOutcomeModal(id, candName, jobTitle) {
+  _outcomeInterviewId = id;
+  document.getElementById('outcome-subtitle').textContent = `${candName} — ${jobTitle}`;
+  document.getElementById('outcome-notes').value = '';
+  showModal('outcome-modal');
+}
+async function submitOutcome(outcome) {
+  if (!_outcomeInterviewId) return;
+  const notes = document.getElementById('outcome-notes').value;
+  try {
+    await api('/api/v1/interviews/'+_outcomeInterviewId+'/outcome', {method:'POST', body:{outcome, notes: notes||undefined}});
+    showToast(`Outcome logged: ${outcome}`, 'success');
+    hideModal('outcome-modal');
+    loadInterviews();
   } catch(e) { showToast('Failed: '+e.message, 'error'); }
 }
 

@@ -79,19 +79,33 @@ async def generate_digest(db: AsyncSession) -> tuple[str, str]:
     ]
 
     if upcoming:
+        # Lookup candidate and job names
+        up_cand_ids = list({iv.candidate_id for iv in upcoming})
+        up_job_ids = list({iv.job_id for iv in upcoming})
+        up_c_res = await db.execute(select(Candidate).where(Candidate.id.in_(up_cand_ids)))
+        up_j_res = await db.execute(select(Job).where(Job.id.in_(up_job_ids)))
+        up_cand_map = {c.id: c.name for c in up_c_res.scalars().all()}
+        up_job_map = {j.id: j.title for j in up_j_res.scalars().all()}
         lines.append("=== TODAY / TOMORROW'S INTERVIEWS ===")
         for iv in upcoming:
             dt_str = iv.scheduled_at.strftime("%a %d %b, %I:%M %p IST") if iv.scheduled_at else "TBD"
-            lines.append(f"• Interview scheduled: {dt_str} (Status: {iv.status.value})")
+            cname = up_cand_map.get(iv.candidate_id, f"Candidate #{iv.candidate_id}")
+            jtitle = up_job_map.get(iv.job_id, f"Job #{iv.job_id}")
+            lines.append(f"• {cname} | {jtitle} | {dt_str} ({iv.status.value})")
         lines.append("")
 
     if follow_up_due:
+        # Lookup candidate names
+        fu_cand_ids = list({e.candidate_id for e in follow_up_due})
+        fu_c_res = await db.execute(select(Candidate).where(Candidate.id.in_(fu_cand_ids)))
+        fu_cand_map = {c.id: c.name for c in fu_c_res.scalars().all()}
         lines.append(f"=== FOLLOW-UP REQUIRED ({len(follow_up_due)} candidates) ===")
         lines.append("These candidates were contacted 3+ days ago with no response:")
-        for e in follow_up_due[:5]:
-            lines.append(f"• Candidate ID {e.candidate_id} (Job #{e.job_id})")
-        if len(follow_up_due) > 5:
-            lines.append(f"  ... and {len(follow_up_due)-5} more")
+        for e in follow_up_due[:8]:
+            name = fu_cand_map.get(e.candidate_id, f"Candidate #{e.candidate_id}")
+            lines.append(f"• {name} — Job #{e.job_id}")
+        if len(follow_up_due) > 8:
+            lines.append(f"  ... and {len(follow_up_due)-8} more")
         lines.append("")
 
     if shortlisted_count > 0:

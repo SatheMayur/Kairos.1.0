@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     # Cron security
     cron_secret: str = ""                  # set in Vercel env — protects /cron/* endpoints
+    bridge_api_secret: str = "kgirdharlal-bridge-secret"  # x-bridge-key header for Baileys bridge
 
     # Feature flags
     use_mock_adapters: bool = True

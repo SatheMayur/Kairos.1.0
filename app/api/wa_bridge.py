@@ -24,7 +24,7 @@ router = APIRouter(prefix="/wa", tags=["whatsapp-bridge"])
 logger = get_logger(__name__)
 settings = get_settings()
 
-BRIDGE_SECRET = "kgirdharlal-bridge-secret"
+BRIDGE_SECRET = settings.bridge_api_secret
 
 
 def _auth(x_bridge_key: str = Header(default="")):

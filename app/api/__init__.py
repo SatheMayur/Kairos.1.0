@@ -3,6 +3,7 @@ from app.api import jobs, candidates, shortlist, outreach, interviews
 from app.api import cron
 from app.api import import_csv
 from app.api import sourcing
+from app.api import webhook
 
 api_router = APIRouter()
 api_router.include_router(jobs.router)
@@ -13,3 +14,4 @@ api_router.include_router(interviews.router)
 api_router.include_router(cron.router)
 api_router.include_router(import_csv.router)
 api_router.include_router(sourcing.router)
+api_router.include_router(webhook.router)

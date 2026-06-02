@@ -134,7 +134,15 @@ async def _send_email(to: str, subject: str, body: str, candidate_name: str = ""
 
 @with_retry(max_attempts=2, exceptions=(Exception,))
 async def _send_whatsapp(to: str, body: str) -> str:
-    """Send via Twilio WhatsApp API."""
+    """Send via OpenClaw/WAHA (primary) or Twilio (fallback)."""
+    # Primary: OpenClaw / WAHA
+    if settings.openclaw_api_url:
+        from app.services.whatsapp_openclaw import send_whatsapp as _oc_send
+        msg_id = await _oc_send(to, body)
+        if msg_id:
+            return msg_id
+
+    # Fallback: Twilio
     if settings.app_env == "development" or not settings.twilio_account_sid:
         logger.warning("MOCK WhatsApp to %s: %s", to, body[:60])
         return f"mock-wa-{hash(to)}"

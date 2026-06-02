@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # Apify — web scraping for LinkedIn / Naukri sourcing
     apify_api_token: str = ""              # from apify.com account settings
 
+    # OpenClaw / WAHA — WhatsApp outreach and auto-reply
+    openclaw_api_url: str = ""             # WAHA base URL e.g. http://localhost:3000
+    openclaw_api_key: str = ""             # WAHA X-Api-Key value
+    openclaw_session: str = "default"      # WAHA session name
+    openclaw_webhook_secret: str = ""      # shared secret to verify inbound webhooks
+
     # Apps Script Web App (no-SA alternative — see AI_HR_AutoSend_v4.gs)
     # Deploy the web app in Apps Script editor → set this URL in Vercel env
     apps_script_web_app_url: str = ""      # e.g. https://script.google.com/macros/s/.../exec

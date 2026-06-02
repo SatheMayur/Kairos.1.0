@@ -1,10 +1,12 @@
 """Adapter registry — one place that maps portal names to adapter instances.
 
 Real adapters:
-  - ApifyLinkedInAdapter  — when APIFY_API_TOKEN is set
-  - ApifyNaukriAdapter    — when APIFY_API_TOKEN is set
+  - ApifyLinkedInAdapter  — proactive LinkedIn sourcing (when APIFY_API_TOKEN is set)
 
-All other portals fall back to MockAdapter until real credentials are provided.
+Naukri inbound applicants come via CSV export from your Naukri employer dashboard
+uploaded at /ui/import — Apify cannot access employer-login-gated applicant data.
+
+All other portals are stubbed until real credentials are provided.
 """
 from app.adapters.base import BasePortalAdapter
 from app.adapters.mock import MockAdapter
@@ -20,14 +22,15 @@ def build_registry(use_mock: bool, apify_token: str = "") -> dict[str, BasePorta
     """Return {portal_name: adapter} mapping."""
     adapters: dict[str, BasePortalAdapter] = {}
 
-    # Real Apify adapters — activated automatically when APIFY_API_TOKEN is set
+    # LinkedIn: Apify proactive sourcing — finds passive candidates from LinkedIn searches
     if apify_token and not use_mock:
-        from app.adapters.apify import ApifyLinkedInAdapter, ApifyNaukriAdapter
+        from app.adapters.apify import ApifyLinkedInAdapter
         adapters[CandidateSource.LINKEDIN.value] = ApifyLinkedInAdapter(apify_token)
-        adapters[CandidateSource.NAUKRI.value]   = ApifyNaukriAdapter(apify_token)
 
-    # Stub every other portal (replace with real classes as credentials arrive)
+    # Naukri inbound applicants must come via CSV export (/ui/import)
+    # Apify Naukri actor scrapes job listings, NOT applicant profiles — disabled.
     stub_portals = [
+        CandidateSource.NAUKRI,
         CandidateSource.INDEED,
         CandidateSource.APNA,
         CandidateSource.WORKINDIA,
@@ -42,9 +45,8 @@ def build_registry(use_mock: bool, apify_token: str = "") -> dict[str, BasePorta
         CandidateSource.JORA,
         CandidateSource.FOUNDIT,
     ]
-    # Only stub LinkedIn/Naukri if Apify not configured
     if not apify_token or use_mock:
-        stub_portals = [CandidateSource.LINKEDIN, CandidateSource.NAUKRI] + stub_portals
+        stub_portals = [CandidateSource.LINKEDIN] + stub_portals
 
     for portal in stub_portals:
         if portal.value not in adapters:

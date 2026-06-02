@@ -243,3 +243,168 @@ async def import_batch(
 
     logger.info("Batch import: job=%d candidates=%d", job_id, len(raw))
     return await _run_import_pipeline(raw, job_id, auto_outreach, db)
+
+
+# ── Smart URL import (ScrapeGraph-style) ──────────────────────────────────────
+
+class URLImportRequest(BaseModel):
+    url: str
+    job_id: int
+    source: str = "MANUAL"
+    auto_outreach: bool = True
+
+
+class BulkURLImportRequest(BaseModel):
+    urls: list[str]
+    job_id: int
+    source: str = "MANUAL"
+    auto_outreach: bool = True
+
+
+@router.post("/url")
+async def import_from_url(payload: URLImportRequest, db: AsyncSession = Depends(get_db)):
+    """Scrape any candidate profile URL and import into the pipeline.
+
+    Works for: CAD Crowd profiles, personal portfolios, Apna, Shine,
+    WorkIndia public profiles, or any page with candidate information.
+    Uses Claude to extract structured data — no hardcoded selectors.
+    """
+    from app.adapters.smart_scrape import fetch_and_extract
+    from app.models.candidate import CandidateSource as CS
+
+    try:
+        src = CS(payload.source.upper())
+    except ValueError:
+        src = CS.MANUAL
+
+    raw = await fetch_and_extract(payload.url, source=src)
+    if not raw:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not extract candidate data from that URL. "
+                   "Check the URL is a public profile page and ANTHROPIC_API_KEY is set."
+        )
+
+    result = await _run_import_pipeline([raw], payload.job_id, payload.auto_outreach, db)
+    return {
+        "url": payload.url,
+        "name": raw.name,
+        "skills_found": len(raw.skills or []),
+        **result.model_dump(),
+    }
+
+
+@router.post("/url/bulk")
+async def import_from_urls(payload: BulkURLImportRequest, db: AsyncSession = Depends(get_db)):
+    """Scrape multiple profile URLs concurrently and import all into the pipeline.
+
+    Pass up to 20 URLs at once. Useful for enriching a batch of CAD Crowd
+    profiles or any list of public candidate pages.
+    """
+    import asyncio
+    from app.adapters.smart_scrape import fetch_and_extract
+    from app.models.candidate import CandidateSource as CS
+
+    if len(payload.urls) > 20:
+        raise HTTPException(status_code=422, detail="Maximum 20 URLs per request")
+
+    try:
+        src = CS(payload.source.upper())
+    except ValueError:
+        src = CS.MANUAL
+
+    # Fetch all URLs concurrently
+    tasks = [fetch_and_extract(url, source=src) for url in payload.urls]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    raw_candidates = []
+    failed = []
+    for url, res in zip(payload.urls, results):
+        if isinstance(res, Exception) or res is None:
+            failed.append(url)
+        else:
+            raw_candidates.append(res)
+
+    if not raw_candidates:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not extract data from any of the {len(payload.urls)} URLs."
+        )
+
+    import_result = await _run_import_pipeline(
+        raw_candidates, payload.job_id, payload.auto_outreach, db
+    )
+    return {
+        "urls_attempted": len(payload.urls),
+        "urls_extracted": len(raw_candidates),
+        "urls_failed": failed,
+        **import_result.model_dump(),
+    }
+
+
+@router.post("/enrich")
+async def enrich_existing_candidates(
+    job_id: int,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-scrape source_ref URLs for existing candidates to fill in missing skills/data.
+
+    Targets candidates for the given job that have a source_ref URL but
+    incomplete skills data (skills list empty or fewer than 3 items).
+    """
+    import asyncio
+    from sqlalchemy import select
+    from app.adapters.smart_scrape import fetch_and_extract
+    from app.models.candidate import Candidate
+    from app.models.shortlist import ShortlistEntry
+
+    sl_res = await db.execute(
+        select(ShortlistEntry).where(ShortlistEntry.job_id == job_id)
+    )
+    entries = sl_res.scalars().all()
+    cand_ids = [e.candidate_id for e in entries]
+
+    if not cand_ids:
+        return {"enriched": 0, "skipped": 0, "message": "No candidates for this job"}
+
+    c_res = await db.execute(
+        select(Candidate).where(Candidate.id.in_(cand_ids))
+    )
+    candidates = c_res.scalars().all()
+
+    to_enrich = [
+        c for c in candidates
+        if c.source_ref
+        and c.source_ref.startswith("http")
+        and len(c.skills or []) < 3
+    ][:limit]
+
+    if not to_enrich:
+        return {"enriched": 0, "skipped": len(candidates),
+                "message": "No candidates need enrichment (all have skills or no URL)"}
+
+    enriched = skipped = 0
+    tasks = [fetch_and_extract(c.source_ref, source=c.source) for c in to_enrich]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for candidate, raw in zip(to_enrich, results):
+        if isinstance(raw, Exception) or raw is None:
+            skipped += 1
+            continue
+        # Update candidate with enriched data
+        if raw.skills:
+            candidate.skills = raw.skills
+        if raw.experience_years and not candidate.experience_years:
+            candidate.experience_years = raw.experience_years
+        if raw.education and not candidate.education:
+            candidate.education = raw.education
+        if raw.current_role and not candidate.current_role:
+            candidate.current_role = raw.current_role
+        if raw.phone and not candidate.phone:
+            candidate.phone = raw.phone
+            candidate.whatsapp = raw.phone
+        enriched += 1
+        logger.info("Enriched candidate %d (%s) from %s", candidate.id, candidate.name, candidate.source_ref)
+
+    return {"enriched": enriched, "skipped": skipped, "total_candidates": len(candidates)}

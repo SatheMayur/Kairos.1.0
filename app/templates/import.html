@@ -54,6 +54,73 @@
   </div>
 </div>
 
+<!-- URL Import -->
+<div class="grid-2" style="margin-top:0">
+  <div class="card">
+    <div class="card-header"><span class="card-title">🔗 Smart URL Import (CAD Crowd / Portfolio)</span></div>
+    <div class="card-body">
+      <p class="text-muted text-sm" style="margin-bottom:16px">Paste any public profile URL — CAD Crowd, portfolio sites, WorkIndia, Apna, Shine. Claude reads the page and extracts candidate data automatically.</p>
+      <div class="form-group">
+        <label>Job</label>
+        <select id="url-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="">Loading jobs…</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Profile URL</label>
+        <input type="url" id="url-single" placeholder="https://cadcrowd.com/profile/166710-abhyudayc1" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+      </div>
+      <div class="form-group">
+        <label>Source Portal</label>
+        <select id="url-source" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="MANUAL">Other / Portfolio</option>
+          <option value="WORKINDIA">WorkIndia</option>
+          <option value="LINKEDIN">LinkedIn</option>
+          <option value="NAUKRI">Naukri</option>
+          <option value="APNA">Apna</option>
+          <option value="SHINE">Shine</option>
+        </select>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="url-outreach" checked style="width:auto">
+        <label style="margin:0">Auto-send outreach if shortlisted</label>
+      </div>
+      <button class="btn btn-primary" onclick="importURL()" id="url-btn">🤖 Extract & Import</button>
+      <div id="url-result" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">🔗 Bulk URL Import (up to 20 profiles)</span></div>
+    <div class="card-body">
+      <p class="text-muted text-sm" style="margin-bottom:16px">Paste one URL per line. All profiles are fetched and scored in parallel.</p>
+      <div class="form-group">
+        <label>Job</label>
+        <select id="bulk-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="">Loading jobs…</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Profile URLs (one per line)</label>
+        <textarea id="bulk-urls" rows="5" placeholder="https://cadcrowd.com/profile/...&#10;https://cadcrowd.com/profile/..." style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%;resize:vertical"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Source Portal</label>
+        <select id="bulk-source" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="MANUAL">Other / Portfolio</option>
+          <option value="WORKINDIA">WorkIndia</option>
+          <option value="LINKEDIN">LinkedIn</option>
+          <option value="NAUKRI">Naukri</option>
+          <option value="APNA">Apna</option>
+          <option value="SHINE">Shine</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="importBulkURLs()" id="bulk-btn">🤖 Extract & Import All</button>
+      <div id="bulk-result" style="margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Import results -->
 <div id="import-result"></div>
 
@@ -90,7 +157,7 @@
 <script>
 async function init() {
   const jobs = await api('/api/v1/jobs?limit=100');
-  ['csv-job','source-job','m-job'].forEach(id => {
+  ['csv-job','source-job','m-job','url-job','bulk-job'].forEach(id => {
     const sel = document.getElementById(id);
     sel.innerHTML = '<option value="">Select job…</option>' +
       jobs.filter(j=>j.status==='ACTIVE').map(j=>
@@ -162,6 +229,63 @@ async function runSourceCron() {
     result.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
   }
   btn.disabled = false; btn.textContent = '🔍 Source Now';
+}
+
+async function importURL() {
+  const jobId = document.getElementById('url-job').value;
+  const url = document.getElementById('url-single').value.trim();
+  const source = document.getElementById('url-source').value;
+  const autoOutreach = document.getElementById('url-outreach').checked;
+  if (!jobId || !url) { showToast('Select a job and enter a URL', 'error'); return; }
+  const btn = document.getElementById('url-btn');
+  const result = document.getElementById('url-result');
+  btn.disabled = true; btn.textContent = 'Extracting…';
+  result.innerHTML = '<div class="text-muted text-sm">Claude is reading the profile page…</div>';
+  try {
+    const r = await api('/api/v1/import/url', {
+      method: 'POST',
+      body: { url, job_id: parseInt(jobId), source, auto_outreach: autoOutreach }
+    });
+    const d = r.details?.[0] || {};
+    const color = r.auto_shortlisted > 0 ? '#34d399' : r.pending_review > 0 ? '#fbbf24' : '#f87171';
+    result.innerHTML = `<div style="padding:12px;background:#1a1a2e;border-radius:8px;border-left:3px solid ${color}">
+      <strong>${esc(r.name || '?')}</strong> — ${esc(d.result||'').replace(/_/g,' ')}
+      ${d.score != null ? `<span class="text-muted"> · Score: ${parseFloat(d.score).toFixed(0)}</span>` : ''}
+      ${r.skills_found ? `<span class="text-muted"> · ${r.skills_found} skills found</span>` : ''}
+      ${r.outreach_queued > 0 ? '<span class="badge badge-green" style="margin-left:8px">Outreach Sent</span>' : ''}
+    </div>`;
+    showToast(r.name + ' imported', 'success');
+  } catch(e) {
+    result.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '🤖 Extract & Import';
+}
+
+async function importBulkURLs() {
+  const jobId = document.getElementById('bulk-job').value;
+  const raw = document.getElementById('bulk-urls').value;
+  const source = document.getElementById('bulk-source').value;
+  if (!jobId || !raw.trim()) { showToast('Select a job and enter URLs', 'error'); return; }
+  const urls = raw.split('\n').map(u=>u.trim()).filter(u=>u.startsWith('http'));
+  if (!urls.length) { showToast('No valid URLs found (must start with http)', 'error'); return; }
+  if (urls.length > 20) { showToast('Max 20 URLs at a time', 'error'); return; }
+  const btn = document.getElementById('bulk-btn');
+  const result = document.getElementById('bulk-result');
+  btn.disabled = true; btn.textContent = `Extracting ${urls.length} profiles…`;
+  result.innerHTML = `<div class="text-muted text-sm">Fetching ${urls.length} URLs in parallel…</div>`;
+  try {
+    const r = await api('/api/v1/import/url/bulk', {
+      method: 'POST',
+      body: { urls, job_id: parseInt(jobId), source, auto_outreach: true }
+    });
+    showImportResult(r);
+    const failed = r.urls_failed?.length || 0;
+    showToast(`${r.urls_extracted} of ${r.urls_attempted} extracted, ${r.auto_shortlisted} shortlisted${failed?' · '+failed+' failed':''}`, 'success');
+    result.innerHTML = failed ? `<div class="text-muted text-sm" style="margin-top:8px">Failed URLs: ${r.urls_failed.map(u=>`<div>${esc(u)}</div>`).join('')}</div>` : '';
+  } catch(e) {
+    result.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '🤖 Extract & Import All';
 }
 
 async function addManual() {

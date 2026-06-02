@@ -2,13 +2,15 @@
   "version": 2,
   "functions": {
     "api/index.py": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   },
   "crons": [
-    { "path": "/api/v1/cron/source",    "schedule": "0 1 * * *" },
-    { "path": "/api/v1/cron/outreach",  "schedule": "0 2 * * *" },
-    { "path": "/api/v1/cron/reminders", "schedule": "30 2 * * *" }
+    { "path": "/api/v1/cron/source",        "schedule": "0 */6 * * *" },
+    { "path": "/api/v1/cron/outreach",       "schedule": "0 * * * *"   },
+    { "path": "/api/v1/cron/followup",       "schedule": "30 * * * *"  },
+    { "path": "/api/v1/cron/post-interview", "schedule": "0 */2 * * *" },
+    { "path": "/api/v1/cron/reminders",      "schedule": "30 2 * * *"  }
   ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/index" }
@@ -18,11 +20,12 @@
     "DATABASE_URL": "sqlite+aiosqlite:////tmp/recruitment.db",
     "LOG_LEVEL": "WARNING",
     "USE_MOCK_ADAPTERS": "false",
-    "AUTO_OUTREACH_ENABLED": "false",
+    "AUTO_OUTREACH_ENABLED": "true",
     "USE_SHEETS_EMAIL_QUEUE": "true",
     "SHEETS_EMAIL_QUEUE_ID": "1u9hSfBLiAZW06x8zVNa_AAYrI-biMKQX2c7rXwiOl5c",
     "SHEETS_MASTER_ID": "1ni68KrCfUmV-5iooy2wI201mfPgKnHOcVzQA2i4XSDI",
     "EMAIL_FROM_NAME": "Kirti | K. Girdharlal International",
-    "EMAIL_FROM_ADDRESS": "kirti@kgirdharlal.com"
+    "EMAIL_FROM_ADDRESS": "kirti@kgirdharlal.com",
+    "INTERVIEW_CONFIRMATION_BASE_URL": "https://kgirdharlal-recruitment.vercel.app"
   }
 }

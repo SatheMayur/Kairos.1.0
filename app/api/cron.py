@@ -20,7 +20,9 @@ from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
 from app.models.outreach import OutreachChannel, OutreachType
 from app.models.shortlist import ShortlistEntry, ShortlistStatus
+from app.services.followup import send_followups
 from app.services.outreach import send_bulk_outreach
+from app.services.post_interview import process_completed_interviews
 from app.services.scheduling import send_interview_reminders
 from app.services.sourcing import source_candidates_for_job
 from app.utils.logging import get_logger
@@ -162,3 +164,41 @@ async def cron_reminders():
                 "ran_at": datetime.utcnow().isoformat() + "Z",
                 "error": str(exc)[:200],
             }
+
+
+@router.post("/followup", dependencies=[Depends(_verify_secret)])
+async def cron_followup():
+    """Send day-3 / day-6 follow-ups for CONTACTED candidates with no reply.
+    Marks candidates as DROPPED after day-9 silence.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await send_followups(db)
+            await db.commit()
+            logger.info(
+                "[CRON/followup] fu1=%d fu2=%d dropped=%d",
+                result["followup1_sent"], result["followup2_sent"], result["dropped"],
+            )
+            return {"ran_at": datetime.utcnow().isoformat() + "Z", **result}
+        except Exception as exc:
+            await db.rollback()
+            logger.error("[CRON/followup] failed: %s", exc)
+            return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}
+
+
+@router.post("/post-interview", dependencies=[Depends(_verify_secret)])
+async def cron_post_interview():
+    """Auto-complete overdue interviews and nudge candidates with unconfirmed slots."""
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await process_completed_interviews(db)
+            await db.commit()
+            logger.info(
+                "[CRON/post-interview] completed=%d nudges=%d",
+                result["auto_completed"], result["slot_nudges_sent"],
+            )
+            return {"ran_at": datetime.utcnow().isoformat() + "Z", **result}
+        except Exception as exc:
+            await db.rollback()
+            logger.error("[CRON/post-interview] failed: %s", exc)
+            return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}

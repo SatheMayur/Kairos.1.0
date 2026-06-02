@@ -15,6 +15,8 @@ _PAGES = {
     "shortlist": ("shortlist.html", "shortlist"),
     "outreach": ("outreach.html", "outreach"),
     "interviews": ("interviews.html", "interviews"),
+    "import": ("import.html", "import"),
+    "system": ("system.html", "system"),
 }
 
 
@@ -45,3 +47,11 @@ async def outreach(request: Request):
 @router.get("/interviews", response_class=HTMLResponse)
 async def interviews(request: Request):
     return _render(request, "interviews.html", "interviews")
+
+@router.get("/import", response_class=HTMLResponse)
+async def import_candidates(request: Request):
+    return _render(request, "import.html", "import")
+
+@router.get("/system", response_class=HTMLResponse)
+async def system(request: Request):
+    return _render(request, "system.html", "system")

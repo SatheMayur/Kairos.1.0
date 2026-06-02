@@ -32,13 +32,17 @@ Role details:
 • Position   : {job.title}
 • Location   : {job.location or 'TBD'}
 • Experience : {job.experience_min or ''}–{job.experience_max or ''} years
-• Salary     : ₹{int(job.salary_min or 0):,} – ₹{int(job.salary_max or 0):,}
+• Salary     : No bar for the right candidate
 
-If you are interested or would like more details, simply reply YES to this message
-and we will share the full JD and schedule a quick call.
+If you are interested or would like more details, please reply with:
+1. Current CTC & Expected CTC
+2. Notice period / availability
+3. Current location
 
 Warm regards,
-HR Team | {job.company or 'K. Girdharlal International'}
+Kirti Chand
+HR Manager | K. Girdharlal International Pvt. Ltd.
+Ph: 9033410606 | hr@kgirdharlal.com
 """
     return subject, body
 
@@ -221,15 +225,27 @@ async def send_outreach(
     """
     # Auto-render message if not provided
     if body is None:
+        # Try AI-personalized message for initial contact
         if outreach_type == OutreachType.INITIAL_CONTACT:
-            subject, body = _render_initial_contact(candidate, job)
-        elif outreach_type == OutreachType.SLOT_PROPOSAL and slots and confirmation_token:
-            subject, body = _render_slot_proposal(candidate, job, slots, confirmation_token)
-        elif outreach_type == OutreachType.REMINDER and scheduled_at:
-            subject, body = _render_reminder(candidate, job, scheduled_at, meet_link)
-        else:
-            body = body or "Please reply to confirm your interest."
-            subject = subject or f"Regarding {job.title}"
+            from app.services.ai_scoring import ai_generate_outreach
+            try:
+                ch_name = channel.value if hasattr(channel, 'value') else str(channel)
+                ai_subject, ai_body = await ai_generate_outreach(candidate, job, channel=ch_name)
+                if ai_subject and ai_body:
+                    subject, body = ai_subject, ai_body
+            except Exception:
+                pass  # fall through to template
+        # Template fallback
+        if body is None:
+            if outreach_type == OutreachType.INITIAL_CONTACT:
+                subject, body = _render_initial_contact(candidate, job)
+            elif outreach_type == OutreachType.SLOT_PROPOSAL and slots and confirmation_token:
+                subject, body = _render_slot_proposal(candidate, job, slots, confirmation_token)
+            elif outreach_type == OutreachType.REMINDER and scheduled_at:
+                subject, body = _render_reminder(candidate, job, scheduled_at, meet_link)
+            else:
+                body = body or "Please reply to confirm your interest."
+                subject = subject or f"Regarding {job.title}"
 
     log = OutreachLog(
         candidate_id=candidate.id,
@@ -361,14 +377,33 @@ async def queue_email_direct(
 ) -> bool:
     """Queue an email without a DB session — for use from cron handlers or admin scripts.
 
-    Uses the Google Sheets Email Queue (Apps Script sends within 5 min).
-    Returns True on success, False if credentials not configured.
+    Tries Sheets queue first (Apps Script picks up within 5 min), then falls
+    back to direct SMTP if Sheets is unavailable or not configured.
+    Returns True on success (either path), False only if both fail.
     """
-    if not settings.use_sheets_email_queue:
-        logger.warning("queue_email_direct: Sheets queue disabled in config")
-        return False
-    from app.services.email_queue_sheets import queue_email
-    return await queue_email(
-        to=to, subject=subject, body=body,
-        candidate_name=candidate_name, role=role, priority=priority,
+    # Path 1: Sheets queue → Apps Script sends within 5 minutes
+    if settings.use_sheets_email_queue:
+        from app.services.email_queue_sheets import queue_email
+        ok = await queue_email(
+            to=to, subject=subject, body=body,
+            candidate_name=candidate_name, role=role, priority=priority,
+        )
+        if ok:
+            return True
+        logger.warning("queue_email_direct: Sheets queue failed, trying SMTP fallback")
+
+    # Path 2: Direct SMTP send
+    if settings.smtp_password:
+        try:
+            await _send_email(to, subject, body, candidate_name=candidate_name, role=role)
+            logger.info("queue_email_direct: sent via SMTP to %s", to)
+            return True
+        except Exception as exc:
+            logger.error("queue_email_direct: SMTP failed: %s", exc)
+            return False
+
+    logger.error(
+        "queue_email_direct: no delivery method configured. "
+        "Set APPS_SCRIPT_WEB_APP_URL (preferred) or SMTP_PASSWORD in Vercel env vars."
     )
+    return False

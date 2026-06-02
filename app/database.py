@@ -5,10 +5,20 @@ from app.config import get_settings
 
 settings = get_settings()
 
+_db_url = settings.database_url
+
+# Neon / Supabase return postgresql:// — rewrite to asyncpg driver
+if _db_url.startswith("postgresql://") or _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    _db_url = _db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+
 engine = create_async_engine(
-    settings.database_url,
+    _db_url,
     echo=settings.app_env == "development",
     future=True,
+    # PostgreSQL connection pool settings
+    **({"pool_size": 5, "max_overflow": 10, "pool_pre_ping": True}
+       if not _db_url.startswith("sqlite") else {}),
 )
 
 AsyncSessionLocal = async_sessionmaker(

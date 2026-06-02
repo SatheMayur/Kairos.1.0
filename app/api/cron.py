@@ -20,8 +20,9 @@ from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
 from app.models.outreach import OutreachChannel, OutreachType
 from app.models.shortlist import ShortlistEntry, ShortlistStatus
+from app.services.digest import generate_digest
 from app.services.followup import send_followups
-from app.services.outreach import send_bulk_outreach
+from app.services.outreach import send_bulk_outreach, queue_email_direct
 from app.services.post_interview import process_completed_interviews
 from app.services.scheduling import send_interview_reminders
 from app.services.sourcing import source_candidates_for_job
@@ -207,4 +208,32 @@ async def cron_post_interview():
         except Exception as exc:
             await db.rollback()
             logger.error("[CRON/post-interview] failed: %s", exc)
+            return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}
+
+
+@router.post("/digest", dependencies=[Depends(_verify_secret)])
+async def cron_digest():
+    """Send the morning HR pipeline digest to the recruiter."""
+    if not settings.digest_enabled:
+        return {"skipped": True, "reason": "DIGEST_ENABLED=false"}
+
+    async with AsyncSessionLocal() as db:
+        try:
+            subject, body = await generate_digest(db)
+            ok = await queue_email_direct(
+                to=settings.digest_recipient_email,
+                subject=subject,
+                body=body,
+                candidate_name="Kirti Chand",
+                role="HR Manager",
+                priority="HIGH",
+            )
+            logger.info("[CRON/digest] sent=%s subject=%s", ok, subject[:60])
+            return {
+                "ran_at": datetime.utcnow().isoformat() + "Z",
+                "sent": ok,
+                "subject": subject,
+            }
+        except Exception as exc:
+            logger.error("[CRON/digest] failed: %s", exc)
             return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}

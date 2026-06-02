@@ -109,8 +109,12 @@ async def queue_direct(req: DirectEmailRequest):
     if not ok:
         raise HTTPException(
             status_code=503,
-            detail="Email queue unavailable — Google SA credentials not configured. "
-                   "Set GOOGLE_SA_CREDENTIALS_JSON in Vercel env vars.",
+            detail=(
+                "Email delivery not configured. Fix (pick one): "
+                "(A) Deploy AI_HR_AutoSend_v4_WITH_WEBHOOK.gs as a Google Apps Script Web App "
+                "and set APPS_SCRIPT_WEB_APP_URL in Vercel — preferred, no SMTP needed. "
+                "(B) Set SMTP_PASSWORD (Gmail App Password) in Vercel env vars."
+            ),
         )
     return {"status": "QUEUED", "to": req.to, "subject": req.subject}
 

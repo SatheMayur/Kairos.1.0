@@ -20,6 +20,33 @@ router = APIRouter(prefix="/interviews", tags=["interviews"])
 logger = get_logger(__name__)
 
 
+class InterviewDirect(InterviewCreate):
+    status: InterviewStatus = InterviewStatus.CONFIRMED
+    scheduled_at: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("", response_model=InterviewRead, status_code=status.HTTP_201_CREATED)
+async def create_interview_direct(payload: InterviewDirect, db: AsyncSession = Depends(get_db)):
+    """Admin endpoint — create a pre-confirmed or completed interview directly."""
+    from datetime import datetime
+    iv = Interview(
+        candidate_id=payload.candidate_id,
+        job_id=payload.job_id,
+        round=payload.round,
+        status=payload.status,
+        duration_minutes=payload.duration_minutes or 30,
+        interviewer_name=payload.interviewer_name,
+        interviewer_email=payload.interviewer_email,
+        notes=payload.notes,
+    )
+    if payload.scheduled_at:
+        iv.scheduled_at = datetime.fromisoformat(payload.scheduled_at)
+    db.add(iv)
+    await db.flush()
+    return iv
+
+
 @router.post("/propose", response_model=InterviewRead, status_code=status.HTTP_201_CREATED)
 async def propose_slots(payload: InterviewCreate, db: AsyncSession = Depends(get_db)):
     """Generate slot options and send proposal to candidate."""

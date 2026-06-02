@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     apps_script_web_app_url: str = ""      # e.g. https://script.google.com/macros/s/.../exec
     apps_script_webhook_secret: str = ""   # shared secret — set in both Script Properties + Vercel
 
+    # Claude AI (scoring, personalization, digest)
+    anthropic_api_key: str = ""
+    claude_model: str = "claude-haiku-4-5-20251001"  # fast + cheap for high-volume scoring
+
+    # Digest notifications
+    digest_recipient_email: str = "kirti@kgirdharlal.com"
+    digest_enabled: bool = True
+
     # Cron security
     cron_secret: str = ""                  # set in Vercel env — protects /cron/* endpoints
 

@@ -125,6 +125,17 @@ async def _score_and_shortlist(
         job_location=job.location,
     )
 
+    # Enhance with AI scoring if configured
+    from app.services.ai_scoring import ai_score_candidate
+    ai_result = await ai_score_candidate(candidate, job)
+    if ai_result and "score" in ai_result:
+        # Blend: 60% AI score (0-10 → 0-100) + 40% rule-based
+        ai_score_100 = ai_result["score"] * 10
+        blended = round(scored.total * 0.4 + ai_score_100 * 0.6, 2)
+        scored.total = blended
+        scored.decision = "AUTO_SHORTLIST" if blended >= 65 else ("MANUAL_REVIEW" if blended >= 40 else "REJECT")
+        logger.info("AI-blended score for %s: %.1f (%s)", candidate.name, blended, scored.decision)
+
     status_map = {
         "AUTO_SHORTLIST": ShortlistStatus.SHORTLISTED,
         "MANUAL_REVIEW": ShortlistStatus.PENDING,

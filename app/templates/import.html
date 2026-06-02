@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Import Candidates{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left"><h1>Import Candidates</h1><p>Bulk upload from Naukri, WorkIndia CSV or paste manually</p></div>
+</div>
+
+<div id="alert-area"></div>
+
+<div class="grid-2">
+  <!-- CSV Upload -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">📂 CSV Upload (Naukri / WorkIndia)</span></div>
+    <div class="card-body">
+      <div class="form-group">
+        <label>Job</label>
+        <select id="csv-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="">Loading jobs…</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Source Portal</label>
+        <select id="csv-source" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="NAUKRI">Naukri</option>
+          <option value="WORKINDIA">WorkIndia</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>CSV File</label>
+        <input type="file" id="csv-file" accept=".csv" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="csv-outreach" checked style="width:auto">
+        <label style="margin:0">Auto-send outreach to shortlisted candidates</label>
+      </div>
+      <button class="btn btn-primary" onclick="uploadCSV()" id="csv-btn">📤 Import & Score</button>
+    </div>
+  </div>
+
+  <!-- Run AI Sourcing -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">🤖 AI Sourcing (Apify)</span></div>
+    <div class="card-body">
+      <p class="text-muted text-sm" style="margin-bottom:16px">Run Apify actors to scrape LinkedIn and Naukri for fresh candidates matching the job requirements.</p>
+      <div class="form-group">
+        <label>Job</label>
+        <select id="source-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="">Loading jobs…</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="runSourceCron()" id="source-btn">🔍 Source Now</button>
+      <div id="source-result" style="margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Import results -->
+<div id="import-result"></div>
+
+<!-- Manual batch entry -->
+<div class="card">
+  <div class="card-header"><span class="card-title">✍️ Manual Entry (paste from portal)</span></div>
+  <div class="card-body">
+    <p class="text-muted text-sm" style="margin-bottom:16px">Enter candidate details one by one. Useful for WorkIndia handpicked candidates or LinkedIn profiles.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div class="form-group"><label>Full Name *</label><input type="text" id="m-name" placeholder="Chinmay Pandya"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="m-email" placeholder="candidate@gmail.com"></div>
+      <div class="form-group"><label>Phone</label><input type="text" id="m-phone" placeholder="9876543210"></div>
+      <div class="form-group"><label>Current Role</label><input type="text" id="m-role" placeholder="HR Executive"></div>
+      <div class="form-group"><label>Current Employer</label><input type="text" id="m-employer" placeholder="Company Name"></div>
+      <div class="form-group"><label>Experience (years)</label><input type="number" id="m-exp" placeholder="2" step="0.5" min="0"></div>
+      <div class="form-group"><label>Location</label><input type="text" id="m-location" placeholder="Surat"></div>
+      <div class="form-group"><label>Expected Salary (₹/mo)</label><input type="number" id="m-salary" placeholder="25000"></div>
+      <div class="form-group"><label>Notice Period (days)</label><input type="number" id="m-notice" placeholder="30"></div>
+    </div>
+    <div class="form-group"><label>Skills (comma-separated)</label><input type="text" id="m-skills" placeholder="Payroll, Recruitment, Leave Management"></div>
+    <div class="form-group">
+      <label>Job to score against</label>
+      <select id="m-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="addManual()" id="m-btn">➕ Add & Score Candidate</button>
+    <span id="m-result" style="margin-left:16px;font-size:13px"></span>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function init() {
+  const jobs = await api('/api/v1/jobs?limit=100');
+  ['csv-job','source-job','m-job'].forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '<option value="">Select job…</option>' +
+      jobs.filter(j=>j.status==='ACTIVE').map(j=>
+        `<option value="${j.id}">${esc(j.title)} ${j.company?'('+esc(j.company)+')':''}</option>`
+      ).join('');
+  });
+}
+
+async function uploadCSV() {
+  const jobId = document.getElementById('csv-job').value;
+  const source = document.getElementById('csv-source').value;
+  const file = document.getElementById('csv-file').files[0];
+  const autoOutreach = document.getElementById('csv-outreach').checked;
+  if (!jobId || !file) { showToast('Select a job and upload a CSV file', 'error'); return; }
+  const btn = document.getElementById('csv-btn');
+  btn.disabled = true; btn.textContent = 'Processing…';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('job_id', jobId);
+    fd.append('source', source);
+    fd.append('auto_outreach', autoOutreach);
+    const r = await fetch('/api/v1/import/csv', {method:'POST', body:fd});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || 'Import failed');
+    showImportResult(data);
+    showToast(`Imported ${data.inserted} candidates, ${data.auto_shortlisted} shortlisted`, 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '📤 Import & Score';
+}
+
+function showImportResult(r) {
+  document.getElementById('import-result').innerHTML = `
+    <div class="card">
+      <div class="card-header"><span class="card-title">Import Results</span></div>
+      <div class="card-body">
+        <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+          <div class="kpi green"><div class="kpi-label">Inserted</div><div class="kpi-value" style="font-size:22px">${r.inserted}</div></div>
+          <div class="kpi blue"><div class="kpi-label">Auto-Shortlisted</div><div class="kpi-value" style="font-size:22px">${r.auto_shortlisted}</div></div>
+          <div class="kpi yellow"><div class="kpi-label">Manual Review</div><div class="kpi-value" style="font-size:22px">${r.pending_review}</div></div>
+          <div class="kpi red"><div class="kpi-label">Rejected</div><div class="kpi-value" style="font-size:22px">${r.rejected}</div></div>
+          <div class="kpi purple"><div class="kpi-label">Outreach Sent</div><div class="kpi-value" style="font-size:22px">${r.outreach_queued}</div></div>
+        </div>
+        <div class="table-wrap"><table>
+          <tr><th>Candidate</th><th>Email</th><th>Score</th><th>Result</th></tr>
+          ${r.details.slice(0,20).map(d=>`<tr>
+            <td><strong>${esc(d.name||'')}</strong></td>
+            <td class="text-muted">${esc(d.email||'–')}</td>
+            <td>${d.score!=null?d.score.toFixed(0):'–'}</td>
+            <td><span class="badge ${d.result==='AUTO_SHORTLISTED'?'badge-green':d.result==='PENDING_REVIEW'?'badge-yellow':d.result==='REJECTED'?'badge-red':'badge-grey'}">${(d.result||'').replace(/_/g,' ')}</span></td>
+          </tr>`).join('')}
+        </table></div>
+      </div>
+    </div>`;
+}
+
+async function runSourceCron() {
+  const jobId = document.getElementById('source-job').value;
+  if (!jobId) { showToast('Select a job first', 'error'); return; }
+  const btn = document.getElementById('source-btn');
+  const result = document.getElementById('source-result');
+  btn.disabled = true; btn.textContent = 'Sourcing…';
+  result.innerHTML = '<div class="text-muted text-sm">Running Apify sourcing… this may take 1-2 minutes.</div>';
+  try {
+    const r = await api('/api/v1/sourcing/'+jobId, {method:'POST'});
+    result.innerHTML = `<div class="alert alert-success">Sourced <strong>${r.total_sourced||0}</strong> candidates — ${r.shortlisted||0} shortlisted.</div>`;
+    showToast('Sourcing complete', 'success');
+  } catch(e) {
+    result.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '🔍 Source Now';
+}
+
+async function addManual() {
+  const jobId = document.getElementById('m-job').value;
+  const name = document.getElementById('m-name').value.trim();
+  if (!jobId || !name) { showToast('Name and Job are required', 'error'); return; }
+  const btn = document.getElementById('m-btn');
+  btn.disabled = true;
+  try {
+    const skillsRaw = document.getElementById('m-skills').value;
+    const skills = skillsRaw ? skillsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const r = await api('/api/v1/import/batch?job_id='+jobId+'&auto_outreach=true', {
+      method:'POST',
+      body: [{
+        name,
+        email: document.getElementById('m-email').value || null,
+        phone: document.getElementById('m-phone').value || null,
+        current_role: document.getElementById('m-role').value || null,
+        current_employer: document.getElementById('m-employer').value || null,
+        experience_years: parseFloat(document.getElementById('m-exp').value) || null,
+        location: document.getElementById('m-location').value || null,
+        expected_salary: parseFloat(document.getElementById('m-salary').value) || null,
+        notice_period_days: parseInt(document.getElementById('m-notice').value) || null,
+        skills,
+        source: 'MANUAL',
+      }]
+    });
+    const d = r.details[0];
+    const result = document.getElementById('m-result');
+    result.style.color = d.result==='AUTO_SHORTLISTED'?'#34d399':d.result==='REJECTED'?'#f87171':'#fbbf24';
+    result.textContent = `✓ ${d.result.replace(/_/g,' ')} — Score: ${d.score?.toFixed(0)||'?'}`;
+    showToast(name+' added — '+d.result, 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+  btn.disabled = false;
+}
+
+init();
+</script>
+{% endblock %}

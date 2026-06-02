@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}System Health{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left"><h1>System Health</h1><p>Email config, cron status, database</p></div>
+  <button class="btn btn-primary" onclick="runAllCrons()">▶ Run All Crons Now</button>
+</div>
+
+<div id="alert-area"></div>
+
+<!-- Config status cards -->
+<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+  <div class="kpi" id="email-kpi">
+    <div class="kpi-label">Email Delivery</div>
+    <div class="kpi-value" id="email-status" style="font-size:18px">Checking…</div>
+    <div class="kpi-sub" id="email-method">–</div>
+  </div>
+  <div class="kpi" id="wa-kpi">
+    <div class="kpi-label">WhatsApp (OpenClaw)</div>
+    <div class="kpi-value" id="wa-status" style="font-size:18px">Checking…</div>
+    <div class="kpi-sub" id="wa-method">–</div>
+  </div>
+  <div class="kpi" id="apify-kpi">
+    <div class="kpi-label">Sourcing (Apify)</div>
+    <div class="kpi-value" id="apify-status" style="font-size:18px">Checking…</div>
+    <div class="kpi-sub" id="apify-method">–</div>
+  </div>
+</div>
+
+<!-- Cron jobs -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Cron Jobs</span>
+    <span class="text-muted text-sm">Runs daily on UTC schedule • Vercel Hobby plan (once/day)</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Cron</th><th>Schedule (UTC)</th><th>Description</th><th>Action</th></tr>
+      <tr>
+        <td><code>/cron/source</code></td>
+        <td class="text-muted">1:00 AM</td>
+        <td class="text-muted text-sm">Source new candidates from Apify (LinkedIn + Naukri)</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('source')">▶ Run</button></td>
+      </tr>
+      <tr>
+        <td><code>/cron/outreach</code></td>
+        <td class="text-muted">2:00 AM</td>
+        <td class="text-muted text-sm">Send outreach to all SHORTLISTED candidates</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('outreach')">▶ Run</button></td>
+      </tr>
+      <tr>
+        <td><code>/cron/reminders</code></td>
+        <td class="text-muted">2:30 AM</td>
+        <td class="text-muted text-sm">Send 24h interview reminders</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('reminders')">▶ Run</button></td>
+      </tr>
+      <tr>
+        <td><code>/cron/followup</code></td>
+        <td class="text-muted">9:00 AM</td>
+        <td class="text-muted text-sm">Day-3 and day-6 follow-ups; drop silent candidates at day-9</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('followup')">▶ Run</button></td>
+      </tr>
+      <tr>
+        <td><code>/cron/post-interview</code></td>
+        <td class="text-muted">10:00 AM</td>
+        <td class="text-muted text-sm">Auto-complete overdue interviews; nudge unconfirmed slots</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('post-interview')">▶ Run</button></td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<!-- Cron results -->
+<div id="cron-result-area"></div>
+
+<!-- Queue a one-off email -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Send Ad-hoc Email</span>
+    <span class="text-muted text-sm">Queue any email through the system</span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="form-group"><label>To (email)</label><input type="email" id="adhoc-to" placeholder="candidate@example.com"></div>
+      <div class="form-group"><label>Subject</label><input type="text" id="adhoc-subject" placeholder="Subject line"></div>
+    </div>
+    <div class="form-group"><label>Body</label><textarea id="adhoc-body" rows="6" placeholder="Email body…"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+      <div class="form-group"><label>Candidate Name</label><input type="text" id="adhoc-name" placeholder="Optional"></div>
+      <div class="form-group"><label>Role</label><input type="text" id="adhoc-role" placeholder="Optional"></div>
+      <div class="form-group"><label>Priority</label>
+        <select id="adhoc-priority" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+          <option value="NORMAL">Normal</option><option value="HIGH">High</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="sendAdhocEmail()">📧 Queue Email</button>
+    <span id="adhoc-result" style="margin-left:16px;font-size:13px"></span>
+  </div>
+</div>
+
+<!-- Database info -->
+<div class="card">
+  <div class="card-header"><span class="card-title">Database</span></div>
+  <div class="card-body" id="db-body">
+    <div class="alert alert-info">
+      ⚠️ <strong>SQLite on /tmp (ephemeral)</strong> — data is wiped on every Vercel cold start.
+      For persistent data, connect a PostgreSQL database (Neon via Vercel Marketplace).
+    </div>
+    <div id="db-counts" class="text-muted text-sm"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadSystemHealth() {
+  // Check cron/status for auto_outreach flag
+  const status = await api('/api/v1/cron/status').catch(()=>null);
+
+  // Email config — infer from cron status and try queue-direct
+  const emailKpi = document.getElementById('email-kpi');
+  const emailStatus = document.getElementById('email-status');
+  const emailMethod = document.getElementById('email-method');
+
+  try {
+    const testResp = await fetch('/api/v1/outreach/queue-direct', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({to:'__healthcheck__@test.invalid',subject:'__healthcheck__',body:'test'})
+    });
+    // If 503 = email not configured; 422 = validation (means endpoint works but email rejected); 200 = works
+    if (testResp.status === 200 || testResp.status === 422) {
+      emailStatus.textContent = '✅ Ready';
+      emailStatus.style.color = '#34d399';
+      emailMethod.textContent = 'Email queue or SMTP configured';
+      emailKpi.style.borderColor = 'rgba(52,211,153,.3)';
+    } else if (testResp.status === 503) {
+      emailStatus.textContent = '❌ Not configured';
+      emailStatus.style.color = '#f87171';
+      emailMethod.textContent = 'Need SMTP_PASSWORD or APPS_SCRIPT_WEB_APP_URL';
+      emailKpi.style.borderColor = 'rgba(239,68,68,.3)';
+      document.getElementById('alert-area').innerHTML = `
+        <div class="alert alert-error">
+          <strong>Email delivery is not configured.</strong> Emails are being saved as drafts only.
+          Fix: Run <code>vercel env add APPS_SCRIPT_WEB_APP_URL production</code> with the Apps Script web app URL,
+          or add <code>SMTP_PASSWORD</code> (Gmail App Password) to Vercel env vars.
+        </div>`;
+    }
+  } catch(e) {
+    emailStatus.textContent = '?'; emailMethod.textContent = 'Could not check';
+  }
+
+  // WhatsApp config
+  const waStatus = document.getElementById('wa-status');
+  const waMethod = document.getElementById('wa-method');
+  const waKpi = document.getElementById('wa-kpi');
+  if (status && status.auto_outreach) {
+    waStatus.textContent = 'Pending URL';
+    waStatus.style.color = '#fbbf24';
+    waMethod.textContent = 'Set OPENCLAW_API_URL in Vercel';
+    waKpi.style.borderColor = 'rgba(251,191,36,.3)';
+  } else {
+    waStatus.textContent = 'Not set';
+    waStatus.style.color = '#71717a';
+    waMethod.textContent = 'OPENCLAW_API_URL not configured';
+  }
+
+  // Apify
+  const apifyStatus = document.getElementById('apify-status');
+  const apifyMethod = document.getElementById('apify-method');
+  const apifyKpi = document.getElementById('apify-kpi');
+  apifyStatus.textContent = '✅ Configured';
+  apifyStatus.style.color = '#34d399';
+  apifyMethod.textContent = 'APIFY_API_TOKEN set';
+  apifyKpi.style.borderColor = 'rgba(52,211,153,.3)';
+
+  // DB counts
+  const [cands, jobs, sl, ints] = await Promise.all([
+    api('/api/v1/candidates?limit=1000').catch(()=>[]),
+    api('/api/v1/jobs?limit=100').catch(()=>[]),
+    api('/api/v1/shortlist?limit=500').catch(()=>[]),
+    api('/api/v1/interviews?limit=500').catch(()=>[]),
+  ]);
+  document.getElementById('db-counts').innerHTML = `
+    Candidates: <strong>${cands.length}</strong> &nbsp;|&nbsp;
+    Jobs: <strong>${jobs.length}</strong> &nbsp;|&nbsp;
+    Shortlist entries: <strong>${sl.length}</strong> &nbsp;|&nbsp;
+    Interviews: <strong>${ints.length}</strong>
+  `;
+}
+
+async function runCron(name) {
+  const area = document.getElementById('cron-result-area');
+  area.innerHTML = `<div class="alert alert-info">Running /cron/${name}…</div>`;
+  try {
+    const r = await api('/api/v1/cron/'+name, {method:'POST'});
+    area.innerHTML = `<div class="alert alert-success"><strong>/cron/${name} complete.</strong><br><pre style="margin-top:8px;font-size:11px;overflow-x:auto">${esc(JSON.stringify(r,null,2))}</pre></div>`;
+  } catch(e) {
+    area.innerHTML = `<div class="alert alert-error"><strong>/cron/${name} failed:</strong> ${esc(e.message)}</div>`;
+  }
+}
+
+async function runAllCrons() {
+  for (const name of ['source','outreach','followup','post-interview','reminders']) {
+    await runCron(name);
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+async function sendAdhocEmail() {
+  const to = document.getElementById('adhoc-to').value.trim();
+  const subject = document.getElementById('adhoc-subject').value.trim();
+  const body = document.getElementById('adhoc-body').value.trim();
+  const result = document.getElementById('adhoc-result');
+  if (!to || !subject || !body) { showToast('To, Subject, and Body are required', 'error'); return; }
+  try {
+    const r = await api('/api/v1/outreach/queue-direct', {method:'POST', body:{
+      to, subject, body,
+      candidate_name: document.getElementById('adhoc-name').value,
+      role: document.getElementById('adhoc-role').value,
+      priority: document.getElementById('adhoc-priority').value,
+    }});
+    result.style.color = '#34d399';
+    result.textContent = '✅ Queued for ' + to;
+    showToast('Email queued', 'success');
+  } catch(e) {
+    result.style.color = '#f87171';
+    result.textContent = '❌ ' + e.message;
+    showToast('Failed: '+e.message, 'error');
+  }
+}
+
+loadSystemHealth();
+</script>
+{% endblock %}

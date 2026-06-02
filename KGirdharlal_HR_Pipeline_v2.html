@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Pipeline · K. Girdharlal International</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f1f5f9;--sidebar:#1e1b4b;--card:#fff;
+  --accent:#6366f1;--accent-light:#eef2ff;
+  --green:#10b981;--amber:#f59e0b;--red:#ef4444;--blue:#3b82f6;--violet:#8b5cf6;
+  --t1:#1e293b;--t2:#475569;--t3:#94a3b8;
+  --border:#e2e8f0;
+  --sh:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --sh-md:0 4px 12px rgba(0,0,0,.07),0 2px 4px rgba(0,0,0,.04);
+  --sh-lg:0 20px 40px rgba(0,0,0,.12);
+  --r:12px;
+}
+body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;display:flex;font-size:14px;line-height:1.5}
+
+/* ── Sidebar ── */
+.sidebar{width:260px;min-width:260px;background:var(--sidebar);height:100vh;position:sticky;top:0;display:flex;flex-direction:column;overflow:hidden}
+.sb-brand{padding:20px 18px 16px;border-bottom:1px solid rgba(255,255,255,.07)}
+.sb-icon{width:38px;height:38px;background:var(--accent);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff;margin-bottom:10px}
+.sb-name{color:#fff;font-weight:700;font-size:13px;line-height:1.3}
+.sb-sub{color:rgba(255,255,255,.38);font-size:11px;margin-top:2px}
+.sb-section{padding:14px 12px 0}
+.sb-section-label{color:rgba(255,255,255,.28);font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;padding:0 8px;margin-bottom:6px}
+.sb-link{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;color:rgba(255,255,255,.55);font-size:13px;font-weight:500;cursor:pointer;transition:.15s;margin-bottom:2px;border:none;background:none;width:100%;text-align:left}
+.sb-link svg{width:15px;height:15px;flex-shrink:0}
+.sb-link:hover,.sb-link.active{background:rgba(255,255,255,.09);color:#fff}
+.sb-jobs{padding:14px 12px 0;flex:1;overflow-y:auto}
+.sb-job{background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:.15s}
+.sb-job:hover,.sb-job.active{background:rgba(99,102,241,.22);border-color:rgba(99,102,241,.45)}
+.sb-job-title{color:#fff;font-weight:600;font-size:12.5px;line-height:1.3}
+.sb-job-co{color:rgba(255,255,255,.4);font-size:11px;margin-top:2px}
+.sb-job-foot{display:flex;align-items:center;justify-content:space-between;margin-top:9px}
+.sb-job-sal{color:rgba(255,255,255,.5);font-size:11px}
+.sb-pill{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+.sb-user{padding:12px 16px;border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:10px;margin-top:auto}
+.sb-avatar{width:30px;height:30px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;flex-shrink:0}
+.sb-user-name{color:#fff;font-size:12px;font-weight:600}
+.sb-user-email{color:rgba(255,255,255,.38);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── Main ── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{background:#fff;border-bottom:1px solid var(--border);padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar-title{font-size:16px;font-weight:800;letter-spacing:-.01em}
+.topbar-right{display:flex;align-items:center;gap:12px}
+.topbar-warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;cursor:pointer}
+.topbar-date{color:var(--t3);font-size:13px}
+
+.content{padding:24px 28px;flex:1}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.stat{background:var(--card);border-radius:var(--r);padding:18px 20px;box-shadow:var(--sh);border:1px solid var(--border)}
+.stat-label{color:var(--t3);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+.stat-val{font-size:30px;font-weight:800;line-height:1;margin-top:5px}
+.stat-meta{color:var(--t3);font-size:11.5px;margin-top:4px}
+
+/* Alert */
+.alert{background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #f97316;border-radius:var(--r);padding:13px 16px;margin-bottom:18px;display:flex;gap:12px}
+.alert-body{flex:1}
+.alert-title{font-weight:700;font-size:13px;color:#9a3412}
+.alert-text{font-size:12px;color:#7c3516;margin-top:3px;line-height:1.55}
+
+/* Toolbar */
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:3px;flex-shrink:0}
+.tab{padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:500;cursor:pointer;color:var(--t2);transition:.15s;white-space:nowrap;border:none;background:none;font-family:inherit}
+.tab:hover:not(.active){background:var(--bg)}
+.tab.active{background:var(--accent);color:#fff}
+.tab-count{font-size:10.5px;background:rgba(0,0,0,.07);padding:1px 6px;border-radius:10px;margin-left:3px}
+.tab.active .tab-count{background:rgba(255,255,255,.22)}
+.search-wrap{position:relative;flex:1;max-width:260px}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--t3);pointer-events:none}
+.search{width:100%;padding:8px 12px 8px 33px;border:1px solid var(--border);border-radius:8px;background:var(--card);font-size:13px;outline:none;font-family:inherit;color:var(--t1);transition:.15s}
+.search:focus{border-color:var(--accent)}
+.sort{padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);font-size:13px;outline:none;cursor:pointer;font-family:inherit;color:var(--t1)}
+
+/* Cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:13px}
+.card{background:var(--card);border-radius:var(--r);border:1px solid var(--border);padding:16px;cursor:pointer;transition:.15s;box-shadow:var(--sh);display:flex;gap:14px;position:relative;overflow:hidden}
+.card:hover{box-shadow:var(--sh-md);border-color:#c7d2fe;transform:translateY(-1px)}
+.card.risk-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--red)}
+.risk-tag{position:absolute;top:11px;right:11px;background:#fef2f2;color:var(--red);font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:.04em}
+.card-body{flex:1;min-width:0}
+.card-name{font-weight:700;font-size:15px;line-height:1.2}
+.card-role{color:var(--t3);font-size:11.5px;margin-top:2px}
+.card-status{margin-top:8px}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.skills{display:flex;flex-wrap:wrap;gap:4px;margin-top:9px}
+.chip{background:var(--accent-light);color:var(--accent);font-size:11px;font-weight:500;padding:3px 9px;border-radius:6px}
+.card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--bg);gap:8px}
+.card-date{font-size:11px;color:var(--t3);display:flex;align-items:center;gap:4px;flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.card-src{font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.05em;text-transform:uppercase;flex-shrink:0}
+
+.empty{text-align:center;padding:64px 20px;color:var(--t3)}
+.empty-icon{font-size:44px;margin-bottom:12px}
+.empty-title{font-size:15px;font-weight:600;color:var(--t2)}
+.empty-sub{font-size:13px;margin-top:4px}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);backdrop-filter:blur(5px);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:.2s}
+.overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--card);border-radius:18px;width:100%;max-width:540px;max-height:88vh;overflow-y:auto;box-shadow:var(--sh-lg);transform:scale(.96) translateY(10px);transition:.2s}
+.overlay.open .modal{transform:scale(1) translateY(0)}
+.modal-head{padding:24px 24px 0;display:flex;align-items:flex-start;gap:16px}
+.modal-info{flex:1}
+.modal-name{font-size:21px;font-weight:800;line-height:1.2}
+.modal-role{color:var(--t2);font-size:13.5px;margin-top:4px}
+.modal-close{width:32px;height:32px;border:1px solid var(--border);border-radius:8px;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t2);transition:.15s;flex-shrink:0}
+.modal-close:hover{background:var(--bg)}
+.modal-body{padding:18px 24px}
+.m-alert{background:#fef2f2;border:1px solid #fecaca;border-left:4px solid var(--red);border-radius:10px;padding:11px 14px;margin-bottom:16px;display:flex;gap:10px}
+.m-alert-title{font-weight:700;font-size:12.5px;color:#991b1b}
+.m-alert-text{font-size:12px;color:#7f1d1d;margin-top:2px;line-height:1.5}
+.m-sec{margin-bottom:18px}
+.m-sec-label{font-size:10.5px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:9px}
+.m-row{display:flex;align-items:flex-start;gap:11px;margin-bottom:7px;font-size:13.5px;color:var(--t1)}
+.m-icon{color:var(--t3);flex-shrink:0;margin-top:1px}
+.m-skills{display:flex;flex-wrap:wrap;gap:5px}
+.m-chip{background:var(--accent-light);color:var(--accent);font-size:12.5px;font-weight:500;padding:4px 12px;border-radius:7px}
+.modal-foot{display:flex;gap:10px;padding:16px 24px 20px;border-top:1px solid var(--border)}
+.btn{flex:1;padding:10px 16px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:.15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#4f46e5}
+.btn-ghost{background:var(--bg);color:var(--t2);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--border)}
+.btn-red{background:#fef2f2;color:var(--red);border:1px solid #fecaca}
+.btn-red:hover{background:#fee2e2}
+
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}.sidebar{display:none}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ══ Sidebar ══ -->
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-icon">KG</div>
+    <div class="sb-name">K. Girdharlal International</div>
+    <div class="sb-sub">Surat, Gujarat · HR Dashboard</div>
+  </div>
+
+  <div class="sb-section">
+    <div class="sb-section-label">Navigation</div>
+    <button class="sb-link active" data-filter="all" onclick="activateFilter('all',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      All Candidates
+    </button>
+    <button class="sb-link" data-filter="scheduled" onclick="activateFilter('scheduled',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      Scheduled This Week
+    </button>
+    <button class="sb-link" data-filter="flags" onclick="activateFilter('flags',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+      Risk Flags
+    </button>
+  </div>
+
+  <div class="sb-jobs">
+    <div class="sb-section-label" style="padding:0 8px;margin-bottom:8px">Active Roles</div>
+    <div class="sb-job active" data-filter="de" onclick="activateFilter('de',this)">
+      <div class="sb-job-title">Design Engineer (CAD)</div>
+      <div class="sb-job-co">K. Girdharlal International</div>
+      <div class="sb-job-foot">
+        <span class="sb-job-sal">₹18K–25K / mo</span>
+        <span class="sb-pill" id="pill-de">19</span>
+      </div>
+    </div>
+    <div class="sb-job" data-filter="gd" onclick="activateFilter('gd',this)">
+      <div class="sb-job-title">Sr. Graphic Designer</div>
+      <div class="sb-job-co">Facets Gems Polishing Works</div>
+      <div class="sb-job-foot">
+        <span class="sb-job-sal">₹50,000 / mo</span>
+        <span class="sb-pill" id="pill-gd">9</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sb-user">
+    <div class="sb-avatar">K</div>
+    <div>
+      <div class="sb-user-name">Kirti</div>
+      <div class="sb-user-email">kirti@kgirdharlal.com</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ══ Main ══ -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">HR Pipeline</div>
+    <div class="topbar-right">
+      <span class="topbar-warn" onclick="activateFilter('flags',null)">⚠️ 8 Risk Flags</span>
+      <span class="topbar-date">Sun, 31 May 2026</span>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Active Roles</div>
+        <div class="stat-val" style="color:var(--accent)">2</div>
+        <div class="stat-meta">Design Engineer · Graphic Designer</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">In Pipeline</div>
+        <div class="stat-val" style="color:var(--green)">28</div>
+        <div class="stat-meta">Total candidates tracked</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Scheduled This Week</div>
+        <div class="stat-val" style="color:var(--blue)">12</div>
+        <div class="stat-meta">Jun 2 – Jun 6, 2026</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Needs Attention</div>
+        <div class="stat-val" style="color:var(--amber)">11</div>
+        <div class="stat-meta">Outcomes pending · Flags</div>
+      </div>
+    </div>
+
+    <!-- Alert -->
+    <div class="alert">
+      <span style="font-size:18px;margin-top:1px">⚠️</span>
+      <div class="alert-body">
+        <div class="alert-title">Duplicate Resume Alert — 7 Sr. Graphic Designer Candidates</div>
+        <div class="alert-text"><strong>Aarav Mehta, Aditya Verma, Kunal Patel, Neha Joshi, Rahul Nair, Sneha Iyer</strong> and <strong>Vikram Desai</strong> share identical resume text ("Creative Studio Pvt Ltd, 2019–present", word-for-word bullets). These 7 are flagged. Do NOT shortlist without direct verification.</div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-filter="all" onclick="activateFilter('all',this)">All <span class="tab-count" id="tc-all">28</span></button>
+        <button class="tab" data-filter="de"  onclick="activateFilter('de',this)">Design Eng <span class="tab-count" id="tc-de">19</span></button>
+        <button class="tab" data-filter="gd"  onclick="activateFilter('gd',this)">Graphic Design <span class="tab-count" id="tc-gd">9</span></button>
+        <button class="tab" data-filter="scheduled" onclick="activateFilter('scheduled',this)">Scheduled <span class="tab-count" id="tc-sch">12</span></button>
+        <button class="tab" data-filter="flags" onclick="activateFilter('flags',this)">Risk Flags <span class="tab-count" id="tc-fl">8</span></button>
+      </div>
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input class="search" type="text" placeholder="Search by name or skill…" oninput="onSearch(this.value)">
+      </div>
+      <select class="sort" onchange="onSort(this.value)">
+        <option value="score-desc">Score: High → Low</option>
+        <option value="score-asc">Score: Low → High</option>
+        <option value="name">Name A–Z</option>
+      </select>
+    </div>
+
+    <!-- Grid -->
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">No candidates match</div>
+      <div class="empty-sub">Try a different search or filter</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ Modal ══ -->
+<div class="overlay" id="overlay" onclick="onOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <div id="m-ring"></div>
+      <div class="modal-info">
+        <div class="modal-name" id="m-name"></div>
+        <div class="modal-role" id="m-role"></div>
+        <div style="margin-top:8px" id="m-badge"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="m-risk"></div>
+      <div class="m-sec" id="m-sec-sched">
+        <div class="m-sec-label">Schedule</div>
+        <div class="m-row">
+          <span class="m-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+          <span id="m-sched"></span>
+        </div>
+      </div>
+      <div class="m-sec" id="m-sec-skills">
+        <div class="m-sec-label">Skills</div>
+        <div class="m-skills" id="m-skills"></div>
+      </div>
+      <div class="m-sec">
+        <div class="m-sec-label">Details</div>
+        <div id="m-details"></div>
+      </div>
+      <div class="m-sec" id="m-sec-notes">
+        <div class="m-sec-label">Notes</div>
+        <div style="font-size:13px;color:var(--t2);line-height:1.6" id="m-notes"></div>
+      </div>
+    </div>
+    <div class="modal-foot" id="m-foot"></div>
+  </div>
+</div>
+
+<script>
+// ── Data ──────────────────────────────────────────────────────────────
+const CANDS = [
+  // Design Engineer — Upcoming (Jun 2–6)
+  {id:1, name:'Abhyuday C.',       role:'Design Engineer (CAD)', job:'de', score:92, status:'INTERVIEW_SCHEDULED', sched:'Jun 2 · 10:00 AM', skills:['Fusion 360','AutoCAD','SolidWorks','Blender'],          exp:'~1–2 yrs', src:'CAD CROWD', risk:false, notes:'CAD Crowd profile: cadcrowd.com/profile/166710-abhyudayc1'},
+  {id:2, name:'Akshat J.',          role:'Design Engineer (CAD)', job:'de', score:90, status:'INTERVIEW_SCHEDULED', sched:'Jun 2 · 11:00 AM', skills:['Fusion 360','SolidWorks','AutoCAD','ANSYS'],             exp:'~1–3 yrs', src:'CAD CROWD', risk:false, notes:''},
+  {id:3, name:'Tirth B.',           role:'Design Engineer (CAD)', job:'de', score:88, status:'INTERVIEW_SCHEDULED', sched:'Jun 3 · 10:00 AM', skills:['Fusion 360','SolidWorks','AutoCAD','DFM'],              exp:'~1–2 yrs', src:'CAD CROWD', risk:false, notes:'⭐ 5.0 rating on CAD Crowd — top-rated freelancer.'},
+  {id:4, name:'Dharmin M.',         role:'Design Engineer (CAD)', job:'de', score:87, status:'INTERVIEW_SCHEDULED', sched:'Jun 3 · 11:00 AM', skills:['Fusion 360','SolidWorks','Creo','AutoCAD'],             exp:'2–3 yrs',  src:'CAD CROWD', risk:false, notes:'NPD / R&D background.'},
+  {id:5, name:'Gadhiya P.',         role:'Design Engineer (CAD)', job:'de', score:78, status:'INTERVIEW_SCHEDULED', sched:'Jun 4 · 10:00 AM', skills:['SolidWorks','AutoCAD 2D/3D'],                          exp:'2 yrs',    src:'CAD CROWD', risk:false, notes:''},
+  {id:6, name:'Sanidhya T.',        role:'Design Engineer (CAD)', job:'de', score:75, status:'INTERVIEW_SCHEDULED', sched:'Jun 4 · 11:00 AM', skills:['SolidWorks','CATIA','NX','Creo','AutoCAD'],           exp:'2 yrs',    src:'CAD CROWD', risk:false, notes:'Tool design + GD&T. B.E. Mech GTU 2020, Post Diploma Indo German Tool Room.'},
+  {id:7, name:'Kajal B.',           role:'Design Engineer (CAD)', job:'de', score:75, status:'INTERVIEW_SCHEDULED', sched:'Jun 5 · 10:00 AM', skills:['SolidWorks','CATIA','Creo'],                          exp:'2 yrs',    src:'CAD CROWD', risk:false, notes:'R&D background.'},
+  {id:8, name:'Hemal Design Works', role:'Design Engineer (CAD)', job:'de', score:70, status:'INTERVIEW_SCHEDULED', sched:'Jun 5 · 11:00 AM', skills:['SolidWorks','Creo','NX','Mastercam'],                 exp:'2+ yrs',   src:'CAD CROWD', risk:false, notes:'Product design + CNC machining.'},
+  {id:9, name:'Hitesh K.',          role:'Design Engineer (CAD)', job:'de', score:65, status:'INTERVIEW_SCHEDULED', sched:'Jun 6 · 10:00 AM', skills:['AutoCAD','SolidWorks'],                               exp:'Fresh (2021)',src:'CAD CROWD',risk:false, notes:'B.E. Mech SVIT Vasad, CGPA 7.83.'},
+  {id:10,name:'Manish P.',          role:'Design Engineer (CAD)', job:'de', score:62, status:'BACKUP',              sched:'Jun 6 · 11:00 AM', skills:['SolidWorks','AutoCAD'],                               exp:'Fresher',  src:'CAD CROWD', risk:false, notes:'SolidWorks certified. Backup slot.'},
+  // Design Engineer — Completed May 28 Interviews
+  {id:11,name:'Raj Gandhi',         role:'Design Engineer (CAD)', job:'de', score:100,status:'PENDING_OUTCOME',     sched:'May 28 ✓ (Interview)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Full interview completed May 28. Outcome to be logged.'},
+  {id:12,name:'Vikas Devganiya',    role:'Design Engineer (CAD)', job:'de', score:98, status:'PENDING_OUTCOME',     sched:'May 28 ✓ (Interview)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Full interview completed May 28. Outcome to be logged.'},
+  {id:13,name:'Jenish J. Patel',   role:'Design Engineer (CAD)', job:'de', score:88, status:'PENDING_OUTCOME',     sched:'May 28 ✓ (Interview)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Full interview completed May 28. Outcome to be logged.'},
+  // Design Engineer — Completed May 29–30 Screenings
+  {id:14,name:'Gaurav Sonawane',    role:'Design Engineer (CAD)', job:'de', score:78, status:'SCREENING_COMPLETE',  sched:'May 29 ✓ (Screening)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Screening call completed May 29.'},
+  {id:15,name:'Saurav Kalwar',      role:'Design Engineer (CAD)', job:'de', score:75, status:'EMAIL_BOUNCED',       sched:'May 29 ✓ (Screening)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:true,  riskMsg:'Outreach email bounced — saurav.kalwar@larsentoubro.com is invalid. Need personal email.', notes:'Screening done May 29. L&T email address invalid; personal contact required.'},
+  {id:16,name:'Sahil Gadhiya',      role:'Design Engineer (CAD)', job:'de', score:73, status:'SCREENING_COMPLETE',  sched:'May 29 ✓ (Screening)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Screening call completed May 29.'},
+  {id:17,name:'Parth Sailor',       role:'Design Engineer (CAD)', job:'de', score:70, status:'SCREENING_COMPLETE',  sched:'May 30 ✓ (Screening)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Screening call completed May 30.'},
+  {id:18,name:'Nishant Vadhia',     role:'Design Engineer (CAD)', job:'de', score:70, status:'SCREENING_COMPLETE',  sched:'May 30 ✓ (Screening)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Screening call completed May 30.'},
+  {id:19,name:'Mahavir Suthar',     role:'Design Engineer (CAD)', job:'de', score:70, status:'SCREENING_COMPLETE',  sched:'May 30 ✓ (Screening)', skills:[],                                                  exp:'',         src:'NAUKRI',    risk:false, notes:'Screening call completed May 30.'},
+  // Graphic Designer — Shortlisted
+  {id:20,name:'Kavya Rao',          role:'Sr. Graphic Designer',  job:'gd', score:72, status:'INTERVIEW_SCHEDULED', sched:'Jun 2 · 2:00 PM',  skills:['Adobe Suite','Branding','Typography'],                exp:'',         src:'MANUAL',    risk:false, notes:'Genuine distinct resume. Interview invite sent ✅. kavya.rao@gmail.com · +91 97531 24680'},
+  {id:21,name:'Pooja Malhotra',     role:'Sr. Graphic Designer',  job:'gd', score:68, status:'INTERVIEW_SCHEDULED', sched:'Jun 3 · 2:00 PM',  skills:['Adobe Suite','Branding','Typography'],                exp:'',         src:'MANUAL',    risk:false, notes:'Genuine distinct resume. Interview invite sent ✅. pooja.m@gmail.com · +91 99887 76655'},
+  // Graphic Designer — Flagged Duplicates
+  {id:22,name:'Aarav Mehta',        role:'Sr. Graphic Designer',  job:'gd', score:55, status:'FLAGGED',             sched:'',                 skills:['Graphic Design'],                                     exp:'~6 yrs',   src:'NAUKRI',    risk:true,  riskMsg:'Identical resume — same employer, dates, and word-for-word bullets as 6 others.', notes:'Creative Studio Pvt Ltd (2019–present). Copy-paste resume detected.'},
+  {id:23,name:'Aditya Verma',       role:'Sr. Graphic Designer',  job:'gd', score:55, status:'FLAGGED',             sched:'',                 skills:['Graphic Design'],                                     exp:'~6 yrs',   src:'NAUKRI',    risk:true,  riskMsg:'Identical resume — same employer, dates, and word-for-word bullets as 6 others.', notes:'Creative Studio Pvt Ltd (2019–present). Copy-paste resume detected.'},
+  {id:24,name:'Kunal Patel',        role:'Sr. Graphic Designer',  job:'gd', score:55, status:'FLAGGED',             sched:'',                 skills:['Graphic Design'],                                     exp:'~6 yrs',   src:'NAUKRI',    risk:true,  riskMsg:'Identical resume — same employer, dates, and word-for-word bullets as 6 others.', notes:'Creative Studio Pvt Ltd (2019–present). Copy-paste resume detected.'},
+  {id:25,name:'Neha Joshi',         role:'Sr. Graphic Designer',  job:'gd', score:55, status:'FLAGGED',             sched:'',                 skills:['Graphic Design'],                                     exp:'~6 yrs',   src:'NAUKRI',    risk:true,  riskMsg:'Identical resume — same employer, dates, and word-for-word bullets as 6 others.', notes:'Creative Studio Pvt Ltd (2019–present). Copy-paste resume detected.'},
+  {id:26,name:'Rahul Nair',         role:'Sr. Graphic Designer',  job:'gd', score:55, status:'FLAGGED',             sched:'',                 skills:['Graphic Design'],                                     exp:'~6 yrs',   src:'NAUKRI',    risk:true,  riskMsg:'Identical resume — same employer, dates, and word-for-word bullets as 6 others.', notes:'Creative Studio Pvt Ltd (2019–present). Copy-paste resume detected.'},
+  {id:27,name:'Sneha Iyer',         role:'Sr. Graphic Designer',  job:'gd', score:55, status:'FLAGGED',             sched:'',                 skills:['Graphic Design'],                                     exp:'~6 yrs',   src:'NAUKRI',    risk:true,  riskMsg:'Identical resume — same employer, dates, and word-for-word bullets as 6 others.', notes:'Creative Studio Pvt Ltd (2019–present). Copy-paste resume detected.'},
+  {id:28,name:'Vikram Desai',       role:'Sr. Graphic Designer',  job:'gd', score:55, status:'FLAGGED',             sched:'',                 skills:['Graphic Design'],                                     exp:'~6 yrs',   src:'NAUKRI',    risk:true,  riskMsg:'Identical resume — same employer, dates, and word-for-word bullets as 6 others.', notes:'Creative Studio Pvt Ltd (2019–present). Copy-paste resume detected.'},
+];
+
+const STATUS = {
+  INTERVIEW_SCHEDULED: {label:'Interview Scheduled', color:'#3b82f6', bg:'#eff6ff'},
+  PENDING_OUTCOME:     {label:'Pending Outcome',     color:'#8b5cf6', bg:'#f5f3ff'},
+  SCREENING_COMPLETE:  {label:'Screening Complete',  color:'#10b981', bg:'#f0fdf4'},
+  EMAIL_BOUNCED:       {label:'Email Bounced ⚠️',    color:'#ef4444', bg:'#fef2f2'},
+  FLAGGED:             {label:'Flagged — Risk',      color:'#ef4444', bg:'#fef2f2'},
+  BACKUP:              {label:'Backup',               color:'#64748b', bg:'#f8fafc'},
+};
+
+function scoreColor(s){
+  return s>=90?'#10b981':s>=80?'#22c55e':s>=65?'#6366f1':s>=50?'#f59e0b':'#ef4444';
+}
+function scoreLabel(s){
+  return s>=90?'Excellent':s>=80?'Very Good':s>=65?'Auto-Shortlisted':s>=40?'Manual Review':'Below Threshold';
+}
+function ring(score,sz=60){
+  const r=(sz-8)/2, cx=sz/2, cy=sz/2;
+  const circ=2*Math.PI*r, off=circ*(1-score/100);
+  const c=scoreColor(score), fs=sz<70?13:17;
+  return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#f1f5f9" stroke-width="5.5"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${c}" stroke-width="5.5"
+      stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"
+      stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})"/>
+    <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+      font-family="Inter,sans-serif" font-size="${fs}" font-weight="800" fill="${c}">${score}</text>
+  </svg>`;
+}
+function badgeHtml(status){
+  const cfg=STATUS[status]||{label:status,color:'#64748b',bg:'#f8fafc'};
+  return `<span class="badge" style="color:${cfg.color};background:${cfg.bg}"><span class="dot" style="background:${cfg.color}"></span>${cfg.label}</span>`;
+}
+
+// ── State ─────────────────────────────────────────────────────────────
+let st={filter:'all',search:'',sort:'score-desc'};
+
+function filtered(){
+  let list=[...CANDS];
+  if(st.filter==='de')       list=list.filter(c=>c.job==='de');
+  else if(st.filter==='gd')  list=list.filter(c=>c.job==='gd');
+  else if(st.filter==='scheduled') list=list.filter(c=>c.status==='INTERVIEW_SCHEDULED');
+  else if(st.filter==='flags')     list=list.filter(c=>c.risk);
+  if(st.search){
+    const q=st.search.toLowerCase();
+    list=list.filter(c=>c.name.toLowerCase().includes(q)||c.skills.some(s=>s.toLowerCase().includes(q))||c.role.toLowerCase().includes(q));
+  }
+  if(st.sort==='score-desc') list.sort((a,b)=>b.score-a.score);
+  else if(st.sort==='score-asc') list.sort((a,b)=>a.score-b.score);
+  else list.sort((a,b)=>a.name.localeCompare(b.name));
+  return list;
+}
+
+function render(){
+  const list=filtered();
+  const grid=document.getElementById('grid');
+  const empty=document.getElementById('empty');
+  if(!list.length){grid.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  grid.innerHTML=list.map(c=>{
+    const vis=c.skills.slice(0,3), extra=c.skills.length-3;
+    return `<div class="card${c.risk?' risk-card':''}" onclick="openModal(${c.id})">
+      ${c.risk?'<span class="risk-tag">⚠️ RISK</span>':''}
+      <div>${ring(c.score,60)}</div>
+      <div class="card-body">
+        <div class="card-name">${c.name}</div>
+        <div class="card-role">${c.role}</div>
+        <div class="card-status">${badgeHtml(c.status)}</div>
+        ${vis.length?`<div class="skills">${vis.map(s=>`<span class="chip">${s}</span>`).join('')}${extra>0?`<span class="chip">+${extra}</span>`:''}</div>`:''}
+        <div class="card-foot">
+          <div class="card-date">${c.sched?`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>${c.sched}`:'<span style="color:#cbd5e1">No schedule</span>'}</div>
+          <div class="card-src">${c.src}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  updateCounts();
+}
+
+function updateCounts(){
+  document.getElementById('tc-all').textContent=CANDS.length;
+  document.getElementById('tc-de').textContent=CANDS.filter(c=>c.job==='de').length;
+  document.getElementById('tc-gd').textContent=CANDS.filter(c=>c.job==='gd').length;
+  document.getElementById('tc-sch').textContent=CANDS.filter(c=>c.status==='INTERVIEW_SCHEDULED').length;
+  document.getElementById('tc-fl').textContent=CANDS.filter(c=>c.risk).length;
+}
+
+function activateFilter(filter, el){
+  st.filter=filter;
+  // Tabs
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.filter===filter));
+  // Sidebar links
+  document.querySelectorAll('.sb-link[data-filter]').forEach(l=>l.classList.toggle('active',l.dataset.filter===filter));
+  // Sidebar job cards
+  document.querySelectorAll('.sb-job').forEach(j=>j.classList.toggle('active',j.dataset.filter===filter));
+  render();
+}
+
+function onSearch(v){st.search=v;render();}
+function onSort(v){st.sort=v;render();}
+
+// ── Modal ─────────────────────────────────────────────────────────────
+function openModal(id){
+  const c=CANDS.find(x=>x.id===id);if(!c)return;
+  document.getElementById('m-ring').innerHTML=ring(c.score,82);
+  document.getElementById('m-name').textContent=c.name;
+  document.getElementById('m-role').textContent=`${c.role}`;
+  document.getElementById('m-badge').innerHTML=badgeHtml(c.status)+`&nbsp;<span style="font-size:12px;color:var(--t3);font-weight:500">${scoreLabel(c.score)}</span>`;
+  // Risk
+  const rEl=document.getElementById('m-risk');
+  rEl.innerHTML=c.risk&&c.riskMsg?`<div class="m-alert"><span style="font-size:16px">🚨</span><div><div class="m-alert-title">Risk Flag</div><div class="m-alert-text">${c.riskMsg}</div></div></div>`:'';
+  // Schedule
+  const ss=document.getElementById('m-sec-sched');
+  ss.style.display=c.sched?'':'none';
+  document.getElementById('m-sched').textContent=c.sched;
+  // Skills
+  const sk=document.getElementById('m-sec-skills');
+  const skE=document.getElementById('m-skills');
+  sk.style.display=c.skills.length?'':'none';
+  skE.innerHTML=c.skills.map(s=>`<span class="m-chip">${s}</span>`).join('');
+  // Details
+  let det='';
+  if(c.exp) det+=`<div class="m-row"><span class="m-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><span><strong>Experience:</strong> ${c.exp}</span></div>`;
+  det+=`<div class="m-row"><span class="m-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span><span><strong>Score:</strong> ${c.score}/100 — <span style="color:${scoreColor(c.score)};font-weight:600">${scoreLabel(c.score)}</span></span></div>`;
+  det+=`<div class="m-row"><span class="m-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span><span><strong>Source:</strong> ${c.src}</span></div>`;
+  document.getElementById('m-details').innerHTML=det;
+  // Notes
+  const ns=document.getElementById('m-sec-notes');
+  ns.style.display=c.notes?'':'none';
+  document.getElementById('m-notes').textContent=c.notes;
+  // Actions
+  let acts='';
+  if(c.status==='PENDING_OUTCOME'){
+    acts=`<button class="btn btn-primary" onclick="closeModal()">✅ Log Interview Outcome</button><button class="btn btn-ghost" onclick="closeModal()">View Profile</button>`;
+  } else if(c.status==='EMAIL_BOUNCED'){
+    acts=`<button class="btn btn-red" onclick="closeModal()">🔄 Update Email Address</button><button class="btn btn-ghost" onclick="closeModal()">Skip for Now</button>`;
+  } else if(c.status==='FLAGGED'){
+    acts=`<button class="btn btn-red" onclick="closeModal()">🚨 Verify Before Decision</button><button class="btn btn-ghost" onclick="closeModal()">Dismiss Flag</button>`;
+  } else if(c.status==='SCREENING_COMPLETE'){
+    acts=`<button class="btn btn-primary" onclick="closeModal()">📋 Log Screening Outcome</button><button class="btn btn-ghost" onclick="closeModal()">Send Follow-up</button>`;
+  } else {
+    acts=`<button class="btn btn-primary" onclick="closeModal()">📧 Send Email</button><button class="btn btn-ghost" onclick="closeModal()">View Profile</button>`;
+  }
+  document.getElementById('m-foot').innerHTML=acts;
+  document.getElementById('overlay').classList.add('open');
+}
+function closeModal(){document.getElementById('overlay').classList.remove('open');}
+function onOverlayClick(e){if(e.target===document.getElementById('overlay'))closeModal();}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
+// Init
+render();
+</script>
+</body>
+</html>

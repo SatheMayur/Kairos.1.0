@@ -73,6 +73,44 @@
 <!-- Cron results -->
 <div id="cron-result-area"></div>
 
+<!-- WhatsApp test panel (shown only when WAHA is configured) -->
+<div class="card" id="wa-test-panel" style="display:none">
+  <div class="card-header">
+    <span class="card-title">💬 WhatsApp (OpenClaw / WAHA)</span>
+    <span class="text-muted text-sm">Test send + session info</span>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-info" style="margin-bottom:16px">
+      <strong>Webhook URL:</strong> <code>https://kgirdharlal-recruitment.vercel.app/api/v1/webhook/whatsapp</code><br>
+      Configure this in WAHA Dashboard → Webhooks → Events: <code>message</code>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="form-group"><label>Test Phone (10-digit Indian mobile)</label><input type="text" id="wa-phone" placeholder="9876543210"></div>
+      <div class="form-group"><label>Message</label><input type="text" id="wa-msg" value="Hi! This is a test from K. Girdharlal International HR System ✅"></div>
+    </div>
+    <button class="btn btn-primary" onclick="sendTestWA()">📤 Send Test WhatsApp</button>
+    <span id="wa-test-result" style="margin-left:16px;font-size:13px"></span>
+  </div>
+</div>
+
+<!-- WhatsApp bulk outreach -->
+<div class="card" id="wa-bulk-panel" style="display:none">
+  <div class="card-header">
+    <span class="card-title">📣 WhatsApp Bulk Outreach</span>
+    <span class="text-muted text-sm">Send to all SHORTLISTED candidates for a job</span>
+  </div>
+  <div class="card-body">
+    <div class="form-group">
+      <label>Job</label>
+      <select id="wa-bulk-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <option value="">Loading…</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="runWABulk()">💬 Send WhatsApp Outreach</button>
+    <div id="wa-bulk-result" style="margin-top:12px"></div>
+  </div>
+</div>
+
 <!-- Queue a one-off email -->
 <div class="card">
   <div class="card-header">
@@ -151,19 +189,38 @@ async function loadSystemHealth() {
     emailStatus.textContent = '?'; emailMethod.textContent = 'Could not check';
   }
 
-  // WhatsApp config
+  // WhatsApp config — live WAHA status check
   const waStatus = document.getElementById('wa-status');
   const waMethod = document.getElementById('wa-method');
   const waKpi = document.getElementById('wa-kpi');
-  if (status && status.auto_outreach) {
-    waStatus.textContent = 'Pending URL';
-    waStatus.style.color = '#fbbf24';
-    waMethod.textContent = 'Set OPENCLAW_API_URL in Vercel';
-    waKpi.style.borderColor = 'rgba(251,191,36,.3)';
-  } else {
-    waStatus.textContent = 'Not set';
-    waStatus.style.color = '#71717a';
-    waMethod.textContent = 'OPENCLAW_API_URL not configured';
+  try {
+    const wa = await api('/api/v1/webhook/whatsapp/status').catch(()=>null);
+    if (!wa || !wa.configured) {
+      waStatus.textContent = '❌ Not configured';
+      waStatus.style.color = '#f87171';
+      waMethod.textContent = 'Add OPENCLAW_API_URL to Vercel env';
+      waKpi.style.borderColor = 'rgba(239,68,68,.3)';
+    } else if (wa.status === 'WORKING' || wa.status === 'CONNECTED' || wa.status === 'authenticated') {
+      waStatus.textContent = '✅ Connected';
+      waStatus.style.color = '#34d399';
+      waMethod.textContent = wa.message || 'WAHA session active';
+      waKpi.style.borderColor = 'rgba(52,211,153,.3)';
+      document.getElementById('wa-test-panel').style.display = 'block';
+      document.getElementById('wa-bulk-panel').style.display = 'block';
+    } else if (wa.status === 'unreachable') {
+      waStatus.textContent = '⚠️ Unreachable';
+      waStatus.style.color = '#f87171';
+      waMethod.textContent = wa.message || 'Cannot reach WAHA server';
+      waKpi.style.borderColor = 'rgba(239,68,68,.3)';
+    } else {
+      waStatus.textContent = '⚠️ ' + (wa.status || 'Unknown');
+      waStatus.style.color = '#fbbf24';
+      waMethod.textContent = wa.message || 'WAHA running but session not ready — scan QR code';
+      waKpi.style.borderColor = 'rgba(251,191,36,.3)';
+      document.getElementById('wa-test-panel').style.display = 'block';
+    }
+  } catch(e) {
+    waStatus.textContent = '?'; waMethod.textContent = 'Could not check';
   }
 
   // Apify
@@ -231,6 +288,46 @@ async function sendAdhocEmail() {
   }
 }
 
+async function sendTestWA() {
+  const phone = document.getElementById('wa-phone').value.trim();
+  const message = document.getElementById('wa-msg').value.trim();
+  const result = document.getElementById('wa-test-result');
+  if (!phone) { showToast('Enter a phone number', 'error'); return; }
+  result.style.color = '#fbbf24'; result.textContent = 'Sending…';
+  try {
+    const r = await api('/api/v1/webhook/whatsapp/test', {method:'POST', body:{phone, message}});
+    result.style.color = '#34d399';
+    result.textContent = `✅ Sent! ID: ${r.msg_id}`;
+    showToast('WhatsApp sent', 'success');
+  } catch(e) {
+    result.style.color = '#f87171';
+    result.textContent = '❌ ' + e.message;
+    showToast('Failed: ' + e.message, 'error');
+  }
+}
+
+async function runWABulk() {
+  const jobId = document.getElementById('wa-bulk-job').value;
+  if (!jobId) { showToast('Select a job', 'error'); return; }
+  const resultEl = document.getElementById('wa-bulk-result');
+  resultEl.innerHTML = '<div class="alert alert-info">Sending WhatsApp outreach…</div>';
+  try {
+    const r = await api(`/api/v1/outreach/bulk/${jobId}?channel=WHATSAPP`, {method:'POST'});
+    resultEl.innerHTML = `<div class="alert alert-success">Sent to <strong>${r.sent}</strong> candidates via WhatsApp. ${r.skipped||0} skipped.</div>`;
+    showToast(`WhatsApp sent to ${r.sent} candidates`, 'success');
+  } catch(e) {
+    resultEl.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+  }
+}
+
+async function initWABulk() {
+  const jobs = await api('/api/v1/jobs?limit=100').catch(()=>[]);
+  const sel = document.getElementById('wa-bulk-job');
+  if (sel) sel.innerHTML = '<option value="">Select job…</option>' +
+    jobs.filter(j=>j.status==='ACTIVE').map(j=>`<option value="${j.id}">${esc(j.title)}</option>`).join('');
+}
+
 loadSystemHealth();
+initWABulk();
 </script>
 {% endblock %}

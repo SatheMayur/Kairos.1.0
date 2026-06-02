@@ -44,15 +44,23 @@ async def send_single(
 async def bulk_outreach(
     job_id: int,
     channel: OutreachChannel = OutreachChannel.EMAIL,
+    include_contacted: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
-    """Contact all SHORTLISTED candidates for a job who have not yet been contacted."""
+    """Contact all SHORTLISTED candidates for a job who have not yet been contacted.
+
+    Set include_contacted=true to also re-blast CONTACTED candidates (useful for WhatsApp follow-up).
+    """
     job = await _get_job(job_id, db)
+
+    statuses = [ShortlistStatus.SHORTLISTED]
+    if include_contacted:
+        statuses.append(ShortlistStatus.CONTACTED)
 
     result = await db.execute(
         select(ShortlistEntry).where(
             ShortlistEntry.job_id == job_id,
-            ShortlistEntry.status == ShortlistStatus.SHORTLISTED,
+            ShortlistEntry.status.in_(statuses),
         )
     )
     entries = result.scalars().all()
@@ -79,7 +87,8 @@ async def bulk_outreach(
     for entry in entries:
         entry.status = ShortlistStatus.CONTACTED
 
-    return {"sent": len([l for l in logs if l.status.value == "SENT"]), "total": len(logs)}
+    sent = len([l for l in logs if l.status.value == "SENT"])
+    return {"sent": sent, "skipped": len(logs) - sent, "total": len(logs)}
 
 
 class DirectEmailRequest(BaseModel):

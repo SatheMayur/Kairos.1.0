@@ -31,6 +31,54 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 
+# ── WhatsApp health + test endpoints ─────────────────────────────────────────
+
+@router.get("/whatsapp/status")
+async def whatsapp_status():
+    """Check WAHA session connectivity. Called by System Health page."""
+    if not settings.openclaw_api_url:
+        return {"configured": False, "status": "not_configured",
+                "message": "Set OPENCLAW_API_URL in Vercel env vars"}
+    import httpx
+    base = settings.openclaw_api_url.rstrip("/")
+    headers = {}
+    if settings.openclaw_api_key:
+        headers["X-Api-Key"] = settings.openclaw_api_key
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(f"{base}/api/sessions/{settings.openclaw_session}", headers=headers)
+            if r.status_code == 200:
+                data = r.json()
+                wstatus = data.get("status", data.get("engine", {}).get("state", "unknown"))
+                return {"configured": True, "status": wstatus,
+                        "session": settings.openclaw_session,
+                        "message": f"Session '{settings.openclaw_session}': {wstatus}"}
+            return {"configured": True, "status": "error",
+                    "message": f"WAHA returned HTTP {r.status_code}"}
+    except Exception as exc:
+        return {"configured": True, "status": "unreachable",
+                "message": f"Cannot reach {base}: {exc}"}
+
+
+@router.post("/whatsapp/test")
+async def whatsapp_test_send(payload: dict):
+    """Send a test WhatsApp message. Body: {phone, message}"""
+    if not settings.openclaw_api_url:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="OPENCLAW_API_URL not configured")
+    phone = payload.get("phone", "").strip()
+    message = payload.get("message", "Test message from K. Girdharlal HR System ✅")
+    if not phone:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="phone is required")
+    from app.services.whatsapp_openclaw import send_whatsapp
+    msg_id = await send_whatsapp(phone, message)
+    if msg_id:
+        return {"sent": True, "msg_id": msg_id, "to": phone}
+    from fastapi import HTTPException
+    raise HTTPException(status_code=502, detail="WAHA send failed — check logs")
+
+
 def _verify_signature(body: bytes, sig_header: str) -> bool:
     """Verify HMAC-SHA256 signature from WAHA if secret is configured."""
     if not settings.openclaw_webhook_secret:

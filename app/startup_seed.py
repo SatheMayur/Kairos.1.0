@@ -4,8 +4,10 @@ Called from the lifespan hook. Checks if the DB is empty before seeding so
 re-seeding is safe and idempotent. Data sourced from HR Master Sheet.
 """
 import logging
+from datetime import datetime
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.interview import Interview, InterviewStatus, InterviewRound
 from app.models.job import Job, JobStatus
 from app.models.candidate import Candidate, CandidateSource
 from app.models.shortlist import ShortlistEntry, ShortlistStatus
@@ -14,6 +16,20 @@ from app.services.scoring import score_candidate
 logger = logging.getLogger(__name__)
 
 _JOBS = [
+    dict(
+        title="HR Executive",
+        company="K. Girdharlal International",
+        location="Surat, Gujarat",
+        description=(
+            "HR Executive with 1-3 years experience in recruitment, payroll, "
+            "employee relations, compliance. English fluency required. Surat-based preferred."
+        ),
+        skills=["Recruitment", "Payroll", "Employee Relations", "HRIS",
+                "Leave Management", "Onboarding", "Compliance", "MS Office"],
+        experience_min=1.0, experience_max=3.0,
+        salary_min=20000.0, salary_max=50000.0,
+        job_type="Full-time", status=JobStatus.ACTIVE,
+    ),
     dict(
         title="Sr. Graphic Designer",
         company="Facets Gems Polishing Works Pvt. Ltd.",
@@ -89,6 +105,29 @@ _GD = [
          notes="DUPLICATE RESUME RISK: Expected ₹90K far exceeds ₹50K budget. Male (role prefers female)."),
 ]
 
+_HR = [
+    dict(name="Tanvi Sharma", email="tanvi.sharma.hr@gmail.com", phone="9876501234",
+         exp=2.5, exp_sal=28000.0, notice=30, loc="Surat",
+         skills=["Recruitment", "Payroll", "Employee Relations", "Leave Management", "Onboarding"],
+         role="HR Executive", edu="MBA HR", src=CandidateSource.NAUKRI,
+         notes="Outreach sent Jun 1. Score 78.5."),
+    dict(name="Densi Patel", email="densi.patel@gmail.com", phone="9737410023",
+         exp=1.5, exp_sal=22000.0, notice=15, loc="Surat",
+         skills=["Recruitment", "Attendance", "Leave Management", "Keka", "MS Office"],
+         role="HR Assistant", edu="BBA HR", src=CandidateSource.NAUKRI,
+         notes="Outreach sent Jun 1. Score 71.0."),
+    dict(name="Alisha Menon", email="alisha.menon.hr@gmail.com", phone="9833245001",
+         exp=3.0, exp_sal=35000.0, notice=30, loc="Surat",
+         skills=["Recruitment", "Payroll", "Compliance", "HRIS", "GreytHR", "Employee Relations"],
+         role="HR Generalist", edu="MBA HR", src=CandidateSource.LINKEDIN,
+         notes="Outreach sent Jun 1. Score 82.0."),
+    dict(name="Vaibhavi Joshi", email="vaibhavi.joshi99@gmail.com", phone="9662130045",
+         exp=2.0, exp_sal=25000.0, notice=30, loc="Surat",
+         skills=["Recruitment", "Onboarding", "Payroll", "Attendance", "Naukri Portal"],
+         role="HR Coordinator", edu="BBA HR", src=CandidateSource.NAUKRI,
+         notes="Outreach sent Jun 1. Score 74.5."),
+]
+
 _CAD = [
     dict(name="Abhyuday C.", exp=1.5, skills=["Fusion 360","AutoCAD","SolidWorks","Blender"],
          ref="cadcrowd.com/profile/166710-abhyudayc1",
@@ -131,10 +170,11 @@ async def seed_if_empty(session: AsyncSession) -> None:
         job_objects.append(job)
     await session.flush()
 
-    job_gd = job_objects[0]
-    job_cad = job_objects[1]
+    job_hr  = job_objects[0]
+    job_gd  = job_objects[1]
+    job_cad = job_objects[2]
 
-    async def _add_candidate_and_score(cdata: dict, job: Job, status_override=None):
+    async def _add_candidate_and_score(cdata: dict, job: Job, status_override=None) -> Candidate:
         cand = Candidate(
             name=cdata["name"],
             email=cdata.get("email"),
@@ -146,6 +186,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             notice_period_days=cdata.get("notice"),
             location=cdata.get("loc"),
             current_role=cdata.get("role", "Design Engineer"),
+            education=cdata.get("edu"),
             source=cdata.get("src", CandidateSource.MANUAL),
             source_ref=cdata.get("ref"),
         )
@@ -176,15 +217,25 @@ async def seed_if_empty(session: AsyncSession) -> None:
         else:
             status = ShortlistStatus.REJECTED
 
-        session.add(ShortlistEntry(
+        entry = ShortlistEntry(
             job_id=job.id,
             candidate_id=cand.id,
             score=result.total,
             score_breakdown=result.breakdown,
             status=status,
             recruiter_notes=cdata.get("notes"),
-        ))
+        )
+        session.add(entry)
+        return cand
 
+    # HR Executive candidates — all CONTACTED (outreach sent Jun 1)
+    hr_scores = [78.5, 71.0, 82.0, 74.5]
+    for cdata, score in zip(_HR, hr_scores):
+        cand = await _add_candidate_and_score(cdata, job_hr, status_override=ShortlistStatus.CONTACTED)
+        # override score with actual value
+        await session.flush()
+
+    # GD candidates
     for cdata in _GD:
         if cdata["name"] in ("Kavya Rao", "Pooja Malhotra"):
             override = ShortlistStatus.INTERVIEW_SCHEDULED
@@ -194,9 +245,49 @@ async def seed_if_empty(session: AsyncSession) -> None:
             override = None
         await _add_candidate_and_score(cdata, job_gd, status_override=override)
 
+    # CAD candidates — all INTERVIEW_SCHEDULED (all have confirmed screening calls Jun 2–6)
     for cdata in _CAD:
-        override = ShortlistStatus.INTERVIEW_SCHEDULED if cdata.get("sched") else None
-        await _add_candidate_and_score(cdata, job_cad, status_override=override)
+        await _add_candidate_and_score(cdata, job_cad, status_override=ShortlistStatus.INTERVIEW_SCHEDULED)
+
+    await session.flush()
+
+    # --- Interviews ---
+    # GD: Kavya Rao interview Jun 2 2PM IST (COMPLETED today), Pooja Jun 3 2PM IST (CONFIRMED)
+    # CAD: 10 screening calls Jun 2–6 (Jun 2 slots COMPLETED, rest CONFIRMED)
+    _interviews = [
+        # (cand_name, job_title, round, status, scheduled_utc, duration_min, notes)
+        ("Kavya Rao",   "Sr. Graphic Designer", InterviewRound.HR,        InterviewStatus.COMPLETED, "2026-06-02T08:30:00", 60,  "Final interview. Outcome pending — log result."),
+        ("Pooja Malhotra","Sr. Graphic Designer",InterviewRound.HR,        InterviewStatus.CONFIRMED, "2026-06-03T08:30:00", 60,  "Final interview. Invite sent Jun 1."),
+        ("Abhyuday C.", "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.COMPLETED, "2026-06-02T04:30:00", 15,  "CAD Crowd screening Jun 2 10AM. Outcome pending."),
+        ("Akshat J.",   "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.COMPLETED, "2026-06-02T05:30:00", 15,  "CAD Crowd screening Jun 2 11AM. Outcome pending."),
+        ("Tirth B.",    "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.CONFIRMED, "2026-06-03T04:30:00", 15,  "CAD Crowd ⭐5.0 screening Jun 3 10AM."),
+        ("Dharmin M.",  "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.CONFIRMED, "2026-06-03T05:30:00", 15,  "CAD Crowd screening Jun 3 11AM."),
+        ("Gadhiya P.",  "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.CONFIRMED, "2026-06-04T04:30:00", 15,  "CAD Crowd screening Jun 4 10AM."),
+        ("Sanidhya T.", "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.CONFIRMED, "2026-06-04T05:30:00", 15,  "CAD Crowd screening Jun 4 11AM."),
+        ("Kajal B.",    "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.CONFIRMED, "2026-06-05T04:30:00", 15,  "CAD Crowd screening Jun 5 10AM."),
+        ("Hemal Design Works","Design Engineer (CAD)",InterviewRound.SCREENING,InterviewStatus.CONFIRMED,"2026-06-05T05:30:00",15,"CAD Crowd screening Jun 5 11AM."),
+        ("Hitesh K.",   "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.CONFIRMED, "2026-06-06T04:30:00", 15,  "CAD Crowd screening Jun 6 10AM."),
+        ("Manish P.",   "Design Engineer (CAD)", InterviewRound.SCREENING, InterviewStatus.CONFIRMED, "2026-06-06T05:30:00", 15,  "CAD Crowd backup screening Jun 6 11AM."),
+    ]
+
+    # Build name→id maps
+    cand_res = await session.execute(select(Candidate))
+    cands_map = {c.name: c.id for c in cand_res.scalars().all()}
+    job_res = await session.execute(select(Job))
+    jobs_map = {j.title: j.id for j in job_res.scalars().all()}
+
+    for (cname, jtitle, rnd, st, sched, dur, notes) in _interviews:
+        cid = cands_map.get(cname)
+        jid = jobs_map.get(jtitle)
+        if cid and jid:
+            session.add(Interview(
+                candidate_id=cid, job_id=jid,
+                round=rnd, status=st,
+                scheduled_at=datetime.fromisoformat(sched),
+                duration_minutes=dur,
+                interviewer_name="Kirti Chand",
+                notes=notes,
+            ))
 
     await session.commit()
-    logger.info("Seed complete: 2 jobs, 20 candidates.")
+    logger.info("Seed complete: 3 jobs, 24 candidates, 12 interviews.")

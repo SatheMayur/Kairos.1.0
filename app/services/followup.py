@@ -27,6 +27,21 @@ FOLLOWUP_2_DAYS = 6
 DROP_DAYS = 9
 
 
+def _render_followup_wa(candidate: Candidate, job: Job, attempt: int) -> str:
+    first = candidate.name.split()[0]
+    company = job.company or "K. Girdharlal International"
+    if attempt == 1:
+        return (
+            f"Hi {first}, I messaged a few days ago about the *{job.title}* role at "
+            f"{company}. Still interested? Reply *YES* and I'll share full details + "
+            f"schedule a quick call. 🙏"
+        )
+    return (
+        f"Hi {first}, final follow-up on the *{job.title}* opportunity at {company}. "
+        f"Reply *YES* to proceed or *NO* to pass — no hard feelings either way! 🌟"
+    )
+
+
 def _render_followup(candidate: Candidate, job: Job, attempt: int) -> tuple[str, str]:
     subject = f"Following up — {job.title} at {job.company or 'K. Girdharlal International'}"
     if attempt == 1:
@@ -138,32 +153,52 @@ async def send_followups(db: AsyncSession) -> dict:
         if not candidate or not job:
             continue
 
+        # Use WhatsApp when candidate has a phone (consistent with initial outreach)
+        has_phone = bool(candidate.whatsapp or candidate.phone)
+        wa_channel = OutreachChannel.WHATSAPP if has_phone else OutreachChannel.EMAIL
+
         if days_elapsed >= FOLLOWUP_1_DAYS and followups_sent == 0:
-            subject, body = _render_followup(candidate, job, attempt=1)
+            subject, email_body = _render_followup(candidate, job, attempt=1)
+            # Email follow-up
             await send_outreach(
                 candidate=candidate, job=job,
                 channel=OutreachChannel.EMAIL,
                 outreach_type=OutreachType.FOLLOW_UP,
-                db=db, subject=subject, body=body,
+                db=db, subject=subject, body=email_body,
             )
+            # WhatsApp follow-up (if phone available)
+            if has_phone:
+                await send_outreach(
+                    candidate=candidate, job=job,
+                    channel=OutreachChannel.WHATSAPP,
+                    outreach_type=OutreachType.FOLLOW_UP,
+                    db=db, body=_render_followup_wa(candidate, job, attempt=1),
+                )
             followup1_sent += 1
             logger.info(
-                "Follow-up #1 sent: candidate=%d job=%d (day %d)",
-                candidate.id, job.id, days_elapsed,
+                "Follow-up #1 sent: candidate=%d job=%d (day %d) wa=%s",
+                candidate.id, job.id, days_elapsed, has_phone,
             )
 
         elif days_elapsed >= FOLLOWUP_2_DAYS and followups_sent == 1:
-            subject, body = _render_followup(candidate, job, attempt=2)
+            subject, email_body = _render_followup(candidate, job, attempt=2)
             await send_outreach(
                 candidate=candidate, job=job,
                 channel=OutreachChannel.EMAIL,
                 outreach_type=OutreachType.FOLLOW_UP,
-                db=db, subject=subject, body=body,
+                db=db, subject=subject, body=email_body,
             )
+            if has_phone:
+                await send_outreach(
+                    candidate=candidate, job=job,
+                    channel=OutreachChannel.WHATSAPP,
+                    outreach_type=OutreachType.FOLLOW_UP,
+                    db=db, body=_render_followup_wa(candidate, job, attempt=2),
+                )
             followup2_sent += 1
             logger.info(
-                "Follow-up #2 sent: candidate=%d job=%d (day %d)",
-                candidate.id, job.id, days_elapsed,
+                "Follow-up #2 sent: candidate=%d job=%d (day %d) wa=%s",
+                candidate.id, job.id, days_elapsed, has_phone,
             )
 
     return {

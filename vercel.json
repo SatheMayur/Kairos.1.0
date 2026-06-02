@@ -30,6 +30,7 @@
     "INTERVIEW_CONFIRMATION_BASE_URL": "https://kgirdharlal-recruitment.vercel.app",
     "CLAUDE_MODEL": "claude-haiku-4-5-20251001",
     "DIGEST_ENABLED": "true",
-    "DIGEST_RECIPIENT_EMAIL": "kirti@kgirdharlal.com"
+    "DIGEST_RECIPIENT_EMAIL": "kirti@kgirdharlal.com",
+    "BRIDGE_API_SECRET": "kgirdharlal-bridge-secret"
   }
 }

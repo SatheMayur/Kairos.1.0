@@ -12,9 +12,11 @@ import hmac
 import json
 import re
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from sqlalchemy import and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_db
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.candidate import Candidate
@@ -61,22 +63,17 @@ async def whatsapp_status():
 
 
 @router.post("/whatsapp/test")
-async def whatsapp_test_send(payload: dict):
-    """Send a test WhatsApp message. Body: {phone, message}"""
-    if not settings.openclaw_api_url:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=503, detail="OPENCLAW_API_URL not configured")
+async def whatsapp_test_send(payload: dict, db: AsyncSession = Depends(get_db)):
+    """Send a test WhatsApp message via bridge queue or direct WAHA. Body: {phone, message}"""
     phone = payload.get("phone", "").strip()
     message = payload.get("message", "Test message from K. Girdharlal HR System ✅")
     if not phone:
-        from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="phone is required")
-    from app.services.whatsapp_openclaw import send_whatsapp
-    msg_id = await send_whatsapp(phone, message)
+    msg_id = await send_whatsapp(phone, message, db=db)
     if msg_id:
-        return {"sent": True, "msg_id": msg_id, "to": phone}
-    from fastapi import HTTPException
-    raise HTTPException(status_code=502, detail="WAHA send failed — check logs")
+        via = "bridge-queue" if msg_id.startswith("queued:") else "direct-waha"
+        return {"sent": True, "msg_id": msg_id, "to": phone, "via": via}
+    raise HTTPException(status_code=502, detail="WhatsApp send failed — bridge not connected and OPENCLAW_API_URL not set")
 
 
 def _verify_signature(body: bytes, sig_header: str) -> bool:

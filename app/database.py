@@ -34,6 +34,13 @@ class Base(DeclarativeBase):
 
 async def init_db() -> None:
     """Create all tables on startup."""
+    # Import all models so their tables are registered with Base.metadata
+    import app.models.candidate  # noqa: F401
+    import app.models.job        # noqa: F401
+    import app.models.shortlist  # noqa: F401
+    import app.models.interview  # noqa: F401
+    import app.models.outreach   # noqa: F401
+    import app.models.wa_queue   # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

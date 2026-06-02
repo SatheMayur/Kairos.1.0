@@ -59,10 +59,29 @@ def is_negative(text: str) -> bool:
     return any(kw in t for kw in _NEGATIVE)
 
 
-async def send_whatsapp(phone: str, message: str) -> str | None:
-    """Send a WhatsApp message via WAHA. Returns message ID or None on failure."""
+async def send_whatsapp(phone: str, message: str, db=None) -> str | None:
+    """Send a WhatsApp message.
+
+    Priority:
+    1. Queue to DB wa_queue table (polled by bridge.js every 3 s) — works with no public URL
+    2. Direct WAHA/OpenClaw REST call (legacy, if OPENCLAW_API_URL is set)
+    Returns a pseudo-ID on queue success, real ID on direct send, or None on failure.
+    """
+    # Path 1: DB queue (bridge.js polls /api/v1/wa/poll)
+    if db is not None:
+        try:
+            from app.models.wa_queue import WAQueue
+            row = WAQueue(phone=phone, message=message)
+            db.add(row)
+            await db.flush()
+            logger.info("WhatsApp queued to DB (id=%d) for %s", row.id, phone)
+            return f"queued:{row.id}"
+        except Exception as exc:
+            logger.warning("WA DB queue failed: %s — falling back to direct send", exc)
+
+    # Path 2: Direct WAHA call (if URL configured)
     if not settings.openclaw_api_url:
-        logger.warning("OpenClaw not configured — OPENCLAW_API_URL not set")
+        logger.warning("WhatsApp not configured — no DB session and OPENCLAW_API_URL not set")
         return None
 
     chat_id = _fmt_phone(phone)
@@ -71,11 +90,7 @@ async def send_whatsapp(phone: str, message: str) -> str | None:
     if settings.openclaw_api_key:
         headers["X-Api-Key"] = settings.openclaw_api_key
 
-    payload = {
-        "chatId": chat_id,
-        "text": message,
-        "session": settings.openclaw_session,
-    }
+    payload = {"chatId": chat_id, "text": message, "session": settings.openclaw_session}
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -86,5 +101,5 @@ async def send_whatsapp(phone: str, message: str) -> str | None:
             logger.info("WhatsApp sent via OpenClaw to %s id=%s", chat_id, msg_id)
             return msg_id
     except Exception as exc:
-        logger.error("OpenClaw send failed to %s: %s", chat_id, exc)
+        logger.error("OpenClaw direct send failed to %s: %s", chat_id, exc)
         return None

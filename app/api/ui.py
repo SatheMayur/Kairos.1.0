@@ -17,6 +17,7 @@ _PAGES = {
     "interviews": ("interviews.html", "interviews"),
     "import": ("import.html", "import"),
     "system": ("system.html", "system"),
+    "whatsapp": ("whatsapp.html", "whatsapp"),
 }
 
 
@@ -55,3 +56,7 @@ async def import_candidates(request: Request):
 @router.get("/system", response_class=HTMLResponse)
 async def system(request: Request):
     return _render(request, "system.html", "system")
+
+@router.get("/whatsapp", response_class=HTMLResponse)
+async def whatsapp(request: Request):
+    return _render(request, "whatsapp.html", "whatsapp")

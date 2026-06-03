@@ -6,11 +6,11 @@
     }
   },
   "crons": [
-    { "path": "/api/v1/cron/source",        "schedule": "0 1 * * *"  },
-    { "path": "/api/v1/cron/outreach",       "schedule": "0 2 * * *"  },
-    { "path": "/api/v1/cron/followup",       "schedule": "0 9 * * *"  },
-    { "path": "/api/v1/cron/post-interview", "schedule": "0 10 * * *" },
-    { "path": "/api/v1/cron/reminders",      "schedule": "30 2 * * *" },
+    { "path": "/api/v1/cron/source",        "schedule": "30 1 * * *" },
+    { "path": "/api/v1/cron/outreach",       "schedule": "0 3 * * *"  },
+    { "path": "/api/v1/cron/followup",       "schedule": "30 3 * * *" },
+    { "path": "/api/v1/cron/post-interview", "schedule": "0 4 * * *"  },
+    { "path": "/api/v1/cron/reminders",      "schedule": "0 2 * * *"  },
     { "path": "/api/v1/cron/digest",         "schedule": "30 2 * * *" }
   ],
   "routes": [
@@ -27,7 +27,7 @@
     "EMAIL_FROM_NAME": "Kirti | K. Girdharlal International",
     "EMAIL_FROM_ADDRESS": "kirti@kgirdharlal.com",
     "INTERVIEW_CONFIRMATION_BASE_URL": "https://kgirdharlal-recruitment.vercel.app",
-    "CLAUDE_MODEL": "claude-haiku-4-5-20251001",
+    "CLAUDE_MODEL": "claude-sonnet-4-6",
     "DIGEST_ENABLED": "true",
     "DIGEST_RECIPIENT_EMAIL": "kirti@kgirdharlal.com",
     "BRIDGE_API_SECRET": "kgirdharlal-bridge-secret"

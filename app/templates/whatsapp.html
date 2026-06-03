@@ -462,10 +462,19 @@ async function pollWaConnection() {
         _lastQr = d.qr_data;
         _loadQrLib(() => {
           const container = document.getElementById('qr-canvas');
-          container.innerHTML = '';
-          const canvas = document.createElement('canvas');
-          container.appendChild(canvas);
-          QRCode.toCanvas(canvas, d.qr_data, { width: 220, margin: 1 }, () => {});
+          container.innerHTML = '<p style="font-size:11px;color:#71717a">Rendering…</p>';
+          QRCode.toDataURL(d.qr_data, { width: 256, margin: 2, color: { dark: '#000000', light: '#ffffff' } }, (err, dataUrl) => {
+            if (err) {
+              container.innerHTML = '<p style="font-size:11px;color:#f87171">QR render failed — check console</p>';
+              console.error('[QR render]', err);
+              return;
+            }
+            container.innerHTML = '';
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.style.cssText = 'width:220px;height:220px;display:block;border-radius:8px';
+            container.appendChild(img);
+          });
         });
       }
 

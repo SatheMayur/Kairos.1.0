@@ -96,13 +96,13 @@ async function connectToWhatsApp() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+  sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('\n' + '═'.repeat(54));
-      console.log('  Scan with WhatsApp on your phone:');
-      console.log('  Settings -> Linked Devices -> Link a Device');
-      console.log('═'.repeat(54) + '\n');
+      console.log('\n[WA] QR code ready — open your dashboard to scan:');
+      console.log('     https://kgirdharlal-recruitment.vercel.app/ui/whatsapp\n');
       qrcode.generate(qr, { small: true });
+      // Also push QR to Vercel so dashboard can display it
+      axios.post(`${VERCEL}/api/v1/wa/qr`, { qr }, { headers, timeout: 8000 }).catch(() => {});
     }
 
     if (connection === 'open') {
@@ -111,17 +111,15 @@ async function connectToWhatsApp() {
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(pollAndSend, POLL_INTERVAL_MS);
 
-      // Notify Vercel bridge is alive
-      axios.post(`${VERCEL}/api/v1/wa/inbound`,
-        { from: 'system@bridge', body: '__bridge_connected__', session: 'default' },
-        { headers }
-      ).catch(() => {});
+      // Notify Vercel: connected (clears QR from dashboard)
+      axios.post(`${VERCEL}/api/v1/wa/qr`, { status: 'CONNECTED' }, { headers }).catch(() => {});
 
     } else if (connection === 'close') {
       isConnected = false;
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
       console.log('[WA] Disconnected. Reconnecting:', shouldReconnect);
+      axios.post(`${VERCEL}/api/v1/wa/disconnect`, {}, { headers }).catch(() => {});
       if (shouldReconnect) setTimeout(connectToWhatsApp, 5000);
     }
   });

@@ -194,6 +194,73 @@ async def wa_queue_list(db: AsyncSession = Depends(get_db)):
     } for r in rows]
 
 
+# ── QR / connection endpoints ─────────────────────────────────────────────
+
+@router.post("/qr")
+async def bridge_post_qr(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_auth),
+):
+    """Bridge POSTs QR string or connected status here.
+    payload: {qr: "<qr_string>"} or {status: "CONNECTED"}
+    """
+    from datetime import datetime
+    from app.models.wa_connection import WaConnection
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    status = payload.get("status")
+    qr_data = payload.get("qr")
+
+    # Upsert single row (id=1)
+    row = await db.get(WaConnection, 1)
+    if not row:
+        row = WaConnection(id=1, status="DISCONNECTED")
+        db.add(row)
+
+    if status == "CONNECTED":
+        row.status = "CONNECTED"
+        row.qr_data = None
+    elif qr_data:
+        row.status = "QR_READY"
+        row.qr_data = qr_data
+
+    row.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/connection")
+async def get_connection_status(db: AsyncSession = Depends(get_db)):
+    """Dashboard polls this to get QR data or connection status. No auth required."""
+    from app.models.wa_connection import WaConnection
+    row = await db.get(WaConnection, 1)
+    if not row:
+        return {"status": "DISCONNECTED", "qr_data": None}
+    return {
+        "status": row.status,
+        "qr_data": row.qr_data,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+@router.post("/disconnect")
+async def bridge_disconnect(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_auth),
+):
+    """Bridge notifies disconnect."""
+    from datetime import datetime
+    from app.models.wa_connection import WaConnection
+    row = await db.get(WaConnection, 1)
+    if row:
+        row.status = "DISCONNECTED"
+        row.qr_data = None
+        row.updated_at = datetime.utcnow()
+        await db.commit()
+    return {"ok": True}
+
+
 @router.post("/dashboard/send")
 async def wa_manual_send(payload: dict, db: AsyncSession = Depends(get_db)):
     """Queue a manual WhatsApp message from the dashboard."""

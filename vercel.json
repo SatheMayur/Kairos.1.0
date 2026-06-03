@@ -12,7 +12,7 @@
     { "path": "/api/v1/cron/post-interview", "schedule": "0 4 * * *"  },
     { "path": "/api/v1/cron/reminders",      "schedule": "0 2 * * *"  },
     { "path": "/api/v1/cron/digest",         "schedule": "30 2 * * *" },
-    { "path": "/api/v1/cron/watchdog",       "schedule": "*/30 * * * *" }
+    { "path": "/api/v1/cron/watchdog",       "schedule": "0 */2 * * *" }
   ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/index" }

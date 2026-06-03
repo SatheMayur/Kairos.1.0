@@ -2,10 +2,10 @@
 {% block title %}System Health{% endblock %}
 {% block content %}
 <div class="topbar">
-  <div class="topbar-left"><h1>System Health</h1><p>Watchdog · Email · WhatsApp · Cron jobs</p></div>
+  <div class="topbar-left"><h1>System Status</h1><p>Email · WhatsApp · Scheduled tasks · Problems log</p></div>
   <div style="display:flex;gap:10px">
-    <button class="btn btn-secondary" onclick="runCron('watchdog')">🐕 Run Watchdog</button>
-    <button class="btn btn-primary" onclick="runAllCrons()">▶ Run All Crons</button>
+    <button class="btn btn-secondary" onclick="runCron('watchdog')">🔍 Run Health Check</button>
+    <button class="btn btn-primary" onclick="runAllCrons()">▶ Run All Tasks Now</button>
   </div>
 </div>
 
@@ -13,27 +13,27 @@
 
 <!-- Watchdog status -->
 <div class="card" style="margin-bottom:20px">
-  <div class="card-header"><span class="card-title">🐕 Self-Healing Watchdog</span><span class="text-muted text-sm">Runs every 30 min — detects failures, retries, alerts</span></div>
+  <div class="card-header"><span class="card-title">🔍 Last Health Check</span><span class="text-muted text-sm">Runs automatically — fixes common problems before you notice them</span></div>
   <div class="card-body">
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px" id="watchdog-grid">
       <div style="text-align:center;padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border-default)">
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Bridge</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">WhatsApp</div>
         <div id="wd-bridge" style="font-size:20px">–</div>
         <div id="wd-bridge-sub" style="font-size:11px;color:var(--text-muted);margin-top:4px">–</div>
       </div>
       <div style="text-align:center;padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border-default)">
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Stuck Messages</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Unsent Messages Fixed</div>
         <div id="wd-stuck" style="font-size:20px">–</div>
         <div id="wd-stuck-sub" style="font-size:11px;color:var(--text-muted);margin-top:4px">–</div>
       </div>
       <div style="text-align:center;padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border-default)">
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Auto-Retried</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Messages Retried</div>
         <div id="wd-retry" style="font-size:20px">–</div>
         <div id="wd-retry-sub" style="font-size:11px;color:var(--text-muted);margin-top:4px">–</div>
       </div>
       <div style="text-align:center;padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border-default)">
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Last Run</div>
-        <div id="wd-last" style="font-size:13px;color:var(--text-secondary)">Never</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.8px;font-weight:700">Last Checked</div>
+        <div id="wd-last" style="font-size:13px;color:var(--text-secondary)">Not yet run</div>
       </div>
     </div>
   </div>
@@ -61,42 +61,44 @@
 <!-- Cron jobs -->
 <div class="card">
   <div class="card-header">
-    <span class="card-title">Cron Jobs</span>
-    <span class="text-muted text-sm">Runs daily on UTC schedule • Vercel Hobby plan (once/day)</span>
+    <span class="card-title">Automatic Daily Tasks</span>
+    <span class="text-muted text-sm">These run on their own every day. You can also run them manually anytime.</span>
   </div>
   <div class="table-wrap">
     <table>
-      <tr><th>Cron</th><th>Schedule (UTC)</th><th>Description</th><th>Action</th></tr>
+      <thead><tr><th>Task</th><th>Runs automatically at</th><th>What it does</th><th>Run now</th></tr></thead>
+      <tbody>
       <tr>
-        <td><code>/cron/source</code></td>
-        <td class="text-muted">1:00 AM</td>
-        <td class="text-muted text-sm">Source new candidates from Apify (LinkedIn + Naukri)</td>
-        <td><button class="btn btn-secondary btn-sm" onclick="runCron('source')">▶ Run</button></td>
+        <td style="font-weight:600">Find new candidates</td>
+        <td class="text-muted">6:30 AM IST</td>
+        <td class="text-muted text-sm">Searches job portals and adds new matching applicants</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('source')">▶ Run now</button></td>
       </tr>
       <tr>
-        <td><code>/cron/outreach</code></td>
-        <td class="text-muted">2:00 AM</td>
-        <td class="text-muted text-sm">Send outreach to all SHORTLISTED candidates</td>
-        <td><button class="btn btn-secondary btn-sm" onclick="runCron('outreach')">▶ Run</button></td>
+        <td style="font-weight:600">Send outreach messages</td>
+        <td class="text-muted">8:30 AM IST</td>
+        <td class="text-muted text-sm">Sends WhatsApp/email to all shortlisted candidates who haven't been contacted yet</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('outreach')">▶ Run now</button></td>
       </tr>
       <tr>
-        <td><code>/cron/reminders</code></td>
-        <td class="text-muted">2:30 AM</td>
-        <td class="text-muted text-sm">Send 24h interview reminders</td>
-        <td><button class="btn btn-secondary btn-sm" onclick="runCron('reminders')">▶ Run</button></td>
+        <td style="font-weight:600">Send interview reminders</td>
+        <td class="text-muted">7:30 AM IST</td>
+        <td class="text-muted text-sm">Reminds confirmed candidates about their upcoming interview (24 hours before)</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('reminders')">▶ Run now</button></td>
       </tr>
       <tr>
-        <td><code>/cron/followup</code></td>
-        <td class="text-muted">9:00 AM</td>
-        <td class="text-muted text-sm">Day-3 and day-6 follow-ups; drop silent candidates at day-9</td>
-        <td><button class="btn btn-secondary btn-sm" onclick="runCron('followup')">▶ Run</button></td>
+        <td style="font-weight:600">Follow up with non-responders</td>
+        <td class="text-muted">9:00 AM IST</td>
+        <td class="text-muted text-sm">Sends a gentle follow-up after 3 days of no reply; marks as dropped after 9 days of silence</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('followup')">▶ Run now</button></td>
       </tr>
       <tr>
-        <td><code>/cron/post-interview</code></td>
-        <td class="text-muted">10:00 AM</td>
-        <td class="text-muted text-sm">Auto-complete overdue interviews; nudge unconfirmed slots</td>
-        <td><button class="btn btn-secondary btn-sm" onclick="runCron('post-interview')">▶ Run</button></td>
+        <td style="font-weight:600">Wrap up interviews</td>
+        <td class="text-muted">9:30 AM IST</td>
+        <td class="text-muted text-sm">Marks overdue interviews as completed; nudges candidates who haven't confirmed a time slot</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="runCron('post-interview')">▶ Run now</button></td>
       </tr>
+      </tbody>
     </table>
   </div>
 </div>
@@ -180,24 +182,24 @@
 <div class="card" id="error-log-card">
   <div class="card-header">
     <div style="display:flex;align-items:center;gap:10px">
-      <span class="card-title">Error Log</span>
-      <span id="err-unresolved-badge" class="badge badge-red" style="display:none">0 unresolved</span>
+      <span class="card-title">Problems & Errors</span>
+      <span id="err-unresolved-badge" class="badge badge-red" style="display:none">needs attention</span>
     </div>
     <div class="flex gap-2">
       <select id="err-filter-level" class="filter-select" onchange="loadErrorLog()">
-        <option value="">All levels</option>
-        <option value="ERROR">ERROR</option>
-        <option value="WARNING">WARNING</option>
-        <option value="CRITICAL">CRITICAL</option>
+        <option value="">All problems</option>
+        <option value="CRITICAL">Urgent only</option>
+        <option value="ERROR">Errors only</option>
+        <option value="WARNING">Warnings only</option>
       </select>
       <select id="err-filter-resolved" class="filter-select" onchange="loadErrorLog()">
         <option value="">All</option>
-        <option value="false">Unresolved</option>
-        <option value="true">Resolved</option>
+        <option value="false">Needs attention</option>
+        <option value="true">Already handled</option>
       </select>
-      <button class="btn btn-secondary btn-sm" onclick="resolveAll()">✓ Resolve All</button>
-      <button class="btn btn-danger btn-sm" onclick="clearOldLogs()">🗑 Clear 7d+</button>
-      <button class="btn btn-secondary btn-sm" onclick="loadErrorLog()">↻</button>
+      <button class="btn btn-secondary btn-sm" onclick="resolveAll()">✓ Mark all as handled</button>
+      <button class="btn btn-danger btn-sm" onclick="clearOldLogs()">🗑 Delete entries older than 7 days</button>
+      <button class="btn btn-secondary btn-sm" onclick="loadErrorLog()">↻ Refresh</button>
     </div>
   </div>
   <div id="error-log-body">
@@ -205,16 +207,16 @@
   </div>
 </div>
 
-<!-- Traceback detail modal -->
+<!-- Error detail modal -->
 <div id="tb-modal" class="modal-overlay">
   <div class="modal-box modal-lg" style="max-width:820px">
     <div class="modal-header">
       <div>
-        <span class="modal-title" id="tb-title">Error Details</span>
+        <span class="modal-title" id="tb-title">What went wrong</span>
         <div id="tb-meta" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div>
       </div>
       <div class="flex gap-2">
-        <button class="btn btn-primary btn-sm" id="tb-resolve-btn" onclick="resolveFromModal()">✓ Resolve</button>
+        <button class="btn btn-primary btn-sm" id="tb-resolve-btn" onclick="resolveFromModal()">✓ Mark as handled</button>
         <button class="btn btn-ghost btn-sm" onclick="hideModal('tb-modal')">✕</button>
       </div>
     </div>
@@ -222,17 +224,17 @@
       <div id="tb-message" style="font-size:13px;color:var(--text-primary);padding:10px 14px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:var(--radius-sm);word-break:break-word"></div>
     </div>
     <div id="tb-body-section" style="display:none;margin-bottom:14px">
-      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px">Request Body</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px">What the system was doing when it failed</div>
       <pre id="tb-req-body" style="font-size:11px;color:var(--text-secondary);background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:10px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:140px;overflow-y:auto"></pre>
     </div>
     <div id="tb-traceback-section" style="display:none">
-      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px">Traceback</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px">Technical details (share this with support if needed)</div>
       <pre id="tb-traceback" style="font-size:11px;color:#a78bfa;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:10px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:320px;overflow-y:auto"></pre>
     </div>
     <div id="tb-note-section" style="margin-top:14px">
       <div class="form-group">
-        <label>Resolution note (optional)</label>
-        <input type="text" id="tb-note" placeholder="e.g. Fixed in commit abc123, or known issue with X">
+        <label>Your note about how you handled this (optional)</label>
+        <input type="text" id="tb-note" placeholder="e.g. WhatsApp was disconnected, reconnected it. / Ignored, happened only once.">
       </div>
     </div>
   </div>
@@ -449,6 +451,47 @@ loadErrorLog();
 
 // ── Error Log ──────────────────────────────────────────────────────────────
 const LEVEL_COLORS = {ERROR:'badge-red', WARNING:'badge-yellow', CRITICAL:'badge-red'};
+const LEVEL_LABELS = {ERROR:'Problem', WARNING:'Warning', CRITICAL:'Urgent Problem'};
+
+// Translate technical source names into plain English
+function friendlySource(src) {
+  const map = {
+    'cron:source':        'Sourcing job (finding candidates)',
+    'cron:outreach':      'Sending outreach messages',
+    'cron:reminders':     'Sending interview reminders',
+    'cron:followup':      'Sending follow-up messages',
+    'cron:post-interview':'After-interview processing',
+    'cron:digest':        'Morning summary email',
+    'cron:watchdog':      'Self-healing check',
+    'http':               'Website request',
+  };
+  if (map[src]) return map[src];
+  if (src.startsWith('http:')) return 'Website: ' + src.replace('http:','');
+  if (src.startsWith('cron:')) return 'Automated task: ' + src.replace('cron:','');
+  return src;
+}
+
+// Translate the plain error message into something actionable
+function friendlyMessage(msg, src) {
+  if (!msg) return 'An unknown error occurred.';
+  const m = msg.toLowerCase();
+  if (m.includes('connection') && m.includes('whatsapp'))
+    return '⚠️ WhatsApp disconnected. Open CMD on your computer and run: pm2 restart whatsapp-bridge';
+  if (m.includes('smtp') || m.includes('email') || m.includes('mail'))
+    return '✉️ Email sending failed. Check that your Gmail App Password is still valid in Vercel settings.';
+  if (m.includes('timeout') || m.includes('timed out'))
+    return '⏱ The system took too long and gave up. It will automatically try again next time.';
+  if (m.includes('connection refused') || m.includes('connect call failed'))
+    return '🔌 Could not connect to a service. It may be temporarily down — will retry automatically.';
+  if (m.includes('rate limit') || m.includes('429'))
+    return '⏳ Too many requests sent too quickly. The system will slow down automatically.';
+  if (m.includes('not found') || m.includes('404'))
+    return '🔍 Something the system was looking for could not be found. May be a data issue.';
+  if (m.includes('api key') || m.includes('unauthorized') || m.includes('403'))
+    return '🔑 A service rejected the system\'s login. An API key or password may need to be updated.';
+  return msg;
+}
+
 let _currentErrId = null;
 
 async function loadErrorLog() {
@@ -483,11 +526,10 @@ async function loadErrorLog() {
     body.innerHTML = `<div class="table-wrap"><table>
       <thead>
         <tr>
-          <th>Time</th>
-          <th>Level</th>
-          <th>Source</th>
-          <th>Type</th>
-          <th>Message</th>
+          <th>When</th>
+          <th>Severity</th>
+          <th>Where it happened</th>
+          <th>What went wrong</th>
           <th>Status</th>
           <th class="tr-action">Actions</th>
         </tr>
@@ -496,26 +538,26 @@ async function loadErrorLog() {
         ${errors.map(e => {
           const dt = new Date(e.logged_at);
           const ago = timeAgo(dt);
-          const msgShort = e.message.length > 80 ? e.message.slice(0, 80) + '…' : e.message;
-          return `<tr style="${e.resolved?'opacity:.5':''}">
+          const friendly = friendlyMessage(e.message, e.source);
+          const msgShort = friendly.length > 90 ? friendly.slice(0, 90) + '…' : friendly;
+          return `<tr style="${e.resolved?'opacity:.45':''}">
             <td>
               <div style="font-size:12px;color:var(--text-primary)">${ago}</div>
               <div style="font-size:10px;color:var(--text-dim)">${dt.toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
             </td>
-            <td><span class="badge ${LEVEL_COLORS[e.level]||'badge-grey'}" style="font-size:10px">${e.level}</span></td>
-            <td style="font-size:11.5px;color:var(--text-secondary);max-width:130px" class="truncate"><code style="font-size:10.5px">${esc(e.source)}</code></td>
-            <td style="font-size:11px;color:var(--purple)">${esc(e.error_type||'–')}</td>
-            <td style="font-size:12px;max-width:280px;color:var(--text-primary)" class="truncate" title="${esc(e.message)}">${esc(msgShort)}</td>
+            <td><span class="badge ${LEVEL_COLORS[e.level]||'badge-grey'}" style="font-size:10px">${LEVEL_LABELS[e.level]||e.level}</span></td>
+            <td style="font-size:12px;color:var(--text-secondary);max-width:160px" class="truncate" title="${esc(friendlySource(e.source))}">${esc(friendlySource(e.source))}</td>
+            <td style="font-size:12px;max-width:300px;color:var(--text-primary)" class="truncate" title="${esc(friendly)}">${esc(msgShort)}</td>
             <td>
               ${e.resolved
-                ? `<span class="badge badge-green" style="font-size:10px">Resolved</span>${e.resolved_note?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${esc(e.resolved_note)}</div>`:''}`
-                : '<span class="badge badge-grey" style="font-size:10px">Open</span>'
+                ? `<span class="badge badge-green" style="font-size:10px">Handled ✓</span>${e.resolved_note?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${esc(e.resolved_note)}</div>`:''}`
+                : `<span class="badge badge-yellow" style="font-size:10px">Needs attention</span>`
               }
             </td>
             <td class="tr-action">
               <div class="flex gap-2">
-                <button class="btn btn-secondary btn-sm" onclick="showErrorDetail(${JSON.stringify(e).replace(/"/g,'&quot;')})">Details</button>
-                ${!e.resolved ? `<button class="btn btn-ghost btn-sm" onclick="resolveError(${e.id})">✓</button>` : ''}
+                <button class="btn btn-secondary btn-sm" onclick="showErrorDetail(${JSON.stringify(e).replace(/"/g,'&quot;')})">View details</button>
+                ${!e.resolved ? `<button class="btn btn-ghost btn-sm" onclick="resolveError(${e.id})" title="Mark as handled">✓</button>` : ''}
               </div>
             </td>
           </tr>`;
@@ -529,13 +571,10 @@ async function loadErrorLog() {
 
 function showErrorDetail(e) {
   _currentErrId = e.id;
-  document.getElementById('tb-title').textContent = e.error_type || 'Error';
-  const method = e.method ? e.method + ' ' : '';
-  const path = e.path || '';
-  const code = e.status_code ? ' → ' + e.status_code : '';
-  const dt = new Date(e.logged_at).toLocaleString('en-IN');
-  document.getElementById('tb-meta').textContent = `${dt} · ${method}${path}${code} · source: ${e.source}`;
-  document.getElementById('tb-message').textContent = e.message;
+  document.getElementById('tb-title').textContent = friendlySource(e.source);
+  const dt = new Date(e.logged_at).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});
+  document.getElementById('tb-meta').textContent = `Happened at ${dt}`;
+  document.getElementById('tb-message').textContent = friendlyMessage(e.message, e.source);
 
   const reqBodyEl = document.getElementById('tb-body-section');
   if (e.request_body) {

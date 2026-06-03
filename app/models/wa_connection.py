@@ -13,3 +13,4 @@ class WaConnection(Base):
     status: Mapped[str] = mapped_column(String(20), default="DISCONNECTED")
     qr_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_poll_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

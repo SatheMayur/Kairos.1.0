@@ -234,3 +234,11 @@ async def cron_digest():
         except Exception as exc:
             logger.error("[CRON/digest] failed: %s", exc)
             return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}
+
+
+@router.post("/watchdog", dependencies=[Depends(_verify_secret)])
+async def cron_watchdog():
+    """Self-healing watchdog — detects failures, retries, and alerts. Runs every 30 min."""
+    from app.services.watchdog import run_watchdog
+    results = await run_watchdog()
+    return {"ran_at": datetime.utcnow().isoformat() + "Z", **results}

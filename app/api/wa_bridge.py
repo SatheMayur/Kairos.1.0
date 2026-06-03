@@ -38,6 +38,12 @@ async def poll_queue(
     _: None = Depends(_auth),
 ):
     """Return up to 20 PENDING outgoing messages. Bridge calls this every 3 s."""
+    # Track last poll time for watchdog dead-bridge detection
+    from app.models.wa_connection import WaConnection
+    conn_row = await db.get(WaConnection, 1)
+    if conn_row:
+        conn_row.last_poll_at = datetime.utcnow()
+
     res = await db.execute(
         select(WAQueue)
         .where(WAQueue.status == WAQueueStatus.PENDING)

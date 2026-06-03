@@ -5,5 +5,6 @@ from app.models.outreach import OutreachLog
 from app.models.interview import Interview
 from app.models.wa_queue import WAQueue
 from app.models.wa_connection import WaConnection
+from app.models.watchdog import WatchdogLog
 
-__all__ = ["Job", "Candidate", "ShortlistEntry", "OutreachLog", "Interview", "WAQueue", "WaConnection"]
+__all__ = ["Job", "Candidate", "ShortlistEntry", "OutreachLog", "Interview", "WAQueue", "WaConnection", "WatchdogLog"]

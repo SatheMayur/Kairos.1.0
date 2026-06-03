@@ -2,11 +2,42 @@
 {% block title %}System Health{% endblock %}
 {% block content %}
 <div class="topbar">
-  <div class="topbar-left"><h1>System Health</h1><p>Email config, cron status, database</p></div>
-  <button class="btn btn-primary" onclick="runAllCrons()">▶ Run All Crons Now</button>
+  <div class="topbar-left"><h1>System Health</h1><p>Watchdog · Email · WhatsApp · Cron jobs</p></div>
+  <div style="display:flex;gap:10px">
+    <button class="btn btn-secondary" onclick="runCron('watchdog')">🐕 Run Watchdog</button>
+    <button class="btn btn-primary" onclick="runAllCrons()">▶ Run All Crons</button>
+  </div>
 </div>
 
 <div id="alert-area"></div>
+
+<!-- Watchdog status -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header"><span class="card-title">🐕 Self-Healing Watchdog</span><span class="text-muted text-sm">Runs every 30 min — detects failures, retries, alerts</span></div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px" id="watchdog-grid">
+      <div style="text-align:center;padding:12px;background:#0f0f11;border-radius:10px;border:1px solid #27272a">
+        <div style="font-size:11px;color:#71717a;margin-bottom:6px;text-transform:uppercase">Bridge</div>
+        <div id="wd-bridge" style="font-size:20px">–</div>
+        <div id="wd-bridge-sub" style="font-size:11px;color:#71717a;margin-top:4px">–</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:#0f0f11;border-radius:10px;border:1px solid #27272a">
+        <div style="font-size:11px;color:#71717a;margin-bottom:6px;text-transform:uppercase">Stuck Messages</div>
+        <div id="wd-stuck" style="font-size:20px">–</div>
+        <div id="wd-stuck-sub" style="font-size:11px;color:#71717a;margin-top:4px">–</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:#0f0f11;border-radius:10px;border:1px solid #27272a">
+        <div style="font-size:11px;color:#71717a;margin-bottom:6px;text-transform:uppercase">Auto-Retried</div>
+        <div id="wd-retry" style="font-size:20px">–</div>
+        <div id="wd-retry-sub" style="font-size:11px;color:#71717a;margin-top:4px">–</div>
+      </div>
+      <div style="text-align:center;padding:12px;background:#0f0f11;border-radius:10px;border:1px solid #27272a">
+        <div style="font-size:11px;color:#71717a;margin-bottom:6px;text-transform:uppercase">Last Run</div>
+        <div id="wd-last" style="font-size:14px;color:#a1a1aa">Never</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Config status cards -->
 <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
@@ -16,14 +47,14 @@
     <div class="kpi-sub" id="email-method">–</div>
   </div>
   <div class="kpi" id="wa-kpi">
-    <div class="kpi-label">WhatsApp (OpenClaw)</div>
+    <div class="kpi-label">WhatsApp Bridge</div>
     <div class="kpi-value" id="wa-status" style="font-size:18px">Checking…</div>
     <div class="kpi-sub" id="wa-method">–</div>
   </div>
   <div class="kpi" id="apify-kpi">
-    <div class="kpi-label">Sourcing (Apify)</div>
-    <div class="kpi-value" id="apify-status" style="font-size:18px">Checking…</div>
-    <div class="kpi-sub" id="apify-method">–</div>
+    <div class="kpi-label">Claude AI Model</div>
+    <div class="kpi-value" id="apify-status" style="font-size:18px">Sonnet</div>
+    <div class="kpi-sub" id="apify-method">claude-sonnet-4-6</div>
   </div>
 </div>
 
@@ -189,47 +220,36 @@ async function loadSystemHealth() {
     emailStatus.textContent = '?'; emailMethod.textContent = 'Could not check';
   }
 
-  // WhatsApp config — live WAHA status check
+  // WhatsApp — use Baileys connection status
   const waStatus = document.getElementById('wa-status');
   const waMethod = document.getElementById('wa-method');
   const waKpi = document.getElementById('wa-kpi');
   try {
-    const wa = await api('/api/v1/webhook/whatsapp/status').catch(()=>null);
-    if (!wa || !wa.configured) {
-      waStatus.textContent = '❌ Not configured';
-      waStatus.style.color = '#f87171';
-      waMethod.textContent = 'Add OPENCLAW_API_URL to Vercel env';
-      waKpi.style.borderColor = 'rgba(239,68,68,.3)';
-    } else if (wa.status === 'WORKING' || wa.status === 'CONNECTED' || wa.status === 'authenticated') {
+    const wa = await api('/api/v1/wa/connection').catch(()=>null);
+    if (wa?.status === 'CONNECTED') {
       waStatus.textContent = '✅ Connected';
       waStatus.style.color = '#34d399';
-      waMethod.textContent = wa.message || 'WAHA session active';
+      waMethod.textContent = 'Baileys bridge active — messages sending';
       waKpi.style.borderColor = 'rgba(52,211,153,.3)';
       document.getElementById('wa-test-panel').style.display = 'block';
       document.getElementById('wa-bulk-panel').style.display = 'block';
-    } else if (wa.status === 'unreachable') {
-      waStatus.textContent = '⚠️ Unreachable';
-      waStatus.style.color = '#f87171';
-      waMethod.textContent = wa.message || 'Cannot reach WAHA server';
-      waKpi.style.borderColor = 'rgba(239,68,68,.3)';
-    } else {
-      waStatus.textContent = '⚠️ ' + (wa.status || 'Unknown');
+    } else if (wa?.status === 'QR_READY') {
+      waStatus.textContent = '📱 QR Ready';
       waStatus.style.color = '#fbbf24';
-      waMethod.textContent = wa.message || 'WAHA running but session not ready — scan QR code';
+      waMethod.textContent = 'Scan QR on WhatsApp dashboard';
       waKpi.style.borderColor = 'rgba(251,191,36,.3)';
-      document.getElementById('wa-test-panel').style.display = 'block';
+    } else {
+      waStatus.textContent = '⚠️ Offline';
+      waStatus.style.color = '#f87171';
+      waMethod.textContent = 'Run: node bridge.js on your computer';
+      waKpi.style.borderColor = 'rgba(239,68,68,.3)';
     }
   } catch(e) {
     waStatus.textContent = '?'; waMethod.textContent = 'Could not check';
   }
 
-  // Apify
-  const apifyStatus = document.getElementById('apify-status');
-  const apifyMethod = document.getElementById('apify-method');
+  // Claude AI
   const apifyKpi = document.getElementById('apify-kpi');
-  apifyStatus.textContent = '✅ Configured';
-  apifyStatus.style.color = '#34d399';
-  apifyMethod.textContent = 'APIFY_API_TOKEN set';
   apifyKpi.style.borderColor = 'rgba(52,211,153,.3)';
 
   // DB counts
@@ -247,12 +267,50 @@ async function loadSystemHealth() {
   `;
 }
 
+async function loadWatchdogStatus() {
+  try {
+    const r = await api('/api/v1/cron/watchdog', {method:'POST'});
+    const bridge = r.bridge || {};
+    const stuck  = r.stuck  || {};
+    const retry  = r.retry  || {};
+
+    const wdBridge = document.getElementById('wd-bridge');
+    const wdBridgeSub = document.getElementById('wd-bridge-sub');
+    if (bridge.ok === false) {
+      wdBridge.textContent = '⚠️ Dead';
+      wdBridge.style.color = '#f87171';
+      wdBridgeSub.textContent = bridge.reason === 'bridge_dead'
+        ? `${Math.round(bridge.minutes_since)}m since last poll` : 'No poll recorded';
+    } else {
+      wdBridge.textContent = '✅ Live';
+      wdBridge.style.color = '#34d399';
+      wdBridgeSub.textContent = bridge.minutes_since != null
+        ? `Last poll ${Math.round(bridge.minutes_since)}m ago` : 'Active';
+    }
+
+    const wdStuck = document.getElementById('wd-stuck');
+    wdStuck.textContent = stuck.marked_failed > 0 ? `🔧 Fixed ${stuck.marked_failed}` : '✅ Clear';
+    wdStuck.style.color = stuck.marked_failed > 0 ? '#fbbf24' : '#34d399';
+    document.getElementById('wd-stuck-sub').textContent = `${stuck.marked_failed || 0} resolved`;
+
+    const wdRetry = document.getElementById('wd-retry');
+    wdRetry.textContent = retry.retried > 0 ? `🔄 ${retry.retried}` : '✅ None';
+    wdRetry.style.color = retry.retried > 0 ? '#fbbf24' : '#34d399';
+    document.getElementById('wd-retry-sub').textContent = `${retry.total_failed || 0} total failed`;
+
+    document.getElementById('wd-last').textContent = new Date().toLocaleTimeString('en-IN');
+  } catch(e) {
+    document.getElementById('wd-bridge').textContent = '?';
+  }
+}
+
 async function runCron(name) {
   const area = document.getElementById('cron-result-area');
   area.innerHTML = `<div class="alert alert-info">Running /cron/${name}…</div>`;
   try {
     const r = await api('/api/v1/cron/'+name, {method:'POST'});
     area.innerHTML = `<div class="alert alert-success"><strong>/cron/${name} complete.</strong><br><pre style="margin-top:8px;font-size:11px;overflow-x:auto">${esc(JSON.stringify(r,null,2))}</pre></div>`;
+    if (name === 'watchdog') loadWatchdogStatus();
   } catch(e) {
     area.innerHTML = `<div class="alert alert-error"><strong>/cron/${name} failed:</strong> ${esc(e.message)}</div>`;
   }

@@ -23,6 +23,7 @@ const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 const pino = require('pino');
+const qrcode = require('qrcode-terminal');
 
 const SESSION_DIR = path.join(__dirname, 'session');
 const VERCEL = (process.env.VERCEL_URL || 'https://kgirdharlal-recruitment.vercel.app').replace(/\/$/, '');
@@ -89,21 +90,21 @@ async function connectToWhatsApp() {
     version,
     logger,
     auth: state,
-    printQRInTerminal: true,
+    printQRInTerminal: false,
     browser: ['K. Girdharlal HR', 'Chrome', '120.0'],
   });
 
-  if (!state.creds.registered) {
-    console.log('\n' + '═'.repeat(54));
-    console.log('  SCAN THE QR CODE WITH YOUR PHONE');
-    console.log('  WhatsApp → Settings → Linked Devices');
-    console.log('  → Link a Device → point camera at QR below');
-    console.log('═'.repeat(54) + '\n');
-  }
-
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
+  sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      console.log('\n' + '═'.repeat(54));
+      console.log('  Scan with WhatsApp on your phone:');
+      console.log('  Settings -> Linked Devices -> Link a Device');
+      console.log('═'.repeat(54) + '\n');
+      qrcode.generate(qr, { small: true });
+    }
+
     if (connection === 'open') {
       isConnected = true;
       console.log('[WA] ✅ Connected to WhatsApp — starting poll loop');

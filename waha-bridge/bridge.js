@@ -24,6 +24,7 @@ const path = require('path');
 const fs = require('fs');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 
 const SESSION_DIR = path.join(__dirname, 'session');
 const VERCEL = (process.env.VERCEL_URL || 'https://kgirdharlal-recruitment.vercel.app').replace(/\/$/, '');
@@ -101,8 +102,13 @@ async function connectToWhatsApp() {
       console.log('\n[WA] QR code ready — open your dashboard to scan:');
       console.log('     https://kgirdharlal-recruitment.vercel.app/ui/whatsapp\n');
       qrcode.generate(qr, { small: true });
-      // Also push QR to Vercel so dashboard can display it
-      axios.post(`${VERCEL}/api/v1/wa/qr`, { qr }, { headers, timeout: 8000 }).catch(() => {});
+      // Generate PNG on Node side (browser qrcode.js can't handle Baileys binary QR)
+      QRCode.toDataURL(qr, { width: 300, margin: 2 }, (err, dataUrl) => {
+        if (err) { console.error('[QR IMG]', err.message); return; }
+        axios.post(`${VERCEL}/api/v1/wa/qr`, { qr: dataUrl }, { headers, timeout: 8000 })
+          .then(() => console.log('[QR] Pushed to dashboard ✓'))
+          .catch(e => console.error('[QR PUSH]', e.message));
+      });
     }
 
     if (connection === 'open') {

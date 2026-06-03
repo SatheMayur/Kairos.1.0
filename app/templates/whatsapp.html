@@ -417,17 +417,8 @@ loadCandidates();
 setInterval(loadAll, 15000);
 
 // ── WhatsApp QR connection polling ────────────────────────────────────────
-let _qrLib = false;
 let _lastQr = null;
 let _waConnected = false;
-
-function _loadQrLib(cb) {
-  if (_qrLib) { cb(); return; }
-  const s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
-  s.onload = () => { _qrLib = true; cb(); };
-  document.head.appendChild(s);
-}
 
 async function pollWaConnection() {
   try {
@@ -460,22 +451,12 @@ async function pollWaConnection() {
 
       if (d.qr_data !== _lastQr) {
         _lastQr = d.qr_data;
-        _loadQrLib(() => {
-          const container = document.getElementById('qr-canvas');
-          container.innerHTML = '<p style="font-size:11px;color:#71717a">Rendering…</p>';
-          QRCode.toDataURL(d.qr_data, { width: 256, margin: 2, color: { dark: '#000000', light: '#ffffff' } }, (err, dataUrl) => {
-            if (err) {
-              container.innerHTML = '<p style="font-size:11px;color:#f87171">QR render failed — check console</p>';
-              console.error('[QR render]', err);
-              return;
-            }
-            container.innerHTML = '';
-            const img = document.createElement('img');
-            img.src = dataUrl;
-            img.style.cssText = 'width:220px;height:220px;display:block;border-radius:8px';
-            container.appendChild(img);
-          });
-        });
+        const container = document.getElementById('qr-canvas');
+        container.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = d.qr_data;
+        img.style.cssText = 'width:220px;height:220px;display:block;border-radius:8px';
+        container.appendChild(img);
       }
 
     } else {

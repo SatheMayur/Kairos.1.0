@@ -37,19 +37,22 @@
     </div>
   </div>
 
-  <!-- Run AI Sourcing -->
+  <!-- How to get candidates from Naukri -->
   <div class="card">
-    <div class="card-header"><span class="card-title">🤖 AI Sourcing (Apify)</span></div>
+    <div class="card-header"><span class="card-title">📋 How to Import from Naukri</span></div>
     <div class="card-body">
-      <p class="text-muted text-sm" style="margin-bottom:16px">Run Apify actors to scrape LinkedIn and Naukri for fresh candidates matching the job requirements.</p>
-      <div class="form-group">
-        <label>Job</label>
-        <select id="source-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
-          <option value="">Loading jobs…</option>
-        </select>
+      <p class="text-muted text-sm" style="margin-bottom:14px">Naukri is your primary source. Follow these steps to import applicants:</p>
+      <ol style="color:#a1a1aa;font-size:13px;line-height:2;padding-left:18px;margin:0 0 14px 0">
+        <li>Log in to <strong style="color:#e4e4e7">naukri.com</strong> → Employer Dashboard</li>
+        <li>Go to <strong style="color:#e4e4e7">Manage Jobs</strong> → click your active job</li>
+        <li>Click <strong style="color:#e4e4e7">View Applications</strong></li>
+        <li>Click <strong style="color:#e4e4e7">Download / Export CSV</strong></li>
+        <li>Upload that CSV file here using <strong style="color:#e4e4e7">Import & Score ←</strong></li>
+      </ol>
+      <div style="background:#1a1a2e;border-radius:8px;padding:12px;border-left:3px solid #34d399">
+        <p style="margin:0;font-size:12px;color:#34d399;font-weight:600">✓ What happens automatically</p>
+        <p style="margin:4px 0 0 0;font-size:12px;color:#a1a1aa">System scores every applicant, shortlists top candidates, and sends WhatsApp + email outreach — all in one click.</p>
       </div>
-      <button class="btn btn-primary" onclick="runSourceCron()" id="source-btn">🔍 Source Now</button>
-      <div id="source-result" style="margin-top:12px"></div>
     </div>
   </div>
 </div>
@@ -157,8 +160,9 @@
 <script>
 async function init() {
   const jobs = await api('/api/v1/jobs?limit=100');
-  ['csv-job','source-job','m-job','url-job','bulk-job'].forEach(id => {
+  ['csv-job','m-job','url-job','bulk-job'].forEach(id => {
     const sel = document.getElementById(id);
+    if (!sel) return;
     sel.innerHTML = '<option value="">Select job…</option>' +
       jobs.filter(j=>j.status==='ACTIVE').map(j=>
         `<option value="${j.id}">${esc(j.title)} ${j.company?'('+esc(j.company)+')':''}</option>`
@@ -214,22 +218,6 @@ function showImportResult(r) {
     </div>`;
 }
 
-async function runSourceCron() {
-  const jobId = document.getElementById('source-job').value;
-  if (!jobId) { showToast('Select a job first', 'error'); return; }
-  const btn = document.getElementById('source-btn');
-  const result = document.getElementById('source-result');
-  btn.disabled = true; btn.textContent = 'Sourcing…';
-  result.innerHTML = '<div class="text-muted text-sm">Running Apify sourcing… this may take 1-2 minutes.</div>';
-  try {
-    const r = await api('/api/v1/sourcing/'+jobId, {method:'POST'});
-    result.innerHTML = `<div class="alert alert-success">Sourced <strong>${r.total_sourced||0}</strong> candidates — ${r.shortlisted||0} shortlisted.</div>`;
-    showToast('Sourcing complete', 'success');
-  } catch(e) {
-    result.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
-  }
-  btn.disabled = false; btn.textContent = '🔍 Source Now';
-}
 
 async function importURL() {
   const jobId = document.getElementById('url-job').value;

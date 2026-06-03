@@ -454,8 +454,9 @@ async function pollWaConnection() {
         const container = document.getElementById('qr-canvas');
         container.innerHTML = '';
         const img = document.createElement('img');
-        img.src = d.qr_data;
+        img.src = '/api/v1/wa/qr-image?t=' + Date.now();
         img.style.cssText = 'width:220px;height:220px;display:block;border-radius:8px';
+        img.onerror = () => { container.innerHTML = '<p style="font-size:11px;color:#f87171">Image load failed — retrying…</p>'; };
         container.appendChild(img);
       }
 

@@ -230,6 +230,25 @@ async def bridge_post_qr(
     return {"ok": True}
 
 
+@router.get("/qr-image")
+async def wa_qr_image(db: AsyncSession = Depends(get_db)):
+    """Return the current QR code as a PNG. No auth — displayed by dashboard."""
+    from app.models.wa_connection import WaConnection
+    import io, qrcode as _qrcode
+    from fastapi.responses import StreamingResponse
+
+    row = await db.get(WaConnection, 1)
+    if not row or not row.qr_data or row.status != "QR_READY":
+        raise HTTPException(status_code=404, detail="No QR available")
+
+    img = _qrcode.make(row.qr_data, box_size=8, border=2)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="image/png",
+                             headers={"Cache-Control": "no-store"})
+
+
 @router.get("/connection")
 async def get_connection_status(db: AsyncSession = Depends(get_db)):
     """Dashboard polls this to get QR data or connection status. No auth required."""

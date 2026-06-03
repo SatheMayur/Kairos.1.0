@@ -6,10 +6,10 @@
  *   INCOMING: Baileys receives → POSTs to POST /api/v1/wa/inbound
  *
  * First-time setup:
- *   - Set WA_PHONE_NUMBER to the WhatsApp number (digits only, with country code)
- *   - Run this script — it prints an 8-digit pairing code
- *   - On phone: WhatsApp → Settings → Linked Devices → Link with phone number → enter code
- *   - Session is saved to ./session/ and reconnects automatically
+ *   - Run: node bridge.js
+ *   - A QR code appears in the terminal
+ *   - On phone: WhatsApp → Settings → Linked Devices → Link a Device → scan QR
+ *   - Session is saved to ./session/ and reconnects automatically on next run
  */
 
 const {
@@ -27,7 +27,6 @@ const pino = require('pino');
 const SESSION_DIR = path.join(__dirname, 'session');
 const VERCEL = (process.env.VERCEL_URL || 'https://kgirdharlal-recruitment.vercel.app').replace(/\/$/, '');
 const BRIDGE_KEY = process.env.BRIDGE_API_KEY || 'kgirdharlal-bridge-secret';
-const WA_PHONE = (process.env.WA_PHONE_NUMBER || '919033410606').replace(/\D/g, '');
 const POLL_INTERVAL_MS = 3000;
 
 const headers = { 'x-bridge-key': BRIDGE_KEY, 'Content-Type': 'application/json' };
@@ -90,26 +89,16 @@ async function connectToWhatsApp() {
     version,
     logger,
     auth: state,
-    printQRInTerminal: false,
+    printQRInTerminal: true,
     browser: ['K. Girdharlal HR', 'Chrome', '120.0'],
   });
 
-  // ── First-time pairing code ──────────────────────────────────────────────
   if (!state.creds.registered) {
-    await new Promise(r => setTimeout(r, 3000));
-    try {
-      const code = await sock.requestPairingCode(WA_PHONE);
-      console.log('\n' + '═'.repeat(54));
-      console.log(`  WHATSAPP PAIRING CODE  →  ${code}`);
-      console.log('═'.repeat(54));
-      console.log('  📱 On your phone (number: +' + WA_PHONE + '):');
-      console.log('  WhatsApp → Settings → Linked Devices');
-      console.log('  → Link a Device → "Link with phone number instead"');
-      console.log('  → Enter the 8-digit code above');
-      console.log('═'.repeat(54) + '\n');
-    } catch (e) {
-      console.error('[PAIRING] Could not get pairing code:', e.message);
-    }
+    console.log('\n' + '═'.repeat(54));
+    console.log('  SCAN THE QR CODE WITH YOUR PHONE');
+    console.log('  WhatsApp → Settings → Linked Devices');
+    console.log('  → Link a Device → point camera at QR below');
+    console.log('═'.repeat(54) + '\n');
   }
 
   sock.ev.on('creds.update', saveCreds);

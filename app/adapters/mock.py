@@ -1,4 +1,8 @@
-"""Mock adapter — returns deterministic fake candidates for local dev and tests."""
+"""Mock adapter — returns deterministic candidates for local dev and tests.
+
+Respects the location parameter so dev sourcing stays scoped to the right city.
+Only active when USE_MOCK_ADAPTERS=true. Never runs in production.
+"""
 import random
 from typing import Optional
 from app.adapters.base import BasePortalAdapter, RawCandidate
@@ -11,18 +15,21 @@ _SKILLS_POOL = [
     "Machine Learning", "AutoCAD", "SolidWorks", "Photoshop", "Illustrator",
     "Excel", "Tableau", "Figma", "FastAPI", "Django", "Kubernetes",
 ]
-_LOCATIONS = ["Mumbai", "Bangalore", "Surat", "Ahmedabad", "Pune", "Delhi", "Hyderabad"]
 _EDU = ["B.Tech", "B.E.", "MBA", "BCA", "B.Sc", "M.Tech", "MCA"]
 _EMPLOYERS = ["TCS", "Infosys", "Wipro", "HCL", "Accenture", "Capgemini", "Tech Mahindra"]
 
 
-def _fake_candidate(idx: int, source: CandidateSource, keywords: list[str]) -> RawCandidate:
+def _mock_candidate(
+    idx: int,
+    source: CandidateSource,
+    keywords: list[str],
+    location: str,
+) -> RawCandidate:
     rng = random.Random(idx)
     first, last = rng.choice(_FIRST), rng.choice(_LAST)
     exp = round(rng.uniform(0.5, 10.0), 1)
     base_salary = int(exp * rng.randint(40_000, 70_000))
     skills = rng.sample(_SKILLS_POOL, k=rng.randint(3, 7))
-    # Inject some of the search keywords so scoring is realistic
     for kw in keywords[:2]:
         if kw not in skills:
             skills.append(kw)
@@ -36,20 +43,20 @@ def _fake_candidate(idx: int, source: CandidateSource, keywords: list[str]) -> R
         experience_years=exp,
         current_salary=float(base_salary),
         expected_salary=float(int(base_salary * rng.uniform(1.1, 1.3))),
-        location=rng.choice(_LOCATIONS),
+        location=location,
         notice_period_days=rng.choice([0, 15, 30, 60, 90]),
         education=rng.choice(_EDU),
         current_employer=rng.choice(_EMPLOYERS),
         current_role=rng.choice(["Software Engineer", "Designer", "Analyst", "Developer"]),
-        raw_profile=f"Mock profile for {first} {last} with {exp}y experience.",
+        raw_profile=f"Mock profile for {first} {last} with {exp}y experience in {location}.",
         source_ref=f"mock-{source.value.lower()}-{idx}",
     )
 
 
 class MockAdapter(BasePortalAdapter):
-    """Single mock adapter used for all portals when USE_MOCK_ADAPTERS=true."""
+    """Mock adapter for dev mode (USE_MOCK_ADAPTERS=true only)."""
 
-    def __init__(self, source: CandidateSource = CandidateSource.MOCK, default_limit: int = 10):
+    def __init__(self, source: CandidateSource = CandidateSource.MOCK, default_limit: int = 5):
         self._source = source
         self._default_limit = default_limit
 
@@ -65,6 +72,14 @@ class MockAdapter(BasePortalAdapter):
         experience_max: Optional[float] = None,
         limit: int = 50,
     ) -> list[RawCandidate]:
+        # Always use the job's location — never pick random cities
+        loc = (location or "Surat").split(",")[0].strip()
         count = min(limit, self._default_limit)
         seed_offset = hash(self._source.value + "".join(keywords)) % 10_000
-        return [_fake_candidate(seed_offset + i, self._source, keywords) for i in range(count)]
+        return [
+            _mock_candidate(seed_offset + i, self._source, keywords, loc)
+            for i in range(count)
+        ]
+
+    async def health_check(self) -> bool:
+        return True

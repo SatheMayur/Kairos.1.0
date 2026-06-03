@@ -49,15 +49,17 @@ async def run_sourcing(job_id: int, db: AsyncSession = Depends(get_db)):
     review = [e for e in entries if e.status.value == "PENDING"]
     rejected = [e for e in entries if e.status.value == "REJECTED"]
 
+    location_label = f" in {job.location}" if job.location else ""
     return {
         "job_id": job_id,
         "job_title": job.title,
+        "job_location": job.location,
         "total_sourced": len(entries),
         "shortlisted": len(shortlisted),
         "manual_review": len(review),
         "rejected": len(rejected),
         "message": (
-            f"Sourced {len(entries)} candidates via LinkedIn + Naukri. "
+            f"Sourced {len(entries)} candidates via LinkedIn{location_label}. "
             f"{len(shortlisted)} auto-shortlisted, {len(review)} need manual review."
         ),
     }

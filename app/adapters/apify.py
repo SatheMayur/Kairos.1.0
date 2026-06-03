@@ -22,6 +22,35 @@ logger = get_logger(__name__)
 LINKEDIN_ACTOR = "get-leads/linkedin-scraper"
 NAUKRI_ACTOR   = "makework36/naukri-scraper"
 
+# LinkedIn requires full city+state+country for precise geo-filtering.
+# Bare city names like "Surat" match too broadly across India.
+_LINKEDIN_LOCATION_MAP = {
+    "surat":       "Surat, Gujarat, India",
+    "ahmedabad":   "Ahmedabad, Gujarat, India",
+    "vadodara":    "Vadodara, Gujarat, India",
+    "rajkot":      "Rajkot, Gujarat, India",
+    "mumbai":      "Mumbai, Maharashtra, India",
+    "pune":        "Pune, Maharashtra, India",
+    "bangalore":   "Bengaluru, Karnataka, India",
+    "bengaluru":   "Bengaluru, Karnataka, India",
+    "delhi":       "Delhi, India",
+    "hyderabad":   "Hyderabad, Telangana, India",
+    "chennai":     "Chennai, Tamil Nadu, India",
+    "kolkata":     "Kolkata, West Bengal, India",
+}
+
+
+def _linkedin_location(job_location: Optional[str]) -> str:
+    """Normalize job location to LinkedIn's expected city+state+country format."""
+    if not job_location:
+        return "Surat, Gujarat, India"
+    lower = job_location.lower()
+    for city_key, linkedin_fmt in _LINKEDIN_LOCATION_MAP.items():
+        if city_key in lower:
+            return linkedin_fmt
+    # Unknown city — append India if not already present
+    return job_location if "india" in lower else f"{job_location}, India"
+
 
 def _run_actor_sync(api_token: str, actor_id: str, run_input: dict) -> list[dict]:
     """Blocking call — always run via asyncio.to_thread()."""
@@ -81,7 +110,7 @@ class ApifyLinkedInAdapter(BasePortalAdapter):
         run_input = {
             "mode": "search_profiles",
             "searchQuery": query,
-            "location": location or "India",
+            "location": _linkedin_location(location),
             "maxResults": min(limit, 50),
             "discoverEmails": True,
         }

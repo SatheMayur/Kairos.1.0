@@ -1,56 +1,50 @@
 """Adapter registry — one place that maps portal names to adapter instances.
 
-Real adapters:
-  - ApifyLinkedInAdapter  — proactive LinkedIn sourcing (when APIFY_API_TOKEN is set)
+Production mode (USE_MOCK_ADAPTERS=false):
+  - Only real adapters with valid credentials are registered.
+  - No mock stubs in production — a portal without credentials is simply absent.
+  - This prevents fake/mock candidates from appearing in real sourcing runs.
+  - ApifyLinkedInAdapter registered when APIFY_API_TOKEN is set.
 
-Naukri inbound applicants come via CSV export from your Naukri employer dashboard
-uploaded at /ui/import — Apify cannot access employer-login-gated applicant data.
+Development mode (USE_MOCK_ADAPTERS=true):
+  - All portals stubbed with location-aware MockAdapter for local testing.
 
-All other portals are stubbed until real credentials are provided.
+Naukri inbound applicants come via CSV export (/ui/import).
+Apify Naukri actor scrapes job listings not candidate profiles — disabled.
 """
 from app.adapters.base import BasePortalAdapter
 from app.adapters.mock import MockAdapter
 from app.models.candidate import CandidateSource
 from app.config import get_settings
 
-
-def _stub(src: CandidateSource) -> BasePortalAdapter:
-    return MockAdapter(source=src, default_limit=10)
+_DEV_PORTALS = [
+    CandidateSource.LINKEDIN,
+    CandidateSource.NAUKRI,
+    CandidateSource.APNA,
+    CandidateSource.WORKINDIA,
+    CandidateSource.SHINE,
+    CandidateSource.INTERNSHALA,
+]
 
 
 def build_registry(use_mock: bool, apify_token: str = "") -> dict[str, BasePortalAdapter]:
-    """Return {portal_name: adapter} mapping."""
+    """Return {portal_name: adapter} mapping.
+
+    Production (use_mock=False): only real adapters. No mock fallback.
+    Dev (use_mock=True): all portals stubbed with location-aware MockAdapter.
+    """
     adapters: dict[str, BasePortalAdapter] = {}
 
-    # LinkedIn: Apify proactive sourcing — finds passive candidates from LinkedIn searches
-    if apify_token and not use_mock:
+    if use_mock:
+        for portal in _DEV_PORTALS:
+            adapters[portal.value] = MockAdapter(source=portal, default_limit=5)
+        return adapters
+
+    # Production: only register adapters backed by real credentials.
+    # Portals without credentials are absent — never return fake candidates.
+    if apify_token:
         from app.adapters.apify import ApifyLinkedInAdapter
         adapters[CandidateSource.LINKEDIN.value] = ApifyLinkedInAdapter(apify_token)
-
-    # Naukri inbound applicants must come via CSV export (/ui/import)
-    # Apify Naukri actor scrapes job listings, NOT applicant profiles — disabled.
-    stub_portals = [
-        CandidateSource.NAUKRI,
-        CandidateSource.INDEED,
-        CandidateSource.APNA,
-        CandidateSource.WORKINDIA,
-        CandidateSource.JOBHAI,
-        CandidateSource.INTERNSHALA,
-        CandidateSource.FRESHERSWORLD,
-        CandidateSource.SHINE,
-        CandidateSource.PLACEMENTINDIA,
-        CandidateSource.QUIKR,
-        CandidateSource.CLICKINDIA,
-        CandidateSource.OLX,
-        CandidateSource.JORA,
-        CandidateSource.FOUNDIT,
-    ]
-    if not apify_token or use_mock:
-        stub_portals = [CandidateSource.LINKEDIN] + stub_portals
-
-    for portal in stub_portals:
-        if portal.value not in adapters:
-            adapters[portal.value] = _stub(portal)
 
     return adapters
 

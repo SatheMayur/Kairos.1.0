@@ -44,6 +44,22 @@ async def source_candidates_for_job(job: Job, db: AsyncSession) -> list[Shortlis
         else:
             raw_candidates.extend(result)
 
+    # Location post-filter: drop candidates clearly from the wrong city.
+    # Candidates with no location field are kept (scored lower, not discarded).
+    if job.location:
+        job_city = job.location.lower().split(",")[0].strip()  # "Surat" from "Surat, Gujarat"
+        before = len(raw_candidates)
+        raw_candidates = [
+            r for r in raw_candidates
+            if not r.location or job_city in r.location.lower()
+        ]
+        dropped = before - len(raw_candidates)
+        if dropped:
+            logger.info(
+                "Location filter: dropped %d candidates not in '%s' for job %d",
+                dropped, job_city, job.id,
+            )
+
     logger.info("Sourced %d raw candidates for job %d", len(raw_candidates), job.id)
 
     entries: list[ShortlistEntry] = []

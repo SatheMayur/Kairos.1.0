@@ -2,74 +2,61 @@
 {% block title %}Jobs{% endblock %}
 {% block content %}
 <div class="topbar">
-  <div class="topbar-left"><h1>Jobs</h1><p>Manage job requisitions</p></div>
+  <div class="topbar-left">
+    <h1>Jobs</h1>
+    <p class="text-muted text-sm">Manage active requisitions</p>
+  </div>
   <button class="btn btn-primary" onclick="showModal('create-modal')">＋ New Job</button>
 </div>
 
-<div id="alert-area"></div>
-
-<!-- Jobs table -->
 <div class="card">
   <div class="card-header">
     <span class="card-title">All Requisitions</span>
-    <div class="flex gap-2">
-      <select id="status-filter" class="btn btn-secondary btn-sm" onchange="loadJobs()" style="padding:5px 10px">
-        <option value="">All statuses</option>
-        <option value="ACTIVE">Active</option>
-        <option value="PAUSED">Paused</option>
-        <option value="CLOSED">Closed</option>
-      </select>
-    </div>
+    <select id="status-filter" class="filter-select" onchange="loadJobs()">
+      <option value="">All statuses</option>
+      <option value="ACTIVE">Active</option>
+      <option value="PAUSED">Paused</option>
+      <option value="CLOSED">Closed</option>
+    </select>
   </div>
   <div id="jobs-table-body">
-    <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+    <div style="padding:28px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
   </div>
 </div>
 
 <!-- Create Modal -->
-<div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;overflow-y:auto;padding:40px 20px">
-  <div style="max-width:700px;margin:0 auto;background:#18181b;border:1px solid #27272a;border-radius:16px;padding:28px">
-    <div class="flex justify-between items-center" style="margin-bottom:20px">
-      <h2 style="font-size:16px;font-weight:700">Create Job</h2>
-      <button class="btn btn-secondary btn-sm" onclick="hideModal('create-modal')">✕ Close</button>
+<div id="create-modal" class="modal-overlay">
+  <div class="modal-box modal-lg">
+    <div class="modal-header">
+      <span class="modal-title">Create Job</span>
+      <button class="btn btn-ghost btn-sm" onclick="hideModal('create-modal')">✕</button>
     </div>
 
-    <!-- Tabs -->
-    <div class="flex gap-2" style="margin-bottom:20px">
-      <button class="btn btn-primary btn-sm" id="tab-jd" onclick="switchTab('jd')">Paste JD (auto-extract)</button>
-      <button class="btn btn-secondary btn-sm" id="tab-manual" onclick="switchTab('manual')">Manual Entry</button>
+    <div class="tabs" style="margin-bottom:20px">
+      <button class="tab active" id="tab-jd" onclick="switchTab('jd')">Paste JD (auto-extract)</button>
+      <button class="tab" id="tab-manual" onclick="switchTab('manual')">Manual Entry</button>
     </div>
 
-    <!-- JD Tab -->
+    <!-- JD Pane -->
     <div id="pane-jd">
       <div class="form-group">
-        <label>Paste Job Description Text</label>
-        <textarea id="jd-text" placeholder="Paste the full JD here — skills, experience, salary, location will be extracted automatically…" style="min-height:160px"></textarea>
+        <label>Paste Job Description</label>
+        <textarea id="jd-text" placeholder="Paste the full JD here — title, skills, experience, salary, location will be extracted automatically by Claude…" style="min-height:160px"></textarea>
       </div>
       <button class="btn btn-primary" id="btn-analyze" onclick="analyzeAndCreate()">
         <span id="analyze-spinner" class="spinner" style="display:none"></span>
-        ⚡ Analyze &amp; Create Job
+        ⚡ Analyze &amp; Create
       </button>
       <div id="analyze-result" style="margin-top:14px"></div>
     </div>
 
-    <!-- Manual Tab -->
+    <!-- Manual Pane -->
     <div id="pane-manual" style="display:none">
       <div class="grid-2">
-        <div class="form-group">
-          <label>Job Title *</label>
-          <input type="text" id="m-title" placeholder="e.g. Senior Python Developer">
-        </div>
-        <div class="form-group">
-          <label>Company</label>
-          <input type="text" id="m-company" placeholder="e.g. K. Girdharlal International">
-        </div>
-        <div class="form-group">
-          <label>Location</label>
-          <input type="text" id="m-location" placeholder="e.g. Bangalore">
-        </div>
-        <div class="form-group">
-          <label>Job Type</label>
+        <div class="form-group"><label>Job Title *</label><input type="text" id="m-title" placeholder="Sr. Graphic Designer"></div>
+        <div class="form-group"><label>Company</label><input type="text" id="m-company" placeholder="K. Girdharlal International"></div>
+        <div class="form-group"><label>Location</label><input type="text" id="m-location" placeholder="Surat, Gujarat"></div>
+        <div class="form-group"><label>Job Type</label>
           <select id="m-jobtype">
             <option value="">Select…</option>
             <option value="full-time">Full-time</option>
@@ -79,136 +66,115 @@
             <option value="remote">Remote</option>
           </select>
         </div>
-        <div class="form-group">
-          <label>Experience Min (yrs)</label>
-          <input type="number" id="m-expmin" placeholder="e.g. 2">
-        </div>
-        <div class="form-group">
-          <label>Experience Max (yrs)</label>
-          <input type="number" id="m-expmax" placeholder="e.g. 5">
-        </div>
-        <div class="form-group">
-          <label>Salary Min (₹)</label>
-          <input type="number" id="m-salmin" placeholder="e.g. 800000">
-        </div>
-        <div class="form-group">
-          <label>Salary Max (₹)</label>
-          <input type="number" id="m-salmax" placeholder="e.g. 1200000">
-        </div>
+        <div class="form-group"><label>Min Experience (yrs)</label><input type="number" id="m-expmin" placeholder="2"></div>
+        <div class="form-group"><label>Max Experience (yrs)</label><input type="number" id="m-expmax" placeholder="5"></div>
+        <div class="form-group"><label>Salary Min (₹)</label><input type="number" id="m-salmin" placeholder="400000"></div>
+        <div class="form-group"><label>Salary Max (₹)</label><input type="number" id="m-salmax" placeholder="600000"></div>
       </div>
-      <div class="form-group">
-        <label>Required Skills (comma-separated)</label>
-        <input type="text" id="m-skills" placeholder="e.g. Python, FastAPI, SQL, Docker">
+      <div class="form-group"><label>Required Skills (comma-separated)</label><input type="text" id="m-skills" placeholder="Fusion 360, SolidWorks, AutoCAD"></div>
+      <div class="form-group"><label>Education</label><input type="text" id="m-education" placeholder="B.E. Mechanical"></div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn btn-primary" onclick="createManual()">＋ Create Job</button>
+        <button class="btn btn-secondary" onclick="hideModal('create-modal')">Cancel</button>
       </div>
-      <div class="form-group">
-        <label>Education</label>
-        <input type="text" id="m-education" placeholder="e.g. B.Tech">
-      </div>
-      <button class="btn btn-primary" onclick="createManual()">＋ Create Job</button>
     </div>
   </div>
 </div>
-
 {% endblock %}
+
 {% block scripts %}
 <script>
-function switchTab(tab) {
-  document.getElementById('pane-jd').style.display = tab==='jd'?'block':'none';
-  document.getElementById('pane-manual').style.display = tab==='manual'?'block':'none';
-  document.getElementById('tab-jd').className = 'btn btn-sm ' + (tab==='jd'?'btn-primary':'btn-secondary');
-  document.getElementById('tab-manual').className = 'btn btn-sm ' + (tab==='manual'?'btn-primary':'btn-secondary');
+function switchTab(tab){
+  document.getElementById('pane-jd').style.display=tab==='jd'?'block':'none';
+  document.getElementById('pane-manual').style.display=tab==='manual'?'block':'none';
+  document.getElementById('tab-jd').className='tab'+(tab==='jd'?' active':'');
+  document.getElementById('tab-manual').className='tab'+(tab==='manual'?' active':'');
 }
 
-async function loadJobs() {
-  const status = document.getElementById('status-filter').value;
-  const url = '/api/v1/jobs?limit=100' + (status ? '&status='+status : '');
-  const jobs = await api(url);
-  const body = document.getElementById('jobs-table-body');
-  if (!jobs.length) {
-    body.innerHTML = '<div class="empty-state"><p>No jobs found. Create one above.</p></div>'; return;
+async function loadJobs(){
+  const status=document.getElementById('status-filter').value;
+  const url='/api/v1/jobs?limit=100'+(status?'&status='+status:'');
+  const jobs=await api(url);
+  const body=document.getElementById('jobs-table-body');
+  if(!jobs.length){
+    body.innerHTML='<div class="empty-state"><div class="empty-state-icon">◫</div><p>No jobs found.</p><button class="btn btn-primary btn-sm" onclick="showModal(\'create-modal\')" style="margin-top:12px">Create First Job</button></div>';return;
   }
-  body.innerHTML = `<div class="table-wrap"><table>
-    <tr><th>Title</th><th>Skills</th><th>Location</th><th>Exp</th><th>Salary</th><th>Status</th><th>Actions</th></tr>
-    ${jobs.map(j => `<tr>
-      <td><strong>${esc(j.title)}</strong><br><span class="text-muted text-sm">${esc(j.company||'')}</span></td>
-      <td>${(j.skills||[]).slice(0,4).map(s=>`<span class="badge badge-grey" style="margin:1px;font-size:10px">${esc(s)}</span>`).join('')}${(j.skills||[]).length>4?`<span class="text-muted text-sm"> +${j.skills.length-4}</span>`:''}</td>
-      <td class="text-muted">${esc(j.location||'–')}</td>
-      <td class="text-muted">${j.experience_min||'?'}–${j.experience_max||'?'} yrs</td>
-      <td class="text-muted">${j.salary_min ? '₹'+(j.salary_min/100000).toFixed(1)+'L–'+(j.salary_max/100000).toFixed(1)+'L' : '–'}</td>
-      <td><span class="badge ${j.status==='ACTIVE'?'badge-green':j.status==='PAUSED'?'badge-yellow':'badge-grey'}">${j.status}</span></td>
+  body.innerHTML=`<div class="table-wrap"><table>
+    <thead><tr><th>Role</th><th>Skills</th><th>Exp</th><th>Salary</th><th>Status</th><th class="tr-action">Actions</th></tr></thead>
+    <tbody>${jobs.map(j=>`<tr>
       <td>
-        <button class="btn btn-secondary btn-sm" onclick="triggerSourcing(${j.id}, this)" title="Source candidates from all portals">⚡ Source</button>
-        <button class="btn btn-danger btn-sm" style="margin-left:4px" onclick="updateStatus(${j.id}, '${j.status==='ACTIVE'?'PAUSED':'ACTIVE'}', this)">${j.status==='ACTIVE'?'⏸ Pause':'▶ Resume'}</button>
+        <div style="font-weight:600;font-size:12.5px">${esc(j.title)}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${esc(j.company||'')}${j.location?' · '+esc(j.location):''}</div>
       </td>
-    </tr>`).join('')}
+      <td>${(j.skills||[]).slice(0,4).map(s=>`<span class="badge badge-grey" style="margin:1px;font-size:10px">${esc(s)}</span>`).join('')}${(j.skills||[]).length>4?`<span style="font-size:10.5px;color:var(--text-muted)"> +${j.skills.length-4}</span>`:''}</td>
+      <td style="font-size:12px;color:var(--text-secondary)">${j.experience_min||'?'}–${j.experience_max||'?'} yrs</td>
+      <td style="font-size:12px;color:var(--text-secondary)">${j.salary_min?'₹'+(j.salary_min/100000).toFixed(1)+'–'+(j.salary_max/100000).toFixed(1)+'L':'–'}</td>
+      <td><span class="badge ${j.status==='ACTIVE'?'badge-green':j.status==='PAUSED'?'badge-yellow':'badge-grey'}">${j.status}</span></td>
+      <td class="tr-action">
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm" onclick="triggerSourcing(${j.id},this)">⚡ Source</button>
+          <button class="btn ${j.status==='ACTIVE'?'btn-danger':'btn-primary'} btn-sm" onclick="updateStatus(${j.id},'${j.status==='ACTIVE'?'PAUSED':'ACTIVE'}',this)">${j.status==='ACTIVE'?'⏸':'▶'}</button>
+        </div>
+      </td>
+    </tr>`).join('')}</tbody>
   </table></div>`;
 }
 
-async function triggerSourcing(jobId, btn) {
-  btn.disabled = true; btn.textContent = 'Sourcing…';
-  try {
-    const res = await api('/api/v1/jobs/'+jobId+'/source', {method:'POST'});
-    showToast(`Sourced ${res.sourced} candidates for job #${jobId}`, 'success');
-  } catch(e) { showToast('Sourcing failed: '+e.message, 'error'); }
-  btn.disabled = false; btn.textContent = '⚡ Source';
+async function triggerSourcing(jobId,btn){
+  btn.disabled=true;btn.textContent='Sourcing…';
+  try{
+    const res=await api('/api/v1/jobs/'+jobId+'/source',{method:'POST'});
+    showToast(`Sourced ${res.sourced||0} candidates`,'success');
+  }catch(e){showToast('Sourcing failed: '+e.message,'error')}
+  btn.disabled=false;btn.textContent='⚡ Source';
   loadJobs();
 }
 
-async function updateStatus(jobId, newStatus, btn) {
-  btn.disabled = true;
-  try {
-    await api('/api/v1/jobs/'+jobId, {method:'PATCH', body:{status:newStatus}});
-    showToast('Job status updated to '+newStatus, 'success');
-    loadJobs();
-  } catch(e) { showToast('Update failed', 'error'); btn.disabled=false; }
+async function updateStatus(jobId,newStatus,btn){
+  btn.disabled=true;
+  try{await api('/api/v1/jobs/'+jobId,{method:'PATCH',body:{status:newStatus}});showToast('Status → '+newStatus,'success');loadJobs()}
+  catch(e){showToast('Update failed','error');btn.disabled=false}
 }
 
-async function analyzeAndCreate() {
-  const jd = document.getElementById('jd-text').value.trim();
-  if (!jd) { showToast('Paste a JD first', 'error'); return; }
-  const btn = document.getElementById('btn-analyze');
-  const spinner = document.getElementById('analyze-spinner');
-  btn.disabled = true; spinner.style.display = 'inline-block';
-  document.getElementById('analyze-result').innerHTML = '';
-  try {
-    const params = new URLSearchParams({raw_jd: jd});
-    const res = await fetch('/api/v1/jobs/from-jd?'+params, {method:'POST'});
-    if (!res.ok) throw new Error(await res.text());
-    const job = await res.json();
-    document.getElementById('analyze-result').innerHTML = `
-      <div class="alert alert-success">
-        ✅ Job created: <strong>${esc(job.title)}</strong> (ID #${job.id})<br>
-        Skills: ${(job.skills||[]).join(', ')||'–'} &nbsp;|&nbsp;
-        Location: ${job.location||'–'} &nbsp;|&nbsp;
-        Exp: ${job.experience_min||'?'}–${job.experience_max||'?'} yrs
-      </div>`;
+async function analyzeAndCreate(){
+  const jd=document.getElementById('jd-text').value.trim();
+  if(!jd){showToast('Paste a JD first','error');return}
+  const btn=document.getElementById('btn-analyze');
+  const spinner=document.getElementById('analyze-spinner');
+  btn.disabled=true;spinner.style.display='inline-block';
+  document.getElementById('analyze-result').innerHTML='';
+  try{
+    const res=await fetch('/api/v1/jobs/from-jd?'+new URLSearchParams({raw_jd:jd}),{method:'POST'});
+    if(!res.ok)throw new Error(await res.text());
+    const job=await res.json();
+    document.getElementById('analyze-result').innerHTML=`<div class="alert alert-success">
+      ✅ Created: <strong>${esc(job.title)}</strong> (ID #${job.id})<br>
+      <span style="font-size:11.5px">Skills: ${(job.skills||[]).join(', ')||'–'} &nbsp;·&nbsp; ${job.location||'–'} &nbsp;·&nbsp; ${job.experience_min||'?'}–${job.experience_max||'?'} yrs</span>
+    </div>`;
     loadJobs();
-  } catch(e) {
-    document.getElementById('analyze-result').innerHTML = `<div class="alert alert-error">Error: ${esc(e.message)}</div>`;
+  }catch(e){
+    document.getElementById('analyze-result').innerHTML=`<div class="alert alert-error">Error: ${esc(e.message)}</div>`;
   }
-  btn.disabled = false; spinner.style.display = 'none';
+  btn.disabled=false;spinner.style.display='none';
 }
 
-async function createManual() {
-  const title = document.getElementById('m-title').value.trim();
-  if (!title) { showToast('Title is required', 'error'); return; }
-  const skills = document.getElementById('m-skills').value.split(',').map(s=>s.trim()).filter(Boolean);
-  const body = {
-    title, company: document.getElementById('m-company').value||undefined,
-    location: document.getElementById('m-location').value||undefined,
-    job_type: document.getElementById('m-jobtype').value||undefined,
-    experience_min: parseFloat(document.getElementById('m-expmin').value)||undefined,
-    experience_max: parseFloat(document.getElementById('m-expmax').value)||undefined,
-    salary_min: parseFloat(document.getElementById('m-salmin').value)||undefined,
-    salary_max: parseFloat(document.getElementById('m-salmax').value)||undefined,
-    education: document.getElementById('m-education').value||undefined,
+async function createManual(){
+  const title=document.getElementById('m-title').value.trim();
+  if(!title){showToast('Title is required','error');return}
+  const skills=document.getElementById('m-skills').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const body={
+    title,company:document.getElementById('m-company').value||undefined,
+    location:document.getElementById('m-location').value||undefined,
+    job_type:document.getElementById('m-jobtype').value||undefined,
+    experience_min:parseFloat(document.getElementById('m-expmin').value)||undefined,
+    experience_max:parseFloat(document.getElementById('m-expmax').value)||undefined,
+    salary_min:parseFloat(document.getElementById('m-salmin').value)||undefined,
+    salary_max:parseFloat(document.getElementById('m-salmax').value)||undefined,
+    education:document.getElementById('m-education').value||undefined,
     skills,
   };
-  try {
-    await api('/api/v1/jobs', {method:'POST', body});
-    showToast('Job created', 'success');
-    hideModal('create-modal'); loadJobs();
-  } catch(e) { showToast('Create failed: '+e.message, 'error'); }
+  try{await api('/api/v1/jobs',{method:'POST',body});showToast('Job created','success');hideModal('create-modal');loadJobs()}
+  catch(e){showToast('Create failed: '+e.message,'error')}
 }
 
 loadJobs();

@@ -232,6 +232,26 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
 #cmd-footer span{display:flex;align-items:center;gap:4px}
 #cmd-footer kbd{background:var(--bg-overlay);border:1px solid var(--border-default);border-radius:3px;padding:1px 5px;font-family:monospace;font-size:9.5px;color:var(--text-muted)}
 
+/* ── MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9500;overflow-y:auto;padding:40px 20px;backdrop-filter:blur(4px)}
+.modal-box{max-width:640px;margin:0 auto;background:var(--bg-elevated);border:1px solid var(--border-strong);border-radius:var(--radius-xl);padding:28px;box-shadow:var(--shadow-lg)}
+.modal-box.modal-sm{max-width:460px}
+.modal-box.modal-lg{max-width:760px}
+.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
+.modal-title{font-size:15px;font-weight:700;color:var(--text-primary);letter-spacing:-.2px}
+
+/* ── FILTER BAR ── */
+.filter-bar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--border-subtle)}
+.filter-group{display:flex;flex-direction:column;gap:4px}
+.filter-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;font-weight:700}
+.filter-select{background:var(--bg-overlay);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:6px 10px;color:var(--text-primary);font-size:12.5px;outline:none;cursor:pointer;font-family:var(--font)}
+.filter-select:focus{border-color:var(--accent)}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:2px;background:var(--bg-overlay);border-radius:var(--radius-sm);padding:3px}
+.tab{padding:6px 14px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-muted);border:none;background:none;font-family:var(--font);transition:all var(--transition)}
+.tab.active{background:var(--bg-elevated);color:var(--text-primary);box-shadow:var(--shadow-sm)}
+
 /* ── PIPELINE BAR ── */
 .pipeline-funnel{display:flex;gap:3px;height:6px;border-radius:99px;overflow:hidden;margin-top:10px}
 .pipeline-funnel-seg{transition:flex var(--transition)}

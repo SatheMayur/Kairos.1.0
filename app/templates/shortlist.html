@@ -2,25 +2,23 @@
 {% block title %}Shortlist{% endblock %}
 {% block content %}
 <div class="topbar">
-  <div class="topbar-left"><h1>Shortlist</h1><p>Candidate pipeline by job</p></div>
+  <div class="topbar-left">
+    <h1>Shortlist</h1>
+    <p class="text-muted text-sm">Candidate pipeline by job</p>
+  </div>
 </div>
 
-<div id="alert-area"></div>
-
-<div class="card" style="margin-bottom:16px">
-  <div class="card-header">
-    <span class="card-title">Filters</span>
-  </div>
-  <div class="card-body flex gap-3" style="flex-wrap:wrap">
-    <div>
-      <label style="font-size:11px;color:#71717a;display:block;margin-bottom:4px">Job</label>
-      <select id="job-filter" onchange="loadShortlist()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;color:#e4e4e7;font-size:13px">
+<div class="card">
+  <div class="filter-bar">
+    <div class="filter-group">
+      <span class="filter-label">Job</span>
+      <select id="job-filter" onchange="loadShortlist()" class="filter-select">
         <option value="">All jobs</option>
       </select>
     </div>
-    <div>
-      <label style="font-size:11px;color:#71717a;display:block;margin-bottom:4px">Status</label>
-      <select id="status-filter" onchange="loadShortlist()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;color:#e4e4e7;font-size:13px">
+    <div class="filter-group">
+      <span class="filter-label">Status</span>
+      <select id="status-filter" onchange="loadShortlist()" class="filter-select">
         <option value="">All statuses</option>
         <option value="SHORTLISTED">Shortlisted</option>
         <option value="PENDING">Pending review</option>
@@ -28,152 +26,180 @@
         <option value="INTERESTED">Interested</option>
         <option value="INTERVIEW_SCHEDULED">Interview Scheduled</option>
         <option value="REJECTED">Rejected</option>
+        <option value="DROPPED">Dropped</option>
         <option value="HIRED">Hired</option>
       </select>
     </div>
-    <div>
-      <label style="font-size:11px;color:#71717a;display:block;margin-bottom:4px">Min Score</label>
+    <div class="filter-group">
+      <span class="filter-label">Min Score</span>
       <input type="number" id="score-filter" value="0" min="0" max="100" onchange="loadShortlist()"
-        style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:7px 10px;color:#e4e4e7;font-size:13px;width:80px">
+        class="filter-select" style="width:72px">
     </div>
+    <div style="margin-left:auto">
+      <button class="btn btn-primary btn-sm" onclick="bulkOutreach()" id="bulk-btn">▶ Bulk Outreach</button>
+    </div>
+  </div>
+
+  <div class="card-header" style="border-top:none;border-bottom:1px solid var(--border-subtle)">
+    <span class="card-title" id="sl-count">Shortlist</span>
+  </div>
+  <div id="sl-table-body">
+    <div style="padding:28px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
   </div>
 </div>
 
-<div class="card">
-  <div class="card-header">
-    <span class="card-title" id="sl-count">Shortlist</span>
-    <div class="flex gap-2">
-      <button class="btn btn-primary btn-sm" onclick="bulkOutreach()" id="bulk-btn">📧 Bulk Outreach (Shortlisted)</button>
+<!-- Notes modal -->
+<div id="notes-modal" class="modal-overlay">
+  <div class="modal-box modal-sm">
+    <div class="modal-header">
+      <span class="modal-title">Recruiter Notes</span>
+      <button class="btn btn-ghost btn-sm" onclick="hideModal('notes-modal')">✕</button>
     </div>
-  </div>
-  <div id="sl-table-body">
-    <div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="notes-text" placeholder="e.g. Strong communication, 2 yrs HR ops…" style="min-height:90px"></textarea>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="saveNotes()">Save</button>
+      <button class="btn btn-secondary" onclick="hideModal('notes-modal')">Cancel</button>
+    </div>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const STATUS_COLORS = {
-  SHORTLISTED:'badge-green', PENDING:'badge-yellow', REJECTED:'badge-red',
-  CONTACTED:'badge-blue', INTERESTED:'badge-green', NOT_INTERESTED:'badge-red',
-  INTERVIEW_SCHEDULED:'badge-purple', HIRED:'badge-green', DROPPED:'badge-grey'
-};
-const STATUS_OPTIONS = ['SHORTLISTED','PENDING','CONTACTED','INTERESTED','NOT_INTERESTED','INTERVIEW_SCHEDULED','HIRED','REJECTED','DROPPED'];
+const STATUS_COLORS={SHORTLISTED:'badge-green',PENDING:'badge-yellow',REJECTED:'badge-red',CONTACTED:'badge-blue',INTERESTED:'badge-green',NOT_INTERESTED:'badge-red',INTERVIEW_SCHEDULED:'badge-purple',HIRED:'badge-green',DROPPED:'badge-grey'};
+const STATUS_OPTIONS=['SHORTLISTED','PENDING','CONTACTED','INTERESTED','NOT_INTERESTED','INTERVIEW_SCHEDULED','HIRED','REJECTED','DROPPED'];
 
-let jobsMap = {};
+let jobsMap={};
+let _notesEntryId=null;
 
-async function init() {
-  const jobs = await api('/api/v1/jobs?limit=100');
-  jobsMap = Object.fromEntries(jobs.map(j => [j.id, j]));
-  const sel = document.getElementById('job-filter');
-  jobs.forEach(j => {
-    const opt = document.createElement('option');
-    opt.value = j.id; opt.textContent = j.title + (j.company?' ('+j.company+')':'');
+async function init(){
+  const jobs=await api('/api/v1/jobs?limit=100');
+  jobsMap=Object.fromEntries(jobs.map(j=>[j.id,j]));
+  const sel=document.getElementById('job-filter');
+  jobs.forEach(j=>{
+    const opt=document.createElement('option');
+    opt.value=j.id;opt.textContent=j.title+(j.company?' ('+j.company+')':'');
     sel.appendChild(opt);
   });
+  // Honor ?job= param
+  const params=new URLSearchParams(location.search);
+  if(params.get('job'))sel.value=params.get('job');
   loadShortlist();
 }
 
-async function loadShortlist() {
-  const jobId = document.getElementById('job-filter').value;
-  const status = document.getElementById('status-filter').value;
-  const minScore = document.getElementById('score-filter').value || 0;
-  let url = `/api/v1/shortlist?limit=200&min_score=${minScore}`;
-  if (jobId) url += `&job_id=${jobId}`;
-  if (status) url += `&status=${status}`;
-  const entries = await api(url);
-  document.getElementById('sl-count').textContent = `Shortlist (${entries.length})`;
+async function loadShortlist(){
+  const jobId=document.getElementById('job-filter').value;
+  const status=document.getElementById('status-filter').value;
+  const minScore=document.getElementById('score-filter').value||0;
+  let url=`/api/v1/shortlist?limit=200&min_score=${minScore}`;
+  if(jobId)url+=`&job_id=${jobId}`;
+  if(status)url+=`&status=${status}`;
+  const entries=await api(url);
+  document.getElementById('sl-count').textContent=`Shortlist (${entries.length})`;
 
-  const body = document.getElementById('sl-table-body');
-  if (!entries.length) {
-    body.innerHTML = '<div class="empty-state"><p>No entries. Trigger sourcing from the Jobs page.</p></div>'; return;
+  const body=document.getElementById('sl-table-body');
+  if(!entries.length){
+    body.innerHTML='<div class="empty-state"><div class="empty-state-icon">◈</div><p>No entries match this filter.</p></div>';return;
   }
 
-  // Fetch candidate names in bulk
-  const candIds = [...new Set(entries.map(e => e.candidate_id))];
-  const candMap = {};
-  await Promise.all(candIds.slice(0,50).map(async id => {
-    try { candMap[id] = await api('/api/v1/candidates/'+id); } catch(e) {}
+  const candIds=[...new Set(entries.map(e=>e.candidate_id))];
+  const candMap={};
+  await Promise.all(candIds.slice(0,60).map(async id=>{
+    try{candMap[id]=await api('/api/v1/candidates/'+id)}catch(e){}
   }));
 
-  body.innerHTML = `<div class="table-wrap"><table>
-    <tr><th>Candidate</th><th>Job</th><th>Score</th><th>Status</th><th>Notes</th><th>Actions</th></tr>
-    ${entries.map(e => {
-      const c = candMap[e.candidate_id];
-      const j = jobsMap[e.job_id];
-      const scoreColor = e.score >= 65 ? '#34d399' : e.score >= 40 ? '#fbbf24' : '#f87171';
-      return `<tr>
+  body.innerHTML=`<div class="table-wrap"><table>
+    <thead><tr><th>Candidate</th><th>Job</th><th>Score</th><th>Status</th><th>Notes</th><th class="tr-action">Actions</th></tr></thead>
+    <tbody>${entries.map(e=>{
+      const c=candMap[e.candidate_id];
+      const j=jobsMap[e.job_id];
+      const sc=e.score||0;
+      const scColor=sc>=65?'#34d399':sc>=40?'#fbbf24':'#f87171';
+      return`<tr>
         <td>
-          <strong>${c ? esc(c.name) : '#'+e.candidate_id}</strong><br>
-          <span class="text-muted text-sm">${c ? esc(c.location||'') : ''}</span>
+          <div style="font-weight:600;font-size:12.5px">${c?esc(c.name):'#'+e.candidate_id}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${c?esc(c.location||c.current_role||''):''}</div>
         </td>
-        <td class="text-muted">${j ? esc(j.title) : '#'+e.job_id}</td>
+        <td style="font-size:12px;color:var(--text-secondary)">${j?esc(j.title):'#'+e.job_id}</td>
         <td>
           <div class="score-bar-wrap">
-            <div class="score-bar"><div class="score-fill" style="width:${e.score}%;background:${scoreColor}"></div></div>
-            <span class="score-text" style="color:${scoreColor}">${e.score.toFixed(0)}</span>
+            <div class="score-bar"><div class="score-fill" style="width:${sc}%;background:${scColor}"></div></div>
+            <span class="score-text" style="color:${scColor}">${sc.toFixed(0)}</span>
           </div>
         </td>
         <td>
-          <select class="badge ${STATUS_COLORS[e.status]||'badge-grey'}" onchange="updateStatus(${e.id}, this.value)"
-            style="background:transparent;border:none;cursor:pointer;font-size:11px;font-weight:600;outline:none">
-            ${STATUS_OPTIONS.map(s => `<option value="${s}" ${s===e.status?'selected':''} style="background:#27272a;color:#e4e4e7">${s.replace('_',' ')}</option>`).join('')}
+          <select class="badge ${STATUS_COLORS[e.status]||'badge-grey'}" onchange="updateStatus(${e.id},this.value)"
+            style="background:transparent;border:none;cursor:pointer;font-size:10.5px;font-weight:600;outline:none;padding:2px 6px">
+            ${STATUS_OPTIONS.map(s=>`<option value="${s}" ${s===e.status?'selected':''} style="background:#27272a;color:#e4e4e7">${s.replace(/_/g,' ')}</option>`).join('')}
           </select>
         </td>
-        <td class="text-muted text-sm">${esc(e.recruiter_notes||'–')}</td>
-        <td>
-          ${c&&c.email ? `<button class="btn btn-secondary btn-sm" onclick="sendOutreach(${e.job_id},${e.candidate_id})" title="Send outreach email">✉</button>` : ''}
-          ${c&&(c.phone||c.whatsapp) ? `<button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="sendWhatsApp(${e.job_id},${e.candidate_id})" title="WhatsApp">💬</button>` : ''}
-          <button class="btn btn-secondary btn-sm" style="margin-left:4px" onclick="editNotes(${e.id})" title="Add notes">📝</button>
+        <td style="font-size:11.5px;color:var(--text-muted);max-width:160px" class="truncate" title="${esc(e.recruiter_notes||'')}">
+          ${e.recruiter_notes?esc(e.recruiter_notes):'<span style="color:var(--text-dim)">–</span>'}
+        </td>
+        <td class="tr-action">
+          <div class="flex gap-2">
+            ${c&&c.email?`<button class="btn btn-secondary btn-sm" onclick="sendOutreach(${e.job_id},${e.candidate_id})" title="Email">✉</button>`:''}
+            ${c&&(c.phone||c.whatsapp)?`<button class="btn btn-secondary btn-sm" onclick="sendWhatsApp(${e.job_id},${e.candidate_id})" title="WhatsApp">💬</button>`:''}
+            <button class="btn btn-ghost btn-sm" onclick="openNotes(${e.id},'${esc(e.recruiter_notes||'')}')" title="Notes">📝</button>
+          </div>
         </td>
       </tr>`;
-    }).join('')}
+    }).join('')}</tbody>
   </table></div>`;
 }
 
-async function updateStatus(entryId, newStatus) {
-  try {
-    await api('/api/v1/shortlist/'+entryId, {method:'PATCH', body:{status:newStatus}});
-    showToast('Status updated to '+newStatus, 'success');
-  } catch(e) { showToast('Update failed', 'error'); loadShortlist(); }
+async function updateStatus(entryId,newStatus){
+  try{
+    await api('/api/v1/shortlist/'+entryId,{method:'PATCH',body:{status:newStatus}});
+    showToast('Status → '+newStatus.replace(/_/g,' '),'success');
+  }catch(e){showToast('Update failed','error');loadShortlist()}
 }
 
-async function sendOutreach(jobId, candidateId) {
-  try {
-    await api(`/api/v1/outreach/send?candidate_id=${candidateId}&job_id=${jobId}&channel=EMAIL&outreach_type=INITIAL_CONTACT`, {method:'POST'});
-    showToast('Outreach email queued', 'success');
-  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+async function sendOutreach(jobId,candidateId){
+  try{
+    await api(`/api/v1/outreach/send?candidate_id=${candidateId}&job_id=${jobId}&channel=EMAIL&outreach_type=INITIAL_CONTACT`,{method:'POST'});
+    showToast('Email queued','success');
+  }catch(e){showToast('Failed: '+e.message,'error')}
 }
 
-async function sendWhatsApp(jobId, candidateId) {
-  try {
-    await api(`/api/v1/outreach/send?candidate_id=${candidateId}&job_id=${jobId}&channel=WHATSAPP&outreach_type=INITIAL_CONTACT`, {method:'POST'});
-    showToast('WhatsApp message sent', 'success');
-  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+async function sendWhatsApp(jobId,candidateId){
+  try{
+    await api(`/api/v1/outreach/send?candidate_id=${candidateId}&job_id=${jobId}&channel=WHATSAPP&outreach_type=INITIAL_CONTACT`,{method:'POST'});
+    showToast('WhatsApp queued','success');
+  }catch(e){showToast('Failed: '+e.message,'error')}
 }
 
-async function bulkOutreach() {
-  const jobId = document.getElementById('job-filter').value;
-  if (!jobId) { showToast('Select a specific job first', 'error'); return; }
-  const btn = document.getElementById('bulk-btn');
-  btn.disabled = true; btn.textContent = 'Sending…';
-  try {
-    const res = await api(`/api/v1/outreach/bulk/${jobId}?channel=EMAIL`, {method:'POST'});
-    showToast(`Sent ${res.sent} / ${res.total} emails`, 'success');
+async function bulkOutreach(){
+  const jobId=document.getElementById('job-filter').value;
+  if(!jobId){showToast('Select a specific job first','error');return}
+  const btn=document.getElementById('bulk-btn');
+  btn.disabled=true;btn.textContent='Sending…';
+  try{
+    const res=await api(`/api/v1/outreach/bulk/${jobId}?channel=EMAIL`,{method:'POST'});
+    showToast(`Sent ${res.sent} / ${res.total}`,'success');
     loadShortlist();
-  } catch(e) { showToast('Bulk outreach failed: '+e.message, 'error'); }
-  btn.disabled = false; btn.textContent = '📧 Bulk Outreach (Shortlisted)';
+  }catch(e){showToast('Failed: '+e.message,'error')}
+  btn.disabled=false;btn.textContent='▶ Bulk Outreach';
 }
 
-async function editNotes(entryId) {
-  const notes = prompt('Add recruiter notes:');
-  if (notes === null) return;
-  try {
-    await api('/api/v1/shortlist/'+entryId, {method:'PATCH', body:{recruiter_notes:notes}});
-    showToast('Notes saved', 'success');
+function openNotes(entryId,current){
+  _notesEntryId=entryId;
+  document.getElementById('notes-text').value=current;
+  showModal('notes-modal');
+}
+
+async function saveNotes(){
+  if(!_notesEntryId)return;
+  const notes=document.getElementById('notes-text').value;
+  try{
+    await api('/api/v1/shortlist/'+_notesEntryId,{method:'PATCH',body:{recruiter_notes:notes}});
+    showToast('Notes saved','success');
+    hideModal('notes-modal');
     loadShortlist();
-  } catch(e) { showToast('Failed', 'error'); }
+  }catch(e){showToast('Failed','error')}
 }
 
 init();

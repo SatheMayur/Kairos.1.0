@@ -14,20 +14,20 @@
     <div class="card-body">
       <div class="form-group">
         <label>Job</label>
-        <select id="csv-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <select id="csv-job" style="width:100%">
           <option value="">Loading jobs…</option>
         </select>
       </div>
       <div class="form-group">
         <label>Source Portal</label>
-        <select id="csv-source" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <select id="csv-source" style="width:100%">
           <option value="NAUKRI">Naukri</option>
           <option value="WORKINDIA">WorkIndia</option>
         </select>
       </div>
       <div class="form-group">
         <label>CSV File</label>
-        <input type="file" id="csv-file" accept=".csv" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <input type="file" id="csv-file" accept=".csv" style="width:100%">
       </div>
       <div class="form-group" style="display:flex;align-items:center;gap:10px">
         <input type="checkbox" id="csv-outreach" checked style="width:auto">
@@ -42,16 +42,16 @@
     <div class="card-header"><span class="card-title">📋 How to Import from Naukri</span></div>
     <div class="card-body">
       <p class="text-muted text-sm" style="margin-bottom:14px">Naukri is your primary source. Follow these steps to import applicants:</p>
-      <ol style="color:#a1a1aa;font-size:13px;line-height:2;padding-left:18px;margin:0 0 14px 0">
-        <li>Log in to <strong style="color:#e4e4e7">naukri.com</strong> → Employer Dashboard</li>
-        <li>Go to <strong style="color:#e4e4e7">Manage Jobs</strong> → click your active job</li>
-        <li>Click <strong style="color:#e4e4e7">View Applications</strong></li>
-        <li>Click <strong style="color:#e4e4e7">Download / Export CSV</strong></li>
-        <li>Upload that CSV file here using <strong style="color:#e4e4e7">Import & Score ←</strong></li>
+      <ol style="color:var(--text-secondary);font-size:13px;line-height:2;padding-left:18px;margin:0 0 14px 0">
+        <li>Log in to <strong style="color:var(--text-primary)">naukri.com</strong> → Employer Dashboard</li>
+        <li>Go to <strong style="color:var(--text-primary)">Manage Jobs</strong> → click your active job</li>
+        <li>Click <strong style="color:var(--text-primary)">View Applications</strong></li>
+        <li>Click <strong style="color:var(--text-primary)">Download / Export CSV</strong></li>
+        <li>Upload that CSV file here using <strong style="color:var(--text-primary)">Import & Score ←</strong></li>
       </ol>
-      <div style="background:#1a1a2e;border-radius:8px;padding:12px;border-left:3px solid #34d399">
+      <div style="background:var(--bg-surface);border-radius:var(--radius-md);padding:12px;border-left:3px solid var(--accent)">
         <p style="margin:0;font-size:12px;color:#34d399;font-weight:600">✓ What happens automatically</p>
-        <p style="margin:4px 0 0 0;font-size:12px;color:#a1a1aa">System scores every applicant, shortlists top candidates, and sends WhatsApp + email outreach — all in one click.</p>
+        <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-muted)">System scores every applicant, shortlists top candidates, and sends WhatsApp + email outreach — all in one click.</p>
       </div>
     </div>
   </div>
@@ -65,17 +65,17 @@
       <p class="text-muted text-sm" style="margin-bottom:16px">Paste any public profile URL — CAD Crowd, portfolio sites, WorkIndia, Apna, Shine. Claude reads the page and extracts candidate data automatically.</p>
       <div class="form-group">
         <label>Job</label>
-        <select id="url-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <select id="url-job" style="width:100%">
           <option value="">Loading jobs…</option>
         </select>
       </div>
       <div class="form-group">
         <label>Profile URL</label>
-        <input type="url" id="url-single" placeholder="https://cadcrowd.com/profile/166710-abhyudayc1" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <input type="url" id="url-single" placeholder="https://cadcrowd.com/profile/166710-abhyudayc1" style="width:100%">
       </div>
       <div class="form-group">
         <label>Source Portal</label>
-        <select id="url-source" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <select id="url-source" style="width:100%">
           <option value="MANUAL">Other / Portfolio</option>
           <option value="WORKINDIA">WorkIndia</option>
           <option value="LINKEDIN">LinkedIn</option>
@@ -99,17 +99,17 @@
       <p class="text-muted text-sm" style="margin-bottom:16px">Paste one URL per line. All profiles are fetched and scored in parallel.</p>
       <div class="form-group">
         <label>Job</label>
-        <select id="bulk-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <select id="bulk-job" style="width:100%">
           <option value="">Loading jobs…</option>
         </select>
       </div>
       <div class="form-group">
         <label>Profile URLs (one per line)</label>
-        <textarea id="bulk-urls" rows="5" placeholder="https://cadcrowd.com/profile/...&#10;https://cadcrowd.com/profile/..." style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%;resize:vertical"></textarea>
+        <textarea id="bulk-urls" rows="5" placeholder="https://cadcrowd.com/profile/...&#10;https://cadcrowd.com/profile/..." style="width:100%;resize:vertical"></textarea>
       </div>
       <div class="form-group">
         <label>Source Portal</label>
-        <select id="bulk-source" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+        <select id="bulk-source" style="width:100%">
           <option value="MANUAL">Other / Portfolio</option>
           <option value="WORKINDIA">WorkIndia</option>
           <option value="LINKEDIN">LinkedIn</option>
@@ -146,7 +146,7 @@
     <div class="form-group"><label>Skills (comma-separated)</label><input type="text" id="m-skills" placeholder="Payroll, Recruitment, Leave Management"></div>
     <div class="form-group">
       <label>Job to score against</label>
-      <select id="m-job" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:9px 12px;color:#e4e4e7;font-size:13px;width:100%">
+      <select id="m-job" style="width:100%">
         <option value="">Loading…</option>
       </select>
     </div>
@@ -236,7 +236,7 @@ async function importURL() {
     });
     const d = r.details?.[0] || {};
     const color = r.auto_shortlisted > 0 ? '#34d399' : r.pending_review > 0 ? '#fbbf24' : '#f87171';
-    result.innerHTML = `<div style="padding:12px;background:#1a1a2e;border-radius:8px;border-left:3px solid ${color}">
+    result.innerHTML = `<div style="padding:12px;background:var(--bg-surface);border-radius:var(--radius-md);border-left:3px solid ${color}">
       <strong>${esc(r.name || '?')}</strong> — ${esc(d.result||'').replace(/_/g,' ')}
       ${d.score != null ? `<span class="text-muted"> · Score: ${parseFloat(d.score).toFixed(0)}</span>` : ''}
       ${r.skills_found ? `<span class="text-muted"> · ${r.skills_found} skills found</span>` : ''}

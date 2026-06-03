@@ -307,6 +307,7 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     <div class="nav-label">System</div>
     <a href="/ui/system" class="nav-item {% if active=='system' %}active{% endif %}">
       <span class="nav-icon">◈</span> System Health
+      <span id="nav-err-badge" style="display:none;margin-left:auto;background:rgba(239,68,68,.18);color:#f87171;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:99px;border:1px solid rgba(239,68,68,.25)"></span>
     </a>
     <a href="/docs" target="_blank" class="nav-item">
       <span class="nav-icon">↗</span> API Docs
@@ -391,6 +392,19 @@ async function updateSidebarWA(){
 }
 updateSidebarWA();
 setInterval(updateSidebarWA,8000);
+
+// ── Sidebar error badge ───────────────────────────────────────────────────
+async function updateErrBadge(){
+  try{
+    const s=await fetch('/api/v1/logs/errors/stats').then(r=>r.json());
+    const badge=document.getElementById('nav-err-badge');
+    if(!badge)return;
+    if(s.unresolved>0){badge.style.display='';badge.textContent=s.unresolved}
+    else{badge.style.display='none'}
+  }catch(e){}
+}
+updateErrBadge();
+setInterval(updateErrBadge,60000);
 
 // ── Page progress bar ─────────────────────────────────────────────────────
 (function(){

@@ -27,6 +27,7 @@ from app.services.post_interview import process_completed_interviews
 from app.services.scheduling import send_interview_reminders
 from app.services.sourcing import source_candidates_for_job
 from app.utils.logging import get_logger
+from app.utils.error_log import log_error
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -69,6 +70,7 @@ async def cron_source():
                 await db.rollback()
                 job_results[job.id] = {"title": job.title, "error": str(exc)[:200]}
                 logger.error("[CRON/source] job=%d failed: %s", job.id, exc)
+                await log_error(message=str(exc), source="cron:source", exc=exc, path=f"/cron/source/job/{job.id}")
     return {"ran_at": datetime.utcnow().isoformat() + "Z", "jobs": job_results}
 
 
@@ -143,6 +145,7 @@ async def cron_outreach():
                 await db.rollback()
                 job_results[job_id] = {"title": job.title, "error": str(exc)[:200]}
                 logger.error("[CRON/outreach] job=%d failed: %s", job_id, exc)
+                await log_error(message=str(exc), source="cron:outreach", exc=exc, path=f"/cron/outreach/job/{job_id}")
 
     return {
         "ran_at": datetime.utcnow().isoformat() + "Z",
@@ -164,6 +167,7 @@ async def cron_reminders():
         except Exception as exc:
             await db.rollback()
             logger.error("[CRON/reminders] failed: %s", exc)
+            await log_error(message=str(exc), source="cron:reminders", exc=exc, path="/cron/reminders")
             return {
                 "ran_at": datetime.utcnow().isoformat() + "Z",
                 "error": str(exc)[:200],
@@ -187,6 +191,7 @@ async def cron_followup():
         except Exception as exc:
             await db.rollback()
             logger.error("[CRON/followup] failed: %s", exc)
+            await log_error(message=str(exc), source="cron:followup", exc=exc, path="/cron/followup")
             return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}
 
 
@@ -205,6 +210,7 @@ async def cron_post_interview():
         except Exception as exc:
             await db.rollback()
             logger.error("[CRON/post-interview] failed: %s", exc)
+            await log_error(message=str(exc), source="cron:post-interview", exc=exc, path="/cron/post-interview")
             return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}
 
 
@@ -233,6 +239,7 @@ async def cron_digest():
             }
         except Exception as exc:
             logger.error("[CRON/digest] failed: %s", exc)
+            await log_error(message=str(exc), source="cron:digest", exc=exc, path="/cron/digest")
             return {"ran_at": datetime.utcnow().isoformat() + "Z", "error": str(exc)[:200]}
 
 

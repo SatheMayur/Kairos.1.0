@@ -172,11 +172,69 @@
 <div class="card">
   <div class="card-header"><span class="card-title">Database</span></div>
   <div class="card-body" id="db-body">
-    <div class="alert alert-info">
-      ⚠️ <strong>SQLite on /tmp (ephemeral)</strong> — data is wiped on every Vercel cold start.
-      For persistent data, connect a PostgreSQL database (Neon via Vercel Marketplace).
-    </div>
     <div id="db-counts" class="text-muted text-sm"></div>
+  </div>
+</div>
+
+<!-- ── Error Log ─────────────────────────────────────────────────────────── -->
+<div class="card" id="error-log-card">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="card-title">Error Log</span>
+      <span id="err-unresolved-badge" class="badge badge-red" style="display:none">0 unresolved</span>
+    </div>
+    <div class="flex gap-2">
+      <select id="err-filter-level" class="filter-select" onchange="loadErrorLog()">
+        <option value="">All levels</option>
+        <option value="ERROR">ERROR</option>
+        <option value="WARNING">WARNING</option>
+        <option value="CRITICAL">CRITICAL</option>
+      </select>
+      <select id="err-filter-resolved" class="filter-select" onchange="loadErrorLog()">
+        <option value="">All</option>
+        <option value="false">Unresolved</option>
+        <option value="true">Resolved</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="resolveAll()">✓ Resolve All</button>
+      <button class="btn btn-danger btn-sm" onclick="clearOldLogs()">🗑 Clear 7d+</button>
+      <button class="btn btn-secondary btn-sm" onclick="loadErrorLog()">↻</button>
+    </div>
+  </div>
+  <div id="error-log-body">
+    <div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+<!-- Traceback detail modal -->
+<div id="tb-modal" class="modal-overlay">
+  <div class="modal-box modal-lg" style="max-width:820px">
+    <div class="modal-header">
+      <div>
+        <span class="modal-title" id="tb-title">Error Details</span>
+        <div id="tb-meta" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-primary btn-sm" id="tb-resolve-btn" onclick="resolveFromModal()">✓ Resolve</button>
+        <button class="btn btn-ghost btn-sm" onclick="hideModal('tb-modal')">✕</button>
+      </div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div id="tb-message" style="font-size:13px;color:var(--text-primary);padding:10px 14px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:var(--radius-sm);word-break:break-word"></div>
+    </div>
+    <div id="tb-body-section" style="display:none;margin-bottom:14px">
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px">Request Body</div>
+      <pre id="tb-req-body" style="font-size:11px;color:var(--text-secondary);background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:10px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:140px;overflow-y:auto"></pre>
+    </div>
+    <div id="tb-traceback-section" style="display:none">
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.8px">Traceback</div>
+      <pre id="tb-traceback" style="font-size:11px;color:#a78bfa;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:10px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:320px;overflow-y:auto"></pre>
+    </div>
+    <div id="tb-note-section" style="margin-top:14px">
+      <div class="form-group">
+        <label>Resolution note (optional)</label>
+        <input type="text" id="tb-note" placeholder="e.g. Fixed in commit abc123, or known issue with X">
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -387,5 +445,163 @@ async function initWABulk() {
 
 loadSystemHealth();
 initWABulk();
+loadErrorLog();
+
+// ── Error Log ──────────────────────────────────────────────────────────────
+const LEVEL_COLORS = {ERROR:'badge-red', WARNING:'badge-yellow', CRITICAL:'badge-red'};
+let _currentErrId = null;
+
+async function loadErrorLog() {
+  const level = document.getElementById('err-filter-level').value;
+  const resolvedVal = document.getElementById('err-filter-resolved').value;
+  let url = '/api/v1/logs/errors?limit=100';
+  if (level) url += '&level=' + level;
+  if (resolvedVal !== '') url += '&resolved=' + resolvedVal;
+
+  try {
+    const [errors, stats] = await Promise.all([
+      api(url),
+      api('/api/v1/logs/errors/stats'),
+    ]);
+
+    // Update unresolved badge
+    const badge = document.getElementById('err-unresolved-badge');
+    if (stats.unresolved > 0) {
+      badge.style.display = '';
+      badge.textContent = stats.unresolved + ' unresolved';
+      badge.className = stats.critical_unresolved > 0 ? 'badge badge-red' : 'badge badge-yellow';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    const body = document.getElementById('error-log-body');
+    if (!errors.length) {
+      body.innerHTML = `<div class="empty-state"><div class="empty-state-icon" style="font-size:24px">✓</div><p>No errors logged.</p></div>`;
+      return;
+    }
+
+    body.innerHTML = `<div class="table-wrap"><table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Level</th>
+          <th>Source</th>
+          <th>Type</th>
+          <th>Message</th>
+          <th>Status</th>
+          <th class="tr-action">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${errors.map(e => {
+          const dt = new Date(e.logged_at);
+          const ago = timeAgo(dt);
+          const msgShort = e.message.length > 80 ? e.message.slice(0, 80) + '…' : e.message;
+          return `<tr style="${e.resolved?'opacity:.5':''}">
+            <td>
+              <div style="font-size:12px;color:var(--text-primary)">${ago}</div>
+              <div style="font-size:10px;color:var(--text-dim)">${dt.toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+            </td>
+            <td><span class="badge ${LEVEL_COLORS[e.level]||'badge-grey'}" style="font-size:10px">${e.level}</span></td>
+            <td style="font-size:11.5px;color:var(--text-secondary);max-width:130px" class="truncate"><code style="font-size:10.5px">${esc(e.source)}</code></td>
+            <td style="font-size:11px;color:var(--purple)">${esc(e.error_type||'–')}</td>
+            <td style="font-size:12px;max-width:280px;color:var(--text-primary)" class="truncate" title="${esc(e.message)}">${esc(msgShort)}</td>
+            <td>
+              ${e.resolved
+                ? `<span class="badge badge-green" style="font-size:10px">Resolved</span>${e.resolved_note?`<div style="font-size:10px;color:var(--text-muted);margin-top:2px">${esc(e.resolved_note)}</div>`:''}`
+                : '<span class="badge badge-grey" style="font-size:10px">Open</span>'
+              }
+            </td>
+            <td class="tr-action">
+              <div class="flex gap-2">
+                <button class="btn btn-secondary btn-sm" onclick="showErrorDetail(${JSON.stringify(e).replace(/"/g,'&quot;')})">Details</button>
+                ${!e.resolved ? `<button class="btn btn-ghost btn-sm" onclick="resolveError(${e.id})">✓</button>` : ''}
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>`;
+  } catch(err) {
+    document.getElementById('error-log-body').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+  }
+}
+
+function showErrorDetail(e) {
+  _currentErrId = e.id;
+  document.getElementById('tb-title').textContent = e.error_type || 'Error';
+  const method = e.method ? e.method + ' ' : '';
+  const path = e.path || '';
+  const code = e.status_code ? ' → ' + e.status_code : '';
+  const dt = new Date(e.logged_at).toLocaleString('en-IN');
+  document.getElementById('tb-meta').textContent = `${dt} · ${method}${path}${code} · source: ${e.source}`;
+  document.getElementById('tb-message').textContent = e.message;
+
+  const reqBodyEl = document.getElementById('tb-body-section');
+  if (e.request_body) {
+    reqBodyEl.style.display = '';
+    document.getElementById('tb-req-body').textContent = e.request_body;
+  } else {
+    reqBodyEl.style.display = 'none';
+  }
+
+  const tbSection = document.getElementById('tb-traceback-section');
+  if (e.traceback) {
+    tbSection.style.display = '';
+    document.getElementById('tb-traceback').textContent = e.traceback;
+  } else {
+    tbSection.style.display = 'none';
+  }
+
+  const resolveBtn = document.getElementById('tb-resolve-btn');
+  resolveBtn.style.display = e.resolved ? 'none' : '';
+  document.getElementById('tb-note').value = e.resolved_note || '';
+  showModal('tb-modal');
+}
+
+async function resolveError(id) {
+  try {
+    await api(`/api/v1/logs/errors/${id}/resolve`, {method:'PATCH'});
+    showToast('Marked as resolved', 'success');
+    loadErrorLog();
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+async function resolveFromModal() {
+  if (!_currentErrId) return;
+  const note = document.getElementById('tb-note').value;
+  try {
+    await api(`/api/v1/logs/errors/${_currentErrId}/resolve?note=${encodeURIComponent(note)}`, {method:'PATCH'});
+    showToast('Resolved', 'success');
+    hideModal('tb-modal');
+    loadErrorLog();
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+async function resolveAll() {
+  try {
+    const r = await api('/api/v1/logs/errors/resolve-all', {method:'PATCH'});
+    showToast(`Resolved ${r.resolved} errors`, 'success');
+    loadErrorLog();
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+async function clearOldLogs() {
+  try {
+    const r = await api('/api/v1/logs/errors?older_than_days=7', {method:'DELETE'});
+    showToast(`Deleted ${r.deleted} old entries`, 'success');
+    loadErrorLog();
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+
+function timeAgo(date) {
+  const diff = Math.floor((Date.now() - date) / 1000);
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+
+setInterval(loadErrorLog, 30000);
 </script>
 {% endblock %}

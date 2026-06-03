@@ -6,5 +6,6 @@ from app.models.interview import Interview
 from app.models.wa_queue import WAQueue
 from app.models.wa_connection import WaConnection
 from app.models.watchdog import WatchdogLog
+from app.models.error_log import ErrorLog
 
-__all__ = ["Job", "Candidate", "ShortlistEntry", "OutreachLog", "Interview", "WAQueue", "WaConnection", "WatchdogLog"]
+__all__ = ["Job", "Candidate", "ShortlistEntry", "OutreachLog", "Interview", "WAQueue", "WaConnection", "WatchdogLog", "ErrorLog"]

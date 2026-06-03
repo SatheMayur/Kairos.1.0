@@ -240,35 +240,15 @@ async function loadStats() {
   document.getElementById('kpi-interested').textContent = s.interested;
 }
 
-async function loadBridgeStatus() {
-  const badge = document.getElementById('bridge-badge');
+function updateBridgeDetail(status) {
   const detail = document.getElementById('bridge-detail');
-  try {
-    const r = await fetch('/api/v1/webhook/whatsapp/status');
-    const d = await r.json();
-    if (!d.configured) {
-      badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
-      badge.innerHTML = '<div class="pulse" style="background:#f87171;width:7px;height:7px;border-radius:50%"></div> Not configured';
-      detail.innerHTML = '❌ OPENCLAW_API_URL not set — bridge not configured';
-    } else if (d.status === 'WORKING' || d.status === 'CONNECTED' || d.status === 'authenticated') {
-      badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:#10b981;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
-      badge.innerHTML = '<div class="pulse" style="width:7px;height:7px;border-radius:50%;background:#10b981;position:relative"></div> Bridge Connected';
-      detail.innerHTML = '✅ ' + (d.message || 'WhatsApp session active. Polling every 3s.');
-    } else {
-      // Check if polling bridge is running by hitting the poll endpoint with wrong key (get 401 = server up)
-      const pollCheck = await fetch('/api/v1/wa/poll', {headers:{'x-bridge-key':'wrong'}});
-      if (pollCheck.status === 401) {
-        badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);color:#fbbf24;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
-        badge.innerHTML = '<div class="pulse" style="background:#fbbf24;width:7px;height:7px;border-radius:50%"></div> Bridge API Ready';
-        detail.innerHTML = `⚠️ ${d.message || 'WAHA not responding but bridge API is running'}<br><span style="color:#52525b">Run bridge.js and enter pairing code to activate WhatsApp</span>`;
-      } else {
-        badge.style.cssText = 'display:inline-flex;align-items:center;gap:7px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);color:#fbbf24;padding:5px 12px;border-radius:999px;font-size:11px;font-weight:600';
-        badge.innerHTML = '<div class="pulse" style="background:#fbbf24;width:7px;height:7px;border-radius:50%"></div> Disconnected';
-        detail.innerHTML = '⚠️ ' + (d.message || 'Bridge not connected. Pairing code needed.');
-      }
-    }
-  } catch(e) {
-    detail.innerHTML = '? Could not reach bridge status endpoint';
+  if (!detail) return;
+  if (status === 'CONNECTED') {
+    detail.innerHTML = '✅ WhatsApp connected. Messages send automatically every 3s.';
+  } else if (status === 'QR_READY') {
+    detail.innerHTML = '📱 QR ready — scan with WhatsApp on your phone (see card above).';
+  } else {
+    detail.innerHTML = 'Run <code style="background:#27272a;padding:2px 6px;border-radius:4px">node bridge.js</code> on your computer, then QR appears here.';
   }
 }
 
@@ -429,7 +409,7 @@ function showModal(title, html) {
 }
 
 async function loadAll() {
-  await Promise.all([loadStats(), loadConversations(), loadQueue(), loadBridgeStatus()]);
+  await Promise.all([loadStats(), loadConversations(), loadQueue()]);
 }
 
 loadAll();
@@ -466,15 +446,17 @@ async function pollWaConnection() {
       card.style.display = 'none';
       badge.innerHTML = '<div class="pulse" style="background:#34d399"></div> Bridge Connected';
       badge.style.cssText = 'background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.2);color:#34d399;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid;font-size:12px;font-weight:500';
+      updateBridgeDetail('CONNECTED');
 
     } else if (d.status === 'QR_READY' && d.qr_data) {
       _waConnected = false;
-      card.style.display = 'flex';
+      card.style.display = 'block';
       qrArea.style.display = 'flex';
       label.textContent = 'Scan to Connect WhatsApp';
       detail.innerHTML = '1. Open WhatsApp on your phone<br>2. Tap ⋮ → Settings → Linked Devices<br>3. Tap <strong>Link a Device</strong><br>4. Point camera at the QR code';
       badge.innerHTML = '<div class="pulse" style="background:#fbbf24"></div> QR Ready — Scan Now';
       badge.style.cssText = 'background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.2);color:#fbbf24;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid;font-size:12px;font-weight:500';
+      updateBridgeDetail('QR_READY');
 
       if (d.qr_data !== _lastQr) {
         _lastQr = d.qr_data;
@@ -489,14 +471,14 @@ async function pollWaConnection() {
 
     } else {
       // DISCONNECTED
-      if (!_waConnected) {
-        card.style.display = 'flex';
-        qrArea.style.display = 'none';
-        label.textContent = 'Bridge Not Running';
-        detail.innerHTML = 'Start the bridge on your computer:<br><code style="background:#27272a;padding:3px 8px;border-radius:4px;font-size:12px">node bridge.js</code><br><br>QR code will appear here automatically.';
-        badge.innerHTML = '<div class="pulse" style="background:#71717a"></div> Bridge Offline';
-        badge.style.cssText = 'background:rgba(113,113,122,.1);border-color:rgba(113,113,122,.2);color:#71717a;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid;font-size:12px;font-weight:500';
-      }
+      _waConnected = false;
+      card.style.display = 'block';
+      qrArea.style.display = 'none';
+      label.textContent = 'Bridge Not Running';
+      detail.innerHTML = 'Start the bridge on your computer:<br><code style="background:#27272a;padding:3px 8px;border-radius:4px;font-size:12px">node bridge.js</code><br><br>QR code will appear here automatically.';
+      badge.innerHTML = '<div class="pulse" style="background:#71717a"></div> Bridge Offline';
+      badge.style.cssText = 'background:rgba(113,113,122,.1);border-color:rgba(113,113,122,.2);color:#71717a;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid;font-size:12px;font-weight:500';
+      updateBridgeDetail('DISCONNECTED');
     }
   } catch(e) {}
 }

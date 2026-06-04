@@ -388,6 +388,9 @@ async function updateSidebarWA(){
     if(d.status==='CONNECTED'){dot.style.background='#10b981';label.textContent='WA Connected'}
     else if(d.status==='QR_READY'){dot.style.background='#fbbf24';label.textContent='WA: Scan QR'}
     else{dot.style.background='#52525b';label.textContent='WA Offline'}
+    // Show/hide dashboard offline banner
+    const banner=document.getElementById('wa-offline-banner');
+    if(banner){banner.style.display=(d.status!=='CONNECTED')?'flex':'none';}
   }catch(e){}
 }
 updateSidebarWA();

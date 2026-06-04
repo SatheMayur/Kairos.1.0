@@ -35,8 +35,27 @@ const headers = { 'x-bridge-key': BRIDGE_KEY, 'Content-Type': 'application/json'
 let sock = null;
 let isConnected = false;
 let pollTimer = null;
+let reconnectCount = 0;
+let messagesSentToday = 0;
 
 const logger = pino({ level: 'silent' });
+
+// Reset daily message counter at midnight
+function scheduleDailyReset() {
+  const now = new Date();
+  const msUntilMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now;
+  setTimeout(() => {
+    messagesSentToday = 0;
+    console.log('[BRIDGE] Daily message counter reset');
+    scheduleDailyReset();
+  }, msUntilMidnight);
+}
+scheduleDailyReset();
+
+// Heartbeat: log status every 60 seconds
+setInterval(() => {
+  console.log(`[BRIDGE] ✅ Running — ${messagesSentToday} messages sent today (reconnects: ${reconnectCount})`);
+}, 60000);
 
 // ── Local health server (optional, port 3001) ──────────────────────────────
 const app = express();
@@ -62,6 +81,7 @@ async function pollAndSend() {
         const phone = msg.phone.replace(/\D/g, '');
         const jid = phone.length === 10 ? `91${phone}@s.whatsapp.net` : `${phone}@s.whatsapp.net`;
         const sent = await sock.sendMessage(jid, { text: msg.message });
+        messagesSentToday++;
         console.log(`[SEND] → ${jid}: ${msg.message.substring(0, 50)}`);
         results.push({ id: msg.id, status: 'sent', msg_id: sent?.key?.id });
       } catch (err) {
@@ -108,7 +128,8 @@ async function connectToWhatsApp() {
 
     if (connection === 'open') {
       isConnected = true;
-      console.log('[WA] ✅ Connected to WhatsApp — starting poll loop');
+      reconnectCount++;
+      console.log(`[WA] ✅ Connected to WhatsApp — starting poll loop (connection #${reconnectCount})`);
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(pollAndSend, POLL_INTERVAL_MS);
 
@@ -121,7 +142,10 @@ async function connectToWhatsApp() {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
       console.log('[WA] Disconnected. Reconnecting:', shouldReconnect);
       axios.post(`${VERCEL}/api/v1/wa/disconnect`, {}, { headers }).catch(() => {});
-      if (shouldReconnect) setTimeout(connectToWhatsApp, 5000);
+      if (shouldReconnect) {
+        console.log('[BRIDGE] Restarting in 5 seconds…');
+        setTimeout(() => connectToWhatsApp().catch(console.error), 5000);
+      }
     }
   });
 
@@ -152,4 +176,8 @@ async function connectToWhatsApp() {
 connectToWhatsApp().catch(console.error);
 
 process.on('unhandledRejection', err => console.error('[UNHANDLED]', err?.message));
-process.on('uncaughtException', err => { console.error('[UNCAUGHT]', err?.message); process.exit(1); });
+process.on('uncaughtException', err => {
+  console.error('[UNCAUGHT]', err?.message);
+  console.log('[BRIDGE] Restarting in 5 seconds…');
+  setTimeout(() => connectToWhatsApp().catch(console.error), 5000);
+});

@@ -1,480 +1,524 @@
 {% extends "base.html" %}
-{% block title %}WhatsApp Dashboard{% endblock %}
+{% block title %}WhatsApp{% endblock %}
+{% block nav_whatsapp %}bg-emerald-900/50 text-emerald-300{% endblock %}
+
 {% block content %}
-<div class="topbar">
-  <div class="topbar-left">
-    <h1>WhatsApp Dashboard</h1>
-    <p>Conversations · Queue · Auto-reply logic · Manual send</p>
-  </div>
-  <div style="display:flex;gap:10px;align-items:center">
-    <div id="bridge-badge" class="live-badge" style="background:rgba(113,113,122,.1);border-color:rgba(113,113,122,.2);color:#71717a">
-      <div class="pulse" style="background:#71717a"></div> Checking bridge…
+<div x-data="whatsappPage()" x-init="init()" class="space-y-6">
+
+  <!-- Page header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-lg font-bold text-zinc-100 tracking-tight">WhatsApp Messages</h1>
+      <p class="text-xs text-zinc-500 mt-0.5">Connection · Conversations · Manual send</p>
     </div>
-    <button class="btn btn-secondary btn-sm" onclick="loadAll()">↺ Refresh</button>
+    <button @click="loadAll()" class="btn btn-secondary btn-sm">↺ Refresh</button>
   </div>
-</div>
 
-<!-- WhatsApp Connection Card -->
-<div id="wa-connect-card" class="card" style="margin-bottom:20px;display:none">
-  <div class="card-body" style="display:flex;align-items:center;gap:32px;flex-wrap:wrap">
-    <div id="qr-area" style="display:none;flex-direction:column;align-items:center;gap:12px">
-      <p style="margin:0;font-size:13px;color:#a1a1aa">Scan with WhatsApp on your phone</p>
-      <div id="qr-canvas" style="background:#fff;padding:12px;border-radius:12px"></div>
-      <p style="margin:0;font-size:11px;color:#71717a">WhatsApp → Settings → Linked Devices → Link a Device</p>
+  <!-- ── CONNECTION STATUS BANNER ─────────────────────────────────────────── -->
+  <!-- CONNECTED -->
+  <div x-show="status === 'CONNECTED'" x-cloak
+       class="flex items-center gap-3 bg-emerald-950/60 border border-emerald-800 text-emerald-200 rounded-xl px-5 py-4">
+    <span class="text-xl flex-shrink-0">✅</span>
+    <div class="flex-1">
+      <div class="font-semibold text-emerald-100">WhatsApp is connected</div>
+      <div class="text-sm text-emerald-300 mt-0.5">Messages send automatically. Everything is working.</div>
     </div>
-    <div id="connect-status" style="flex:1;min-width:220px">
-      <div id="connect-label" style="font-size:18px;font-weight:600;color:#e4e4e7;margin-bottom:8px">WhatsApp Bridge</div>
-      <div id="connect-detail" style="font-size:13px;color:#a1a1aa;line-height:1.6"></div>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-sm font-medium text-emerald-300">Live</span>
     </div>
   </div>
-</div>
 
-<!-- KPI Row -->
-<div class="kpi-grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:24px">
-  <div class="kpi green"><div class="kpi-label">Queue Sent</div><div class="kpi-value" id="kpi-sent" style="font-size:24px">–</div></div>
-  <div class="kpi yellow"><div class="kpi-label">Queue Pending</div><div class="kpi-value" id="kpi-pending" style="font-size:24px">–</div></div>
-  <div class="kpi red"><div class="kpi-label">Queue Failed</div><div class="kpi-value" id="kpi-failed" style="font-size:24px">–</div></div>
-  <div class="kpi blue"><div class="kpi-label">Outreach Sent</div><div class="kpi-value" id="kpi-outreach" style="font-size:24px">–</div></div>
-  <div class="kpi purple"><div class="kpi-label">Replied</div><div class="kpi-value" id="kpi-replied" style="font-size:24px">–</div></div>
-  <div class="kpi green"><div class="kpi-label">Interested</div><div class="kpi-value" id="kpi-interested" style="font-size:24px">–</div></div>
-</div>
+  <!-- QR READY -->
+  <div x-show="status === 'QR_READY'" x-cloak
+       class="flex items-center gap-3 bg-yellow-950/60 border border-yellow-800 text-yellow-200 rounded-xl px-5 py-4">
+    <span class="text-xl flex-shrink-0">📱</span>
+    <div class="flex-1">
+      <div class="font-semibold text-yellow-100">WhatsApp needs to be connected — scan the QR code below with your phone</div>
+      <div class="text-sm text-yellow-300 mt-0.5">Follow the steps below to finish connecting.</div>
+    </div>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+      <span class="text-sm font-medium text-yellow-300">Waiting for scan</span>
+    </div>
+  </div>
 
-<div style="display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start">
+  <!-- DISCONNECTED -->
+  <div x-show="status === 'DISCONNECTED'" x-cloak
+       class="flex items-center gap-3 bg-red-950/60 border border-red-800 text-red-200 rounded-xl px-5 py-4">
+    <span class="text-xl flex-shrink-0">🔴</span>
+    <div class="flex-1">
+      <div class="font-semibold text-red-100">WhatsApp is offline — automatic messages are paused</div>
+      <div class="text-sm text-red-300 mt-0.5">Follow the steps below to reconnect.</div>
+    </div>
+  </div>
 
-  <!-- LEFT: Conversations + Queue tabs -->
-  <div>
-    <div class="card">
-      <div class="card-header" style="padding-bottom:0;border-bottom:none">
-        <div style="display:flex;gap:0">
-          <button id="tab-conv" class="tab-btn active" onclick="switchTab('conv')">💬 Conversations</button>
-          <button id="tab-queue" class="tab-btn" onclick="switchTab('queue')">📤 Queue</button>
+  <!-- ── SECTION A: HOW TO CONNECT ────────────────────────────────────────── -->
+  <div x-show="status === 'DISCONNECTED' || status === 'QR_READY'" x-cloak
+       class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+    <div class="px-5 py-4 border-b border-zinc-800 flex items-center gap-2">
+      <span class="text-base">📋</span>
+      <span class="font-semibold text-zinc-100 text-sm">How to connect WhatsApp</span>
+    </div>
+
+    <div class="p-5 flex flex-col lg:flex-row gap-8">
+
+      <!-- Steps: DISCONNECTED -->
+      <div x-show="status === 'DISCONNECTED'" class="flex-1 space-y-4">
+        <p class="text-xs text-zinc-400 mb-3 font-medium uppercase tracking-wide">Follow these steps on your computer:</p>
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
+          <div class="text-sm text-zinc-300">On your computer, open the folder: <span class="font-semibold text-zinc-100">Kairos.1.0 → waha-bridge</span></div>
         </div>
-        <div style="display:flex;gap:10px;align-items:center">
-          <input type="text" id="search" placeholder="Search name / phone…" oninput="filterTable()" style="width:180px;padding:6px 10px;font-size:12px;background:#27272a;border:1px solid #3f3f46;border-radius:8px;color:#e4e4e7">
-          <select id="filter-status" onchange="filterTable()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:6px 10px;color:#e4e4e7;font-size:12px">
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
+          <div class="text-sm text-zinc-300">Double-click the file: <span class="font-semibold text-emerald-300">start-whatsapp.bat</span></div>
+        </div>
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</div>
+          <div class="text-sm text-zinc-300">Wait 10 seconds — the QR code will appear on this page automatically</div>
+        </div>
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">4</div>
+          <div class="text-sm text-zinc-300">Scan the QR code with your WhatsApp phone</div>
+        </div>
+      </div>
+
+      <!-- Steps: QR_READY -->
+      <div x-show="status === 'QR_READY'" class="flex-1 space-y-4">
+        <p class="text-xs text-zinc-400 mb-3 font-medium uppercase tracking-wide">Follow these steps on your phone:</p>
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
+          <div class="text-sm text-zinc-300">Open <span class="font-semibold text-zinc-100">WhatsApp</span> on your phone</div>
+        </div>
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
+          <div class="text-sm text-zinc-300">Tap the three dots <span class="font-semibold text-zinc-100">⋮</span> in the top right corner</div>
+        </div>
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</div>
+          <div class="text-sm text-zinc-300">Tap <span class="font-semibold text-zinc-100">Settings → Linked Devices → Link a Device</span></div>
+        </div>
+        <div class="flex items-start gap-4">
+          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">4</div>
+          <div class="text-sm text-zinc-300">Point your phone camera at the QR code on the right</div>
+        </div>
+      </div>
+
+      <!-- QR Code image (only when QR_READY) -->
+      <div x-show="status === 'QR_READY'" class="flex flex-col items-center gap-3 flex-shrink-0">
+        <div class="bg-white p-3 rounded-xl shadow-lg">
+          <img :src="'/api/v1/wa/qr-image?t=' + Date.now()"
+               x-ref="qrImg"
+               style="width:200px;height:200px;display:block;border-radius:6px"
+               alt="WhatsApp QR code"
+               onerror="this.style.opacity='0.4'">
+        </div>
+        <p class="text-xs text-zinc-500 text-center">This code refreshes every 60 seconds</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── SECTION B: STATS ROW ──────────────────────────────────────────────── -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Messages Sent</div>
+      <div class="text-3xl font-bold text-emerald-400" x-text="stats.queue_sent">–</div>
+      <div class="text-xs text-zinc-600 mt-1">delivered successfully</div>
+    </div>
+
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Waiting to Send</div>
+      <div class="text-3xl font-bold text-yellow-400" x-text="stats.queue_pending">–</div>
+      <div class="text-xs text-zinc-600 mt-1">in queue</div>
+    </div>
+
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Failed to Send</div>
+      <div class="text-3xl font-bold text-red-400" x-text="stats.queue_failed">–</div>
+      <div class="text-xs text-zinc-600 mt-1">need retry</div>
+    </div>
+
+    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Candidates Replied</div>
+      <div class="text-3xl font-bold text-blue-400" x-text="stats.replied">–</div>
+      <div class="text-xs text-zinc-600 mt-1">replied to messages</div>
+    </div>
+
+  </div>
+
+  <!-- ── MAIN CONTENT: CONVERSATIONS + SIDEBAR ────────────────────────────── -->
+  <div class="flex flex-col lg:flex-row gap-6 items-start">
+
+    <!-- LEFT: Conversations table -->
+    <div class="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+
+      <!-- Table header + filters -->
+      <div class="px-5 py-4 border-b border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <span class="font-semibold text-zinc-100 text-sm">💬 Conversations</span>
+        <div class="flex gap-2 items-center">
+          <input type="text"
+                 x-model="search"
+                 @input="filterConversations()"
+                 placeholder="Search name or phone…"
+                 class="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-200 placeholder-zinc-500 outline-none focus:border-emerald-500 w-44">
+          <select x-model="filterStatus"
+                  @change="filterConversations()"
+                  class="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-200 outline-none focus:border-emerald-500">
             <option value="">All statuses</option>
             <option value="SENT">Sent</option>
             <option value="REPLIED">Replied</option>
-            <option value="FAILED">Failed</option>
+            <option value="FAILED">Not Sent</option>
+            <option value="PENDING">Waiting</option>
           </select>
         </div>
       </div>
 
-      <!-- Conversations tab -->
-      <div id="panel-conv">
-        <div class="table-wrap">
-          <table id="conv-table">
-            <thead><tr>
-              <th>Candidate</th>
-              <th>Phone</th>
-              <th>Job</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Pipeline</th>
-              <th>Sent</th>
-              <th>Reply</th>
-              <th>Action</th>
-            </tr></thead>
-            <tbody id="conv-body">
-              <tr><td colspan="9" class="empty-state">Loading…</td></tr>
-            </tbody>
-          </table>
+      <!-- Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse">
+          <thead>
+            <tr>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Candidate</th>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Phone</th>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Job Role</th>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Message Type</th>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Status</th>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Their Reply</th>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Sent At</th>
+              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Loading state -->
+            <template x-if="loading">
+              <tr>
+                <td colspan="8" class="text-center py-10 text-zinc-500 text-sm">Loading conversations…</td>
+              </tr>
+            </template>
+
+            <!-- Empty state -->
+            <template x-if="!loading && filteredConversations.length === 0">
+              <tr>
+                <td colspan="8" class="text-center py-10 text-zinc-500 text-sm">
+                  <div class="text-3xl opacity-30 mb-2">💬</div>
+                  <div>No conversations yet.</div>
+                </td>
+              </tr>
+            </template>
+
+            <!-- Rows -->
+            <template x-for="conv in filteredConversations" :key="conv.id">
+              <tr class="hover:bg-zinc-800/40 cursor-pointer transition-colors"
+                  @click="viewConversation(conv)">
+                <td class="px-4 py-3 border-b border-zinc-800/50 text-sm font-semibold text-zinc-200" x-text="conv.candidate_name || '–'"></td>
+                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-400" x-text="conv.candidate_phone || '–'"></td>
+                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-400" x-text="conv.job_title || '–'"></td>
+                <td class="px-4 py-3 border-b border-zinc-800/50">
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-zinc-700 text-zinc-300 font-medium"
+                        x-text="(conv.type || '').replace(/_/g, ' ')"></span>
+                </td>
+                <td class="px-4 py-3 border-b border-zinc-800/50">
+                  <!-- SENT badge -->
+                  <span x-show="conv.status === 'SENT'"
+                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-blue-900/40 text-blue-300 border border-blue-800">Sent</span>
+                  <!-- REPLIED badge -->
+                  <span x-show="conv.status === 'REPLIED'"
+                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-800">Replied</span>
+                  <!-- FAILED badge -->
+                  <span x-show="conv.status === 'FAILED'"
+                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-red-900/40 text-red-300 border border-red-800">Not Sent</span>
+                  <!-- PENDING badge -->
+                  <span x-show="conv.status === 'PENDING'"
+                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-yellow-900/40 text-yellow-300 border border-yellow-800">Waiting</span>
+                  <!-- Other -->
+                  <span x-show="!['SENT','REPLIED','FAILED','PENDING'].includes(conv.status)"
+                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-zinc-700 text-zinc-300"
+                        x-text="conv.status"></span>
+                </td>
+                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-400 max-w-[140px] truncate"
+                    :title="conv.reply || ''"
+                    x-text="conv.reply ? (conv.reply.substring(0,25) + (conv.reply.length > 25 ? '…' : '')) : '–'"></td>
+                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-500 whitespace-nowrap"
+                    x-text="conv.sent_at ? new Date(conv.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–'"></td>
+                <td class="px-4 py-3 border-b border-zinc-800/50" @click.stop>
+                  <button class="text-xs px-2 py-1 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 transition-colors"
+                          @click="manualPhone = conv.candidate_phone || ''; manualMessage = 'Hi ' + (conv.candidate_name || '').split(' ')[0] + ', ';"
+                          title="Quick reply">💬</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RIGHT: Sidebar -->
+    <div class="w-full lg:w-80 flex-shrink-0 space-y-4">
+
+      <!-- Manual Send card -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-zinc-800">
+          <span class="font-semibold text-zinc-100 text-sm">📤 Send a WhatsApp Message</span>
+        </div>
+        <div class="p-5 space-y-4">
+          <div>
+            <label class="block text-xs text-zinc-400 mb-1.5 font-medium">Phone number (10 digits)</label>
+            <input type="text" x-model="manualPhone" placeholder="9876543210"
+                   class="w-full text-sm bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-200 placeholder-zinc-500 outline-none focus:border-emerald-500 transition-colors">
+          </div>
+          <div>
+            <label class="block text-xs text-zinc-400 mb-1.5 font-medium">Message</label>
+            <textarea x-model="manualMessage" rows="4"
+                      placeholder="Type your WhatsApp message…"
+                      class="w-full text-sm bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-200 placeholder-zinc-500 outline-none focus:border-emerald-500 transition-colors resize-y"></textarea>
+          </div>
+          <button @click="sendManual()"
+                  :disabled="sending"
+                  :class="sending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-600'"
+                  class="w-full py-2 px-4 bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
+            <span x-show="!sending">💬 Send Message</span>
+            <span x-show="sending" class="flex items-center gap-2">
+              <span class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+              Sending…
+            </span>
+          </button>
         </div>
       </div>
 
-      <!-- Queue tab -->
-      <div id="panel-queue" style="display:none">
-        <div class="table-wrap">
-          <table id="queue-table">
-            <thead><tr>
-              <th>ID</th>
-              <th>Phone</th>
-              <th>Message</th>
-              <th>Status</th>
-              <th>Queued</th>
-              <th>Sent</th>
-            </tr></thead>
-            <tbody id="queue-body">
-              <tr><td colspan="6" class="empty-state">Loading…</td></tr>
-            </tbody>
-          </table>
+      <!-- Messages Not Sent card -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-zinc-800">
+          <span class="font-semibold text-zinc-100 text-sm">❌ Messages Not Sent</span>
+        </div>
+        <div class="p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-zinc-400">Failed messages</span>
+            <span class="text-2xl font-bold text-red-400" x-text="stats.queue_failed">0</span>
+          </div>
+          <p class="text-xs text-zinc-500" x-show="stats.queue_failed === 0">All messages sent successfully — nothing to retry.</p>
+          <p class="text-xs text-zinc-500" x-show="stats.queue_failed > 0">These messages failed to send. Click the button below to try sending them again.</p>
+          <button @click="retryFailed()"
+                  :disabled="retrying || stats.queue_failed === 0"
+                  :class="(retrying || stats.queue_failed === 0) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-700'"
+                  class="w-full py-2 px-4 bg-red-800/60 border border-red-700 text-red-200 text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
+            <span x-show="!retrying">↺ Retry Sending Now</span>
+            <span x-show="retrying" class="flex items-center gap-2">
+              <span class="w-3.5 h-3.5 border-2 border-red-300/30 border-t-red-300 rounded-full animate-spin"></span>
+              Retrying…
+            </span>
+          </button>
         </div>
       </div>
+
+      <!-- Auto-reply logic card (collapsible) -->
+      <div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden" x-data="{ open: false }">
+        <button @click="open = !open"
+                class="w-full px-5 py-4 border-b border-zinc-800 flex items-center justify-between hover:bg-zinc-800/40 transition-colors">
+          <span class="font-semibold text-zinc-100 text-sm">🤖 How auto-replies work</span>
+          <span class="text-zinc-500 text-xs" x-text="open ? '▲ Hide' : '▼ Show'"></span>
+        </button>
+        <div x-show="open" x-collapse class="p-5 space-y-4 text-sm">
+          <p class="text-xs text-zinc-400">When a candidate replies to your WhatsApp message, the system reads their reply and responds automatically:</p>
+
+          <div class="flex items-start gap-3">
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-800 flex-shrink-0 mt-0.5">YES / Interested</span>
+            <div class="text-xs text-zinc-400 leading-relaxed">
+              Candidate is marked as <strong class="text-zinc-300">Interested</strong>. System sends them 3 interview time options and creates an interview slot.
+            </div>
+          </div>
+
+          <div class="flex items-start gap-3">
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-700 text-zinc-300 flex-shrink-0 mt-0.5">1 / 2 / 3</span>
+            <div class="text-xs text-zinc-400 leading-relaxed">
+              Candidate picks a slot. System confirms their interview time and updates their status to <strong class="text-zinc-300">Interview Scheduled</strong>.
+            </div>
+          </div>
+
+          <div class="flex items-start gap-3">
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-900/40 text-red-300 border border-red-800 flex-shrink-0 mt-0.5">NO / Not interested</span>
+            <div class="text-xs text-zinc-400 leading-relaxed">
+              Candidate is marked as <strong class="text-zinc-300">Not Interested</strong>. System sends a polite goodbye. No rejection email is sent.
+            </div>
+          </div>
+
+          <div class="flex items-start gap-3">
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-900/40 text-yellow-300 border border-yellow-800 flex-shrink-0 mt-0.5">Anything else</span>
+            <div class="text-xs text-zinc-400 leading-relaxed">
+              System replies asking them to say YES or NO. Their status stays the same.
+            </div>
+          </div>
+
+          <div class="flex items-start gap-3">
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-700 text-zinc-300 flex-shrink-0 mt-0.5">Unknown number</span>
+            <div class="text-xs text-zinc-400 leading-relaxed">
+              Message is ignored — no candidate found with that phone number.
+            </div>
+          </div>
+
+          <div class="mt-2 p-3 bg-zinc-800 rounded-lg border border-zinc-700 text-xs space-y-1.5">
+            <div class="text-zinc-500 uppercase tracking-wide font-semibold text-[10px] mb-2">Words that count as YES</div>
+            <div class="text-emerald-400">yes, haan, ok, sure, interested, apply, send, great, confirm, proceed…</div>
+            <div class="text-zinc-500 uppercase tracking-wide font-semibold text-[10px] mt-2 mb-1">Words that count as NO</div>
+            <div class="text-red-400">no, nahi, not interested, busy, already placed, stop, unsubscribe…</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
-  <!-- RIGHT: Logic + Manual send -->
-  <div>
-
-    <!-- Manual Send -->
-    <div class="card">
-      <div class="card-header"><span class="card-title">📤 Manual Send</span></div>
-      <div class="card-body">
-        <div class="form-group">
-          <label>Candidate</label>
-          <select id="ms-candidate" onchange="fillPhone()" style="background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:8px 10px;color:#e4e4e7;font-size:12px;width:100%">
-            <option value="">Select or type phone below…</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Phone (10-digit)</label>
-          <input type="text" id="ms-phone" placeholder="9876543210">
-        </div>
-        <div class="form-group">
-          <label>Message</label>
-          <textarea id="ms-msg" rows="4" placeholder="Type your WhatsApp message…"></textarea>
-        </div>
-        <button class="btn btn-primary" style="width:100%" onclick="manualSend()">💬 Send WhatsApp</button>
-        <div id="ms-result" style="margin-top:8px;font-size:12px"></div>
+  <!-- ── VIEW MESSAGE MODAL ─────────────────────────────────────────────────── -->
+  <div x-show="showMsgModal" x-cloak
+       class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-5 backdrop-blur-sm"
+       @click.self="showMsgModal = false">
+    <div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto shadow-2xl"
+         x-show="showMsgModal" x-transition>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-zinc-100">Message Details</h3>
+        <button @click="showMsgModal = false" class="text-zinc-500 hover:text-zinc-300 text-lg leading-none p-1">✕</button>
       </div>
+      <template x-if="selectedConv">
+        <div class="space-y-4">
+          <div>
+            <div class="font-semibold text-zinc-200" x-text="selectedConv.candidate_name"></div>
+            <div class="text-xs text-zinc-500 mt-0.5" x-text="selectedConv.job_title + ' · ' + (selectedConv.candidate_phone || '–')"></div>
+          </div>
+          <div class="text-xs text-zinc-500"
+               x-text="selectedConv.sent_at ? 'Sent: ' + new Date(selectedConv.sent_at).toLocaleString('en-IN') : 'Not yet sent'"></div>
+          <div class="bg-zinc-800 rounded-lg p-4 text-sm text-zinc-300 whitespace-pre-wrap border border-zinc-700 leading-relaxed"
+               x-text="selectedConv.message || '(no message)'"></div>
+          <div x-show="selectedConv.reply" class="flex items-start gap-2">
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-800 flex-shrink-0 mt-0.5">Their reply</span>
+            <span class="text-sm text-emerald-300" x-text="selectedConv.reply"></span>
+          </div>
+        </div>
+      </template>
     </div>
-
-    <!-- Auto-reply Logic -->
-    <div class="card">
-      <div class="card-header"><span class="card-title">🤖 Auto-Reply Logic</span></div>
-      <div class="card-body" style="font-size:12px;line-height:1.8">
-        <div style="margin-bottom:12px;color:#a1a1aa">Every inbound WhatsApp is classified automatically:</div>
-
-        <div class="logic-row">
-          <span class="badge badge-green">YES / Interested</span>
-          <div class="logic-arrow">→</div>
-          <div class="logic-text">
-            Status → <strong>INTERESTED</strong><br>
-            Sends 3 interview slot options via WhatsApp<br>
-            Creates Interview record (PROPOSED)
-          </div>
-        </div>
-
-        <div class="logic-row">
-          <span class="badge badge-grey">1 / 2 / 3</span>
-          <div class="logic-arrow">→</div>
-          <div class="logic-text">
-            Confirms chosen slot<br>
-            Status → <strong>INTERVIEW_SCHEDULED</strong><br>
-            Sends confirmation with date/time
-          </div>
-        </div>
-
-        <div class="logic-row">
-          <span class="badge badge-red">NO / Not interested</span>
-          <div class="logic-arrow">→</div>
-          <div class="logic-text">
-            Status → <strong>NOT_INTERESTED</strong><br>
-            Sends polite goodbye message<br>
-            No rejection email sent
-          </div>
-        </div>
-
-        <div class="logic-row">
-          <span class="badge badge-yellow">Anything else</span>
-          <div class="logic-arrow">→</div>
-          <div class="logic-text">
-            Sends clarification: "Reply YES or NO"<br>
-            Status unchanged
-          </div>
-        </div>
-
-        <div class="logic-row">
-          <span class="badge badge-purple">Unknown number</span>
-          <div class="logic-arrow">→</div>
-          <div class="logic-text">Silently ignored (no candidate match)</div>
-        </div>
-
-        <div style="margin-top:16px;padding:10px;background:#0f0f11;border-radius:8px;border:1px solid #27272a">
-          <div style="font-size:11px;color:#71717a;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Keyword lists</div>
-          <div style="color:#34d399;margin-bottom:4px">✅ Positive: yes, haan, ok, sure, interested, apply, send, great, confirm, proceed…</div>
-          <div style="color:#f87171">❌ Negative: no, nahi, not interested, busy, already placed, stop, unsubscribe…</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Bridge status card -->
-    <div class="card">
-      <div class="card-header"><span class="card-title">🔌 Bridge Status</span></div>
-      <div class="card-body" style="font-size:12px">
-        <div id="bridge-detail" class="text-muted">Checking…</div>
-        <div style="margin-top:12px;padding:10px;background:#0f0f11;border-radius:8px;border:1px solid #27272a">
-          <div style="color:#71717a;font-size:11px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Architecture</div>
-          <div style="color:#a1a1aa;line-height:1.7">
-            Bridge polls <code>/api/v1/wa/poll</code> every 3s<br>
-            Inbound → <code>/api/v1/wa/inbound</code><br>
-            Works on port 443 only — no public URL needed
-          </div>
-        </div>
-      </div>
-    </div>
-
   </div>
+
 </div>
-{% endblock %}
 
-{% block scripts %}
-<style>
-.tab-btn{background:none;border:none;color:#71717a;font-size:13px;font-weight:600;padding:12px 18px;cursor:pointer;border-bottom:2px solid transparent;font-family:inherit}
-.tab-btn.active{color:#fff;border-bottom-color:#10b981}
-.tab-btn:hover{color:#e4e4e7}
-.logic-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
-.logic-arrow{color:#52525b;font-size:16px;margin-top:1px;flex-shrink:0}
-.logic-text{color:#a1a1aa;font-size:12px;line-height:1.6}
-code{background:#27272a;padding:1px 5px;border-radius:4px;font-size:11px;color:#a78bfa}
-</style>
 <script>
-let allConversations = [];
-let allQueue = [];
+function whatsappPage() {
+  return {
+    status: 'DISCONNECTED',
+    qrReady: false,
+    stats: { queue_sent: 0, queue_pending: 0, queue_failed: 0, outreach_sent: 0, replied: 0, interested: 0 },
+    conversations: [],
+    filteredConversations: [],
+    search: '',
+    filterStatus: '',
+    loading: true,
+    retrying: false,
+    selectedConv: null,
+    showMsgModal: false,
+    manualPhone: '',
+    manualMessage: '',
+    sending: false,
 
-function switchTab(name) {
-  document.getElementById('tab-conv').classList.toggle('active', name==='conv');
-  document.getElementById('tab-queue').classList.toggle('active', name==='queue');
-  document.getElementById('panel-conv').style.display = name==='conv' ? '' : 'none';
-  document.getElementById('panel-queue').style.display = name==='queue' ? '' : 'none';
-}
+    async init() {
+      await this.loadAll();
+      setInterval(() => this.loadAll(), 15000);
+      setInterval(() => this.pollConnection(), 3000);
+    },
 
-async function loadStats() {
-  const s = await api('/api/v1/wa/dashboard/stats').catch(()=>null);
-  if (!s) return;
-  document.getElementById('kpi-sent').textContent     = s.queue_sent;
-  document.getElementById('kpi-pending').textContent  = s.queue_pending;
-  document.getElementById('kpi-failed').textContent   = s.queue_failed;
-  document.getElementById('kpi-outreach').textContent = s.outreach_sent;
-  document.getElementById('kpi-replied').textContent  = s.replied;
-  document.getElementById('kpi-interested').textContent = s.interested;
-}
+    async loadAll() {
+      await Promise.all([this.loadStats(), this.loadConversations()]);
+    },
 
-function updateBridgeDetail(status) {
-  const detail = document.getElementById('bridge-detail');
-  if (!detail) return;
-  if (status === 'CONNECTED') {
-    detail.innerHTML = '✅ WhatsApp connected. Messages send automatically every 3s.';
-  } else if (status === 'QR_READY') {
-    detail.innerHTML = '📱 QR ready — scan with WhatsApp on your phone (see card above).';
-  } else {
-    detail.innerHTML = 'Run <code style="background:#27272a;padding:2px 6px;border-radius:4px">node bridge.js</code> on your computer, then QR appears here.';
-  }
-}
+    async loadStats() {
+      try {
+        const s = await api('/api/v1/wa/dashboard/stats');
+        this.stats = { ...this.stats, ...s };
+      } catch (e) {}
+    },
 
-async function loadConversations() {
-  allConversations = await api('/api/v1/wa/dashboard/conversations').catch(()=>[]);
-  renderConversations(allConversations);
-}
-
-function renderConversations(rows) {
-  const tbody = document.getElementById('conv-body');
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><p>No WhatsApp conversations yet.</p></td></tr>';
-    return;
-  }
-  tbody.innerHTML = rows.map(r => {
-    const statusBadge = {
-      SENT:'badge-blue', REPLIED:'badge-green', FAILED:'badge-red',
-      PENDING:'badge-yellow'
-    }[r.status] || 'badge-grey';
-
-    const pipelineColor = {
-      INTERESTED:'badge-green', INTERVIEW_SCHEDULED:'badge-purple',
-      NOT_INTERESTED:'badge-red', CONTACTED:'badge-blue',
-      SHORTLISTED:'badge-yellow'
-    }[r.pipeline_status] || 'badge-grey';
-
-    const typeBadge = r.type === 'INITIAL_CONTACT' ? 'badge-blue'
-      : r.type === 'FOLLOW_UP' ? 'badge-yellow'
-      : r.type === 'SLOT_PROPOSAL' ? 'badge-purple' : 'badge-grey';
-
-    const sentTime = r.sent_at ? new Date(r.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
-    const replySnippet = r.reply ? `<span class="badge badge-green" title="${esc(r.reply)}" style="cursor:help;max-width:120px;overflow:hidden;text-overflow:ellipsis;display:inline-block">${esc(r.reply.substring(0,20))}${r.reply.length>20?'…':''}</span>` : '<span class="text-muted">–</span>';
-
-    return `<tr>
-      <td><strong>${esc(r.candidate_name)}</strong></td>
-      <td class="text-muted" style="font-size:12px">${esc(r.candidate_phone||'–')}</td>
-      <td class="text-muted" style="font-size:12px">${esc(r.job_title)}</td>
-      <td><span class="badge ${typeBadge}" style="font-size:10px">${r.type.replace(/_/g,' ')}</span></td>
-      <td><span class="badge ${statusBadge}">${r.status}</span></td>
-      <td>${r.pipeline_status ? `<span class="badge ${pipelineColor}" style="font-size:10px">${r.pipeline_status.replace(/_/g,' ')}</span>` : '–'}</td>
-      <td class="text-muted" style="font-size:11px;white-space:nowrap">${sentTime}</td>
-      <td>${replySnippet}</td>
-      <td>
-        <button class="btn btn-secondary btn-sm" onclick="viewMsg(${r.id})" title="View full message">👁</button>
-        <button class="btn btn-secondary btn-sm" onclick="quickReply('${esc(r.candidate_phone||'')}','${esc(r.candidate_name)}')" title="Send WhatsApp">💬</button>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-async function loadQueue() {
-  allQueue = await api('/api/v1/wa/dashboard/queue').catch(()=>[]);
-  const tbody = document.getElementById('queue-body');
-  if (!allQueue.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><p>No messages in queue yet.</p></td></tr>';
-    return;
-  }
-  tbody.innerHTML = allQueue.map(r => {
-    const badge = {PENDING:'badge-yellow',SENT:'badge-green',FAILED:'badge-red'}[r.status]||'badge-grey';
-    const created = r.created_at ? new Date(r.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
-    const sent    = r.sent_at    ? new Date(r.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
-    return `<tr>
-      <td class="text-muted">#${r.id}</td>
-      <td>${esc(r.phone)}</td>
-      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${esc(r.message)}">${esc(r.message.substring(0,80))}${r.message.length>80?'…':''}</td>
-      <td><span class="badge ${badge}">${r.status}${r.error?` <span title="${esc(r.error)}" style="cursor:help">⚠</span>`:''}</span></td>
-      <td class="text-muted" style="font-size:11px">${created}</td>
-      <td class="text-muted" style="font-size:11px">${sent}</td>
-    </tr>`;
-  }).join('');
-}
-
-function filterTable() {
-  const q = document.getElementById('search').value.toLowerCase();
-  const st = document.getElementById('filter-status').value;
-  const filtered = allConversations.filter(r => {
-    const matchQ = !q || r.candidate_name.toLowerCase().includes(q) || (r.candidate_phone||'').includes(q) || r.job_title.toLowerCase().includes(q);
-    const matchSt = !st || r.status === st;
-    return matchQ && matchSt;
-  });
-  renderConversations(filtered);
-}
-
-function viewMsg(id) {
-  const r = allConversations.find(x=>x.id===id);
-  if (!r) return;
-  const html = `
-    <div style="padding:4px 0">
-      <strong>${esc(r.candidate_name)}</strong> — ${esc(r.job_title)}<br>
-      <span class="text-muted text-sm">Sent: ${r.sent_at ? new Date(r.sent_at).toLocaleString('en-IN') : '–'}</span>
-    </div>
-    <div style="background:#0f0f11;border-radius:8px;padding:12px;margin:12px 0;font-size:12px;white-space:pre-wrap;color:#d4d4d8;border:1px solid #27272a">${esc(r.message)}</div>
-    ${r.reply ? `<div style="margin-top:8px"><span class="badge badge-green">Reply</span> <span style="font-size:13px;color:#34d399">${esc(r.reply)}</span></div>` : ''}
-  `;
-  showModal('Message Details', html);
-}
-
-function quickReply(phone, name) {
-  document.getElementById('ms-phone').value = phone;
-  document.getElementById('ms-msg').value = `Hi ${name.split(' ')[0]}, `;
-  document.getElementById('ms-msg').focus();
-  document.getElementById('ms-msg').setSelectionRange(9999,9999);
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-
-async function fillPhone() {
-  const sel = document.getElementById('ms-candidate');
-  const cid = sel.value;
-  if (!cid) return;
-  const cands = await api('/api/v1/candidates?limit=100').catch(()=>[]);
-  const c = cands.find(x=>x.id==cid);
-  if (c) document.getElementById('ms-phone').value = c.whatsapp || c.phone || '';
-}
-
-async function loadCandidates() {
-  const cands = await api('/api/v1/candidates?limit=200').catch(()=>[]);
-  const sel = document.getElementById('ms-candidate');
-  sel.innerHTML = '<option value="">Select candidate…</option>' +
-    cands.map(c=>`<option value="${c.id}">${esc(c.name)} ${c.phone?'('+c.phone+')':''}</option>`).join('');
-}
-
-async function manualSend() {
-  const phone = document.getElementById('ms-phone').value.trim();
-  const message = document.getElementById('ms-msg').value.trim();
-  const result = document.getElementById('ms-result');
-  if (!phone || !message) { showToast('Phone and message are required','error'); return; }
-  result.style.color='#fbbf24'; result.textContent='Sending…';
-  try {
-    const r = await api('/api/v1/wa/dashboard/send',{method:'POST',body:{phone,message}});
-    result.style.color='#34d399';
-    result.textContent=`✅ Queued (${r.id})`;
-    showToast('WhatsApp queued','success');
-    document.getElementById('ms-msg').value='';
-    setTimeout(loadAll, 2000);
-  } catch(e) {
-    result.style.color='#f87171';
-    result.textContent='❌ '+e.message;
-    showToast(e.message,'error');
-  }
-}
-
-function showModal(title, html) {
-  let m = document.getElementById('wa-modal');
-  if (!m) {
-    m = document.createElement('div');
-    m.id = 'wa-modal';
-    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;display:flex;align-items:center;justify-content:center';
-    m.onclick = e => { if(e.target===m) m.remove(); };
-    document.body.appendChild(m);
-  }
-  m.innerHTML = `<div style="background:#18181b;border:1px solid #27272a;border-radius:14px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <strong style="font-size:14px">${esc(title)}</strong>
-      <button onclick="document.getElementById('wa-modal').remove()" style="background:none;border:none;color:#71717a;font-size:18px;cursor:pointer">✕</button>
-    </div>
-    ${html}
-  </div>`;
-}
-
-async function loadAll() {
-  await Promise.all([loadStats(), loadConversations(), loadQueue()]);
-}
-
-loadAll();
-loadCandidates();
-setInterval(loadAll, 15000);
-
-// ── WhatsApp QR connection polling ────────────────────────────────────────
-let _lastQr = null;
-let _waConnected = false;
-
-async function pollWaConnection() {
-  try {
-    const r = await fetch('/api/v1/wa/connection');
-    if (!r.ok) return;
-    const d = await r.json();
-    const card = document.getElementById('wa-connect-card');
-    const qrArea = document.getElementById('qr-area');
-    const label = document.getElementById('connect-label');
-    const detail = document.getElementById('connect-detail');
-    const badge = document.getElementById('bridge-badge');
-
-    if (d.status === 'CONNECTED') {
-      _waConnected = true;
-      _lastQr = null;
-      card.style.display = 'none';
-      badge.innerHTML = '<div class="pulse" style="background:#34d399"></div> Bridge Connected';
-      badge.style.cssText = 'background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.2);color:#34d399;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid;font-size:12px;font-weight:500';
-      updateBridgeDetail('CONNECTED');
-
-    } else if (d.status === 'QR_READY' && d.qr_data) {
-      _waConnected = false;
-      card.style.display = 'block';
-      qrArea.style.display = 'flex';
-      label.textContent = 'Scan to Connect WhatsApp';
-      detail.innerHTML = '1. Open WhatsApp on your phone<br>2. Tap ⋮ → Settings → Linked Devices<br>3. Tap <strong>Link a Device</strong><br>4. Point camera at the QR code';
-      badge.innerHTML = '<div class="pulse" style="background:#fbbf24"></div> QR Ready — Scan Now';
-      badge.style.cssText = 'background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.2);color:#fbbf24;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid;font-size:12px;font-weight:500';
-      updateBridgeDetail('QR_READY');
-
-      if (d.qr_data !== _lastQr) {
-        _lastQr = d.qr_data;
-        const container = document.getElementById('qr-canvas');
-        container.innerHTML = '';
-        const img = document.createElement('img');
-        img.src = '/api/v1/wa/qr-image?t=' + Date.now();
-        img.style.cssText = 'width:220px;height:220px;display:block;border-radius:8px';
-        img.onerror = () => { container.innerHTML = '<p style="font-size:11px;color:#f87171">Image load failed — retrying…</p>'; };
-        container.appendChild(img);
+    async loadConversations() {
+      try {
+        this.conversations = await api('/api/v1/wa/dashboard/conversations');
+        this.loading = false;
+        this.filterConversations();
+      } catch (e) {
+        this.loading = false;
       }
+    },
 
-    } else {
-      // DISCONNECTED
-      _waConnected = false;
-      card.style.display = 'block';
-      qrArea.style.display = 'none';
-      label.textContent = 'Bridge Not Running';
-      detail.innerHTML = 'Start the bridge on your computer:<br><code style="background:#27272a;padding:3px 8px;border-radius:4px;font-size:12px">node bridge.js</code><br><br>QR code will appear here automatically.';
-      badge.innerHTML = '<div class="pulse" style="background:#71717a"></div> Bridge Offline';
-      badge.style.cssText = 'background:rgba(113,113,122,.1);border-color:rgba(113,113,122,.2);color:#71717a;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1px solid;font-size:12px;font-weight:500';
-      updateBridgeDetail('DISCONNECTED');
-    }
-  } catch(e) {}
+    async pollConnection() {
+      try {
+        const r = await fetch('/api/v1/wa/connection');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.status === 'CONNECTED') {
+          this.status = 'CONNECTED';
+          this.qrReady = false;
+        } else if (d.status === 'QR_READY' && d.qr_data) {
+          this.status = 'QR_READY';
+          this.qrReady = true;
+        } else {
+          this.status = 'DISCONNECTED';
+          this.qrReady = false;
+        }
+      } catch (e) {}
+    },
+
+    async retryFailed() {
+      if (this.retrying) return;
+      this.retrying = true;
+      try {
+        await api('/api/v1/cron/watchdog', { method: 'POST' });
+        this.$dispatch('show-toast', {
+          message: 'Retrying ' + this.stats.queue_failed + ' failed message' + (this.stats.queue_failed !== 1 ? 's' : '') + ' — they will send within 30 seconds',
+          type: 'success'
+        });
+        setTimeout(() => this.loadAll(), 3000);
+      } catch (e) {
+        this.$dispatch('show-toast', { message: 'Could not retry — please try again', type: 'error' });
+      } finally {
+        setTimeout(() => { this.retrying = false; }, 2000);
+      }
+    },
+
+    async sendManual() {
+      const phone = (this.manualPhone || '').trim();
+      const message = (this.manualMessage || '').trim();
+      if (!phone || !message) {
+        this.$dispatch('show-toast', { message: 'Please enter a phone number and a message', type: 'error' });
+        return;
+      }
+      this.sending = true;
+      try {
+        await api('/api/v1/wa/dashboard/send', { method: 'POST', body: { phone, message } });
+        this.$dispatch('show-toast', { message: 'Message added to send queue', type: 'success' });
+        this.manualMessage = '';
+        setTimeout(() => this.loadAll(), 2000);
+      } catch (e) {
+        this.$dispatch('show-toast', { message: 'Could not send message: ' + (e.message || 'unknown error'), type: 'error' });
+      } finally {
+        this.sending = false;
+      }
+    },
+
+    filterConversations() {
+      const q = (this.search || '').toLowerCase();
+      const st = this.filterStatus;
+      this.filteredConversations = this.conversations.filter(r => {
+        const matchQ = !q
+          || (r.candidate_name || '').toLowerCase().includes(q)
+          || (r.candidate_phone || '').includes(q)
+          || (r.job_title || '').toLowerCase().includes(q);
+        const matchSt = !st || r.status === st;
+        return matchQ && matchSt;
+      });
+    },
+
+    viewConversation(conv) {
+      this.selectedConv = conv;
+      this.showMsgModal = true;
+    },
+  };
 }
-
-pollWaConnection();
-setInterval(pollWaConnection, 3000);
 </script>
 {% endblock %}

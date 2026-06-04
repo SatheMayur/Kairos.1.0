@@ -138,8 +138,20 @@ async def log_interview_outcome(
     payload: InterviewOutcome,
     db: AsyncSession = Depends(get_db),
 ):
-    """Log interview result and advance pipeline. outcome: HIRED | NEXT_ROUND | REJECTED | NO_SHOW"""
+    """Log interview result and trigger automatic follow-up actions.
+
+    HIRED     → WhatsApp congratulations + queue offer email
+    NEXT_ROUND → Auto-propose next round slots via WhatsApp
+    REJECTED  → Draft rejection email (not auto-sent — Kirti reviews first)
+    NO_SHOW   → WhatsApp "missed you" + reschedule offer
+    """
     from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.models.candidate import Candidate
+    from app.models.job import Job
+    from app.services.whatsapp_openclaw import send_whatsapp
+    from app.services.scheduling import generate_slots, propose_interview_slots
+    from app.models.outreach import OutreachChannel
+    import asyncio
 
     interview = await db.get(Interview, interview_id)
     if not interview:
@@ -166,7 +178,127 @@ async def log_interview_outcome(
     if entry and payload.outcome in status_map:
         entry.status = status_map[payload.outcome]
 
-    return {"ok": True, "interview_id": interview_id, "outcome": payload.outcome}
+    # Fetch candidate + job for auto-triggers
+    candidate = await db.get(Candidate, interview.candidate_id)
+    job = await db.get(Job, interview.job_id)
+
+    action_taken = "status_updated"
+
+    if candidate and job:
+        first_name = candidate.name.split()[0]
+        phone = candidate.whatsapp or candidate.phone or ""
+        company = job.company or "K. Girdharlal International"
+
+        if payload.outcome == "HIRED" and phone:
+            await send_whatsapp(
+                phone,
+                f"🎉 Congratulations {first_name}!\n\n"
+                f"We are delighted to offer you the position of *{job.title}* at {company}.\n\n"
+                f"Our HR team will call you within 24 hours to discuss the offer details and next steps.\n\n"
+                f"Welcome to the team! 🙏",
+                db=db,
+            )
+            # Queue a formal offer email
+            try:
+                from app.services.outreach import queue_email_direct
+                await queue_email_direct(
+                    to=candidate.email or "",
+                    subject=f"Offer Letter — {job.title} at {company}",
+                    body=(
+                        f"Dear {candidate.name},\n\n"
+                        f"We are pleased to offer you the position of {job.title} at {company}, Surat.\n\n"
+                        f"Kirti Chand will contact you shortly to discuss compensation, joining date, and next steps.\n\n"
+                        f"Warm regards,\n"
+                        f"Kirti Chand\nHR Manager | {company}\nPh: 9033410606"
+                    ),
+                    candidate_name=candidate.name,
+                    role=job.title,
+                    priority="HIGH",
+                ) if candidate.email else None
+            except Exception as exc:
+                logger.warning("Offer email failed for %s: %s", candidate.name, exc)
+            action_taken = "hired_whatsapp_sent"
+
+        elif payload.outcome == "NEXT_ROUND" and phone:
+            # Determine next round
+            round_order = [InterviewRound.SCREENING, InterviewRound.TECHNICAL, InterviewRound.HR, InterviewRound.FINAL]
+            try:
+                current_idx = round_order.index(interview.round)
+                next_round = round_order[min(current_idx + 1, len(round_order) - 1)]
+            except (ValueError, IndexError):
+                next_round = InterviewRound.HR
+
+            try:
+                slots = generate_slots(days_ahead=3, num_slots=3)
+                slot_lines = "\n".join(
+                    f"  {i+1}. {s.strftime('%A %d %b, %I:%M %p IST')}"
+                    for i, s in enumerate(slots)
+                )
+                await send_whatsapp(
+                    phone,
+                    f"Hi {first_name}, great news! 🎉\n\n"
+                    f"You've progressed to the *{next_round.value.replace('_', ' ').title()} Round* "
+                    f"for *{job.title}* at {company}.\n\n"
+                    f"Here are 3 available slots:\n{slot_lines}\n\n"
+                    f"Reply with *1*, *2*, or *3* to confirm your slot.",
+                    db=db,
+                )
+                await propose_interview_slots(
+                    candidate=candidate,
+                    job=job,
+                    round=next_round,
+                    channel=OutreachChannel.WHATSAPP,
+                    db=db,
+                    slots=slots,
+                )
+                action_taken = "next_round_slots_sent"
+            except Exception as exc:
+                logger.warning("Next round scheduling failed for %s: %s", candidate.name, exc)
+                action_taken = "next_round_status_updated"
+
+        elif payload.outcome == "REJECTED":
+            # Draft rejection — do NOT auto-send (Kirti reviews first)
+            try:
+                from app.services.outreach import queue_email_direct
+                if candidate.email:
+                    await queue_email_direct(
+                        to=candidate.email,
+                        subject=f"Re: {job.title} Application",
+                        body=(
+                            f"Dear {candidate.name},\n\n"
+                            f"Thank you for your time and interest in the {job.title} position at {company}.\n\n"
+                            f"After careful consideration, we have decided to move forward with other candidates "
+                            f"whose qualifications more closely match our current requirements.\n\n"
+                            f"We appreciate your interest and wish you the very best in your career journey.\n\n"
+                            f"Warm regards,\nKirti Chand\nHR Manager | {company}"
+                        ),
+                        candidate_name=candidate.name,
+                        role=job.title,
+                        priority="LOW",
+                    )
+                    action_taken = "rejection_email_drafted"
+            except Exception as exc:
+                logger.warning("Rejection draft failed for %s: %s", candidate.name, exc)
+                action_taken = "rejected_no_email"
+
+        elif payload.outcome == "NO_SHOW" and phone:
+            await send_whatsapp(
+                phone,
+                f"Hi {first_name}, we missed you for your interview today for the "
+                f"*{job.title}* role at {company}. 😊\n\n"
+                f"We understand things come up — would you like to reschedule?\n\n"
+                f"Reply *YES* and we'll send you fresh slots right away.",
+                db=db,
+            )
+            action_taken = "no_show_whatsapp_sent"
+
+    await db.commit()
+    return {
+        "ok": True,
+        "interview_id": interview_id,
+        "outcome": payload.outcome,
+        "action": action_taken,
+    }
 
 
 async def _get_or_404(interview_id: int, db: AsyncSession) -> Interview:

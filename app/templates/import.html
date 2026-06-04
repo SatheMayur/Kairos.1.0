@@ -187,35 +187,68 @@ async function uploadCSV() {
     const r = await fetch('/api/v1/import/csv', {method:'POST', body:fd});
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || 'Import failed');
-    showImportResult(data);
+    showImportResult(data, parseInt(jobId));
     showToast(`Imported ${data.inserted} candidates, ${data.auto_shortlisted} shortlisted`, 'success');
   } catch(e) { showToast(e.message, 'error'); }
   btn.disabled = false; btn.textContent = '📤 Import & Score';
 }
 
-function showImportResult(r) {
+function showImportResult(r, jobId) {
+  const hasAI = r.details && r.details.some(d => d.strengths && d.strengths.length > 0);
   document.getElementById('import-result').innerHTML = `
     <div class="card">
-      <div class="card-header"><span class="card-title">Import Results</span></div>
+      <div class="card-header">
+        <span class="card-title">📊 Screening Results</span>
+        ${jobId ? `<button class="btn btn-secondary btn-sm" onclick="runAIScreen(${jobId})">🤖 Re-run AI Screen on Pending</button>` : ''}
+      </div>
       <div class="card-body">
         <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
-          <div class="kpi green"><div class="kpi-label">Inserted</div><div class="kpi-value" style="font-size:22px">${r.inserted}</div></div>
-          <div class="kpi blue"><div class="kpi-label">Auto-Shortlisted</div><div class="kpi-value" style="font-size:22px">${r.auto_shortlisted}</div></div>
-          <div class="kpi yellow"><div class="kpi-label">Manual Review</div><div class="kpi-value" style="font-size:22px">${r.pending_review}</div></div>
-          <div class="kpi red"><div class="kpi-label">Rejected</div><div class="kpi-value" style="font-size:22px">${r.rejected}</div></div>
-          <div class="kpi purple"><div class="kpi-label">Outreach Sent</div><div class="kpi-value" style="font-size:22px">${r.outreach_queued}</div></div>
+          <div class="kpi green"><div class="kpi-label">Inserted</div><div class="kpi-value" style="font-size:22px">${r.inserted??r.screened??0}</div></div>
+          <div class="kpi blue"><div class="kpi-label">Auto-Shortlisted</div><div class="kpi-value" style="font-size:22px">${r.auto_shortlisted??r.promoted_to_shortlist??0}</div></div>
+          <div class="kpi yellow"><div class="kpi-label">Manual Review</div><div class="kpi-value" style="font-size:22px">${r.pending_review??r.stayed_pending??0}</div></div>
+          <div class="kpi red"><div class="kpi-label">Rejected</div><div class="kpi-value" style="font-size:22px">${r.rejected??0}</div></div>
+          <div class="kpi purple"><div class="kpi-label">Outreach Sent</div><div class="kpi-value" style="font-size:22px">${r.outreach_queued??0}</div></div>
         </div>
+        ${!hasAI ? '<div class="alert alert-info" style="margin-bottom:12px">💡 AI insights not shown (ANTHROPIC_API_KEY not configured or AI scoring was skipped). Scores are rule-based.</div>' : ''}
         <div class="table-wrap"><table>
-          <tr><th>Candidate</th><th>Email</th><th>Score</th><th>Result</th></tr>
-          ${r.details.slice(0,20).map(d=>`<tr>
-            <td><strong>${esc(d.name||'')}</strong></td>
-            <td class="text-muted">${esc(d.email||'–')}</td>
-            <td>${d.score!=null?d.score.toFixed(0):'–'}</td>
+          <tr><th>Candidate</th><th>Score</th><th>Decision</th>${hasAI?'<th>AI Strengths</th><th>AI Concerns</th>':''}</tr>
+          ${(r.details||[]).map(d=>`<tr>
+            <td>
+              <div style="font-weight:600">${esc(d.name||'')}</div>
+              ${d.email?`<div style="font-size:11px;color:var(--text-muted)">${esc(d.email)}</div>`:''}
+              ${d.reasoning?`<div style="font-size:10.5px;color:var(--text-muted);margin-top:3px;font-style:italic">${esc(d.reasoning.substring(0,100))}${d.reasoning.length>100?'…':''}</div>`:''}
+            </td>
+            <td>
+              <div style="font-size:18px;font-weight:700;color:${(d.score||0)>=65?'#34d399':(d.score||0)>=40?'#fbbf24':'#f87171'}">${d.score!=null?Math.round(d.score):'–'}</div>
+            </td>
             <td><span class="badge ${d.result==='AUTO_SHORTLISTED'?'badge-green':d.result==='PENDING_REVIEW'?'badge-yellow':d.result==='REJECTED'?'badge-red':'badge-grey'}">${(d.result||'').replace(/_/g,' ')}</span></td>
+            ${hasAI?`
+            <td class="text-sm" style="color:#34d399;max-width:180px">
+              ${(d.strengths||[]).map(s=>`<div>✓ ${esc(s)}</div>`).join('') || '<span class="text-dim">–</span>'}
+            </td>
+            <td class="text-sm" style="color:#f87171;max-width:180px">
+              ${(d.concerns||[]).map(c=>`<div>⚠ ${esc(c)}</div>`).join('') || '<span style="color:var(--text-dim)">–</span>'}
+            </td>`:''}
           </tr>`).join('')}
         </table></div>
       </div>
     </div>`;
+}
+
+async function runAIScreen(jobId) {
+  showToast('Running AI on pending candidates… this may take 30–60 seconds', 'info');
+  try {
+    const r = await api('/api/v1/import/ai-screen/'+jobId, {method:'POST'});
+    showImportResult({
+      inserted: r.screened,
+      auto_shortlisted: r.promoted_to_shortlist,
+      pending_review: r.stayed_pending,
+      rejected: r.rejected,
+      outreach_queued: 0,
+      details: r.details,
+    }, jobId);
+    showToast(`AI screened ${r.screened} candidates — ${r.promoted_to_shortlist} promoted, ${r.rejected} rejected`, 'success');
+  } catch(e) { showToast('AI screen failed: '+e.message, 'error'); }
 }
 
 

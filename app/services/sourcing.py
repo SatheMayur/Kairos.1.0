@@ -144,6 +144,7 @@ async def _score_and_shortlist(
     # Enhance with AI scoring if configured
     from app.services.ai_scoring import ai_score_candidate
     ai_result = await ai_score_candidate(candidate, job)
+    ai_insights = {}
     if ai_result and "score" in ai_result:
         # Blend: 60% AI score (0-10 → 0-100) + 40% rule-based
         ai_score_100 = ai_result["score"] * 10
@@ -151,6 +152,12 @@ async def _score_and_shortlist(
         scored.total = blended
         scored.decision = "AUTO_SHORTLIST" if blended >= 65 else ("MANUAL_REVIEW" if blended >= 40 else "REJECT")
         logger.info("AI-blended score for %s: %.1f (%s)", candidate.name, blended, scored.decision)
+        ai_insights = {
+            "ai_strengths": ai_result.get("strengths", []),
+            "ai_concerns": ai_result.get("concerns", []),
+            "ai_reasoning": ai_result.get("reasoning", ""),
+            "ai_opener": ai_result.get("personalized_opener", ""),
+        }
 
     status_map = {
         "AUTO_SHORTLIST": ShortlistStatus.SHORTLISTED,
@@ -158,11 +165,12 @@ async def _score_and_shortlist(
         "REJECT": ShortlistStatus.REJECTED,
     }
 
+    breakdown = {**(scored.breakdown or {}), **ai_insights}
     entry = ShortlistEntry(
         job_id=job.id,
         candidate_id=candidate.id,
         score=scored.total,
-        score_breakdown=scored.breakdown,
+        score_breakdown=breakdown,
         status=status_map[scored.decision],
     )
     db.add(entry)

@@ -97,7 +97,11 @@ def _clean_phone(chat_id: str) -> str:
 
 
 async def _handle_inbound(from_jid: str, body_text: str, session: str):
-    """Core logic — runs in background after 200 is returned to WAHA."""
+    """Core logic — runs in background after 200 is returned to WAHA.
+
+    Uses Claude AI to classify the reply intent, then auto-responds accordingly.
+    Falls back to keyword matching when AI is unavailable.
+    """
     phone_10 = _clean_phone(from_jid)
     logger.info("Inbound WhatsApp from %s (%s): %r", from_jid, phone_10, body_text[:80])
 
@@ -113,11 +117,10 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
         )
         candidate = result.scalars().first()
         if not candidate:
-            # Unknown sender — politely ignore
             logger.info("No candidate found for phone %s — ignoring", phone_10)
             return
 
-        # Find their active shortlist entry (CONTACTED or INTERESTED)
+        # Find their active shortlist entry
         sl_res = await db.execute(
             select(ShortlistEntry)
             .where(
@@ -134,9 +137,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
         )
         entry = sl_res.scalars().first()
         if not entry:
-            logger.info(
-                "Candidate %d has no active shortlist entry — ignoring reply", candidate.id
-            )
+            logger.info("Candidate %d has no active shortlist entry — ignoring reply", candidate.id)
             return
 
         job_res = await db.execute(select(Job).where(Job.id == entry.job_id))
@@ -160,86 +161,13 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
             last_log.reply_text = body_text[:500]
 
         phone_wa = candidate.whatsapp or candidate.phone or ""
+        first_name = candidate.name.split()[0]
+        company = job.company or "K. Girdharlal International"
 
-        if is_positive(body_text):
-            # ── Candidate is interested ──────────────────────────────────────
-            entry.status = ShortlistStatus.INTERESTED
-            await db.flush()
-
-            # Check if slots already proposed
-            existing_interview = await db.execute(
-                select(Interview).where(
-                    and_(
-                        Interview.candidate_id == candidate.id,
-                        Interview.job_id == entry.job_id,
-                        Interview.status.in_([InterviewStatus.PROPOSED, InterviewStatus.CONFIRMED]),
-                    )
-                )
-            )
-            if existing_interview.scalars().first():
-                # Already proposed — just remind
-                await send_whatsapp(
-                    phone_wa,
-                    f"Hi {candidate.name.split()[0]}, great! I already sent you interview "
-                    f"slot options — please check and confirm. "
-                    f"If you need new slots, just say 'reschedule'.",
-                    db=db,
-                )
-            else:
-                # Propose interview slots via WhatsApp
-                slots = generate_slots(days_ahead=3, num_slots=3)
-                slot_lines = "\n".join(
-                    f"  {i+1}. {s.strftime('%A %d %b, %I:%M %p IST')}"
-                    for i, s in enumerate(slots)
-                )
-                confirm_url = (
-                    f"{settings.interview_confirmation_base_url}"
-                    f"/api/v1/interviews/propose"
-                )
-                await send_whatsapp(
-                    phone_wa,
-                    f"Hi {candidate.name.split()[0]}, that's wonderful! 🎉\n\n"
-                    f"Here are 3 available slots for your {job.title} interview at "
-                    f"{job.company or 'K. Girdharlal International'}:\n\n"
-                    f"{slot_lines}\n\n"
-                    f"Reply with *1*, *2*, or *3* to confirm your preferred slot. "
-                    f"The interview is ~30 minutes via Google Meet.",
-                    db=db,
-                )
-                logger.info(
-                    "WhatsApp slot proposal sent to candidate %d (%s)",
-                    candidate.id, candidate.name,
-                )
-
-                # Also create interview record via the scheduling service
-                try:
-                    await propose_interview_slots(
-                        candidate=candidate,
-                        job=job,
-                        channel=OutreachChannel.WHATSAPP,
-                        db=db,
-                        slots=[s for s in slots],
-                    )
-                except Exception as exc:
-                    logger.warning("Could not create interview record: %s", exc)
-
-        elif is_negative(body_text):
-            # ── Not interested ───────────────────────────────────────────────
-            entry.status = ShortlistStatus.NOT_INTERESTED
-            await send_whatsapp(
-                phone_wa,
-                f"Hi {candidate.name.split()[0]}, no problem at all! "
-                f"Thank you for letting us know. We'll keep you in mind for "
-                f"future opportunities. Wishing you all the best! 🙏",
-                db=db,
-            )
-            logger.info(
-                "Candidate %d marked NOT_INTERESTED via WhatsApp", candidate.id
-            )
-
-        elif re.search(r"\b[123]\b", body_text.strip()):
-            # ── Candidate picked a slot number ───────────────────────────────
-            slot_choice = int(re.search(r"\b([123])\b", body_text).group(1)) - 1
+        # ── Slot number check first (fastest path, no AI needed) ────────────
+        if re.search(r"\b[123]\b", body_text.strip()) and not is_positive(body_text):
+            slot_match = re.search(r"\b([123])\b", body_text)
+            slot_choice = int(slot_match.group(1)) - 1 if slot_match else 0
             interview_res = await db.execute(
                 select(Interview).where(
                     and_(
@@ -262,43 +190,140 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                             clean = raw_slot.replace(" IST", "")
                             interview.scheduled_at = datetime.strptime(clean, "%A, %d %B %Y %I:%M %p")
                         interview.status = InterviewStatus.CONFIRMED
-                        interview.meet_link = f"https://meet.google.com/new"
+                        interview.meet_link = "https://meet.google.com/new"
                         entry.status = ShortlistStatus.INTERVIEW_SCHEDULED
-
                         slot_dt = interview.scheduled_at
                         await send_whatsapp(
                             phone_wa,
                             f"✅ Confirmed! Your interview is scheduled for:\n\n"
                             f"📅 *{slot_dt.strftime('%A, %d %b %Y at %I:%M %p IST')}*\n"
                             f"🔗 Google Meet link will be sent 1 hour before.\n"
-                            f"Role: {job.title} at {job.company or 'K. Girdharlal International'}\n\n"
+                            f"Role: {job.title} at {company}\n\n"
                             f"Please join 2 minutes early. See you then! 👋",
                             db=db,
                         )
-                        logger.info(
-                            "Interview %d CONFIRMED via WhatsApp — candidate %d slot %d",
-                            interview.id, candidate.id, slot_choice + 1,
-                        )
+                        logger.info("Interview %d CONFIRMED — candidate %d slot %d", interview.id, candidate.id, slot_choice + 1)
                 except Exception as exc:
                     logger.error("Slot confirmation error: %s", exc)
-            else:
+                await db.commit()
+                return
+            # No active proposal — fall through to AI classification
+
+        # ── AI intent classification ─────────────────────────────────────────
+        from app.services.ai_scoring import ai_classify_reply
+
+        salary_info = "No bar for the right candidate"
+        if job.salary_min and job.salary_max:
+            salary_info = f"₹{int(job.salary_min):,}–₹{int(job.salary_max):,}/month"
+        elif job.salary_min:
+            salary_info = f"₹{int(job.salary_min):,}+/month"
+
+        classification = await ai_classify_reply(
+            reply_text=body_text,
+            candidate_name=candidate.name,
+            job_title=job.title,
+            job_company=company,
+            job_location=job.location or "Surat, Gujarat",
+            job_salary_info=salary_info,
+        )
+
+        intent = classification.get("intent", "GENERAL")
+        auto_response = classification.get("auto_response", "")
+        logger.info("Reply intent for candidate %d: %s", candidate.id, intent)
+
+        if intent == "INTERESTED":
+            entry.status = ShortlistStatus.INTERESTED
+            await db.flush()
+
+            # Check if slots already proposed
+            existing = await db.execute(
+                select(Interview).where(
+                    and_(
+                        Interview.candidate_id == candidate.id,
+                        Interview.job_id == entry.job_id,
+                        Interview.status.in_([InterviewStatus.PROPOSED, InterviewStatus.CONFIRMED]),
+                    )
+                )
+            )
+            if existing.scalars().first():
                 await send_whatsapp(
                     phone_wa,
-                    "I couldn't find an active slot proposal for you. "
-                    "Please reply *YES* and I'll send fresh slots right away.",
+                    f"Hi {first_name}, great! I already sent you interview slot options — "
+                    f"please check and reply with *1*, *2*, or *3* to confirm your preferred slot.",
                     db=db,
                 )
+            else:
+                slots = generate_slots(days_ahead=3, num_slots=3)
+                slot_lines = "\n".join(
+                    f"  {i+1}. {s.strftime('%A %d %b, %I:%M %p IST')}"
+                    for i, s in enumerate(slots)
+                )
+                await send_whatsapp(
+                    phone_wa,
+                    f"Hi {first_name}, that's wonderful! 🎉\n\n"
+                    f"Here are 3 available slots for your *{job.title}* interview at {company}:\n\n"
+                    f"{slot_lines}\n\n"
+                    f"Reply with *1*, *2*, or *3* to confirm your preferred slot.",
+                    db=db,
+                )
+                try:
+                    await propose_interview_slots(
+                        candidate=candidate,
+                        job=job,
+                        channel=OutreachChannel.WHATSAPP,
+                        db=db,
+                        slots=slots,
+                    )
+                except Exception as exc:
+                    logger.warning("Could not create interview record: %s", exc)
+
+        elif intent == "NOT_INTERESTED" or intent == "WITHDRAWAL":
+            entry.status = ShortlistStatus.NOT_INTERESTED
+            await send_whatsapp(phone_wa, auto_response, db=db)
+
+        elif intent == "SALARY_QUERY":
+            # Send salary info, then re-ask interest
+            await send_whatsapp(phone_wa, auto_response, db=db)
+
+        elif intent == "SCHEDULE_QUERY":
+            # They're asking about timing — treat as interested, send slots
+            entry.status = ShortlistStatus.INTERESTED
+            await db.flush()
+            existing = await db.execute(
+                select(Interview).where(
+                    and_(
+                        Interview.candidate_id == candidate.id,
+                        Interview.job_id == entry.job_id,
+                        Interview.status == InterviewStatus.PROPOSED,
+                    )
+                )
+            )
+            if existing.scalars().first():
+                await send_whatsapp(phone_wa, auto_response, db=db)
+            else:
+                slots = generate_slots(days_ahead=3, num_slots=3)
+                slot_lines = "\n".join(
+                    f"  {i+1}. {s.strftime('%A %d %b, %I:%M %p IST')}"
+                    for i, s in enumerate(slots)
+                )
+                await send_whatsapp(
+                    phone_wa,
+                    f"Hi {first_name}! Here are 3 available slots for your *{job.title}* interview:\n\n"
+                    f"{slot_lines}\n\n"
+                    f"Reply with *1*, *2*, or *3* to confirm. 📅",
+                    db=db,
+                )
+                try:
+                    await propose_interview_slots(candidate=candidate, job=job, channel=OutreachChannel.WHATSAPP, db=db, slots=slots)
+                except Exception as exc:
+                    logger.warning("Slot proposal error: %s", exc)
+
+        elif intent == "MORE_INFO":
+            await send_whatsapp(phone_wa, auto_response, db=db)
 
         else:
-            # ── Unknown reply — ask for YES/NO ───────────────────────────────
-            await send_whatsapp(
-                phone_wa,
-                f"Hi {candidate.name.split()[0]}, thanks for your message! 😊\n\n"
-                f"Are you interested in the *{job.title}* role at "
-                f"{job.company or 'K. Girdharlal International'}?\n\n"
-                f"Reply *YES* to proceed or *NO* if not interested.",
-                db=db,
-            )
+            # GENERAL or unrecognised — ask for clear YES/NO
+            await send_whatsapp(phone_wa, auto_response, db=db)
 
         await db.commit()
 

@@ -146,11 +146,17 @@ async def _run_import_pipeline(
             except Exception as exc:
                 logger.warning("Outreach failed for %s: %s", candidate.name, exc)
 
+        breakdown = entry.score_breakdown or {}
         details.append({
             "name": raw.name,
             "email": raw.email,
             "score": entry.score,
             "result": result_label,
+            "candidate_id": candidate.id,
+            "strengths": breakdown.get("ai_strengths", []),
+            "concerns": breakdown.get("ai_concerns", []),
+            "reasoning": breakdown.get("ai_reasoning", ""),
+            "opener": breakdown.get("ai_opener", ""),
         })
 
     await db.commit()
@@ -408,3 +414,112 @@ async def enrich_existing_candidates(
         logger.info("Enriched candidate %d (%s) from %s", candidate.id, candidate.name, candidate.source_ref)
 
     return {"enriched": enriched, "skipped": skipped, "total_candidates": len(candidates)}
+
+
+@router.post("/ai-screen/{job_id}")
+async def ai_screen_pending(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-run AI screening on all PENDING (manual review) candidates for a job.
+
+    Useful for running AI on candidates that were previously scored only with rule-based.
+    Returns updated scores and AI insights for each.
+    """
+    import asyncio
+    from sqlalchemy import select
+    from app.models.job import Job
+    from app.models.candidate import Candidate
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.services.ai_scoring import ai_score_candidate
+    from app.services.scoring import score_candidate
+
+    job_res = await db.execute(select(Job).where(Job.id == job_id))
+    job = job_res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    sl_res = await db.execute(
+        select(ShortlistEntry).where(
+            ShortlistEntry.job_id == job_id,
+            ShortlistEntry.status.in_([ShortlistStatus.PENDING, ShortlistStatus.SHORTLISTED]),
+        )
+    )
+    entries = sl_res.scalars().all()
+    if not entries:
+        return {"screened": 0, "message": "No pending candidates to screen"}
+
+    cand_ids = [e.candidate_id for e in entries]
+    c_res = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
+    candidates = {c.id: c for c in c_res.scalars().all()}
+
+    entry_map = {e.candidate_id: e for e in entries}
+
+    sem = asyncio.Semaphore(5)  # max 5 concurrent AI calls
+    results = []
+
+    async def _screen_one(cid: int):
+        async with sem:
+            candidate = candidates.get(cid)
+            entry = entry_map.get(cid)
+            if not candidate or not entry:
+                return
+            ai_result = await ai_score_candidate(candidate, job)
+            if not ai_result or "score" not in ai_result:
+                results.append({
+                    "name": candidate.name,
+                    "score": entry.score,
+                    "result": "UNCHANGED",
+                    "strengths": [],
+                    "concerns": [],
+                    "reasoning": "AI scoring not available",
+                })
+                return
+
+            ai_score_100 = ai_result["score"] * 10
+            old_score = entry.score or 0
+            blended = round(old_score * 0.4 + ai_score_100 * 0.6, 2)
+            decision = "AUTO_SHORTLIST" if blended >= 65 else ("MANUAL_REVIEW" if blended >= 40 else "REJECT")
+
+            entry.score = blended
+            existing_breakdown = entry.score_breakdown or {}
+            entry.score_breakdown = {
+                **existing_breakdown,
+                "ai_strengths": ai_result.get("strengths", []),
+                "ai_concerns": ai_result.get("concerns", []),
+                "ai_reasoning": ai_result.get("reasoning", ""),
+                "ai_opener": ai_result.get("personalized_opener", ""),
+            }
+
+            status_map = {
+                "AUTO_SHORTLIST": ShortlistStatus.SHORTLISTED,
+                "MANUAL_REVIEW": ShortlistStatus.PENDING,
+                "REJECT": ShortlistStatus.REJECTED,
+            }
+            if decision in status_map:
+                entry.status = status_map[decision]
+
+            results.append({
+                "name": candidate.name,
+                "candidate_id": candidate.id,
+                "score": blended,
+                "result": decision,
+                "strengths": ai_result.get("strengths", []),
+                "concerns": ai_result.get("concerns", []),
+                "reasoning": ai_result.get("reasoning", ""),
+                "opener": ai_result.get("personalized_opener", ""),
+            })
+
+    await asyncio.gather(*[_screen_one(cid) for cid in cand_ids])
+    await db.commit()
+
+    promoted = sum(1 for r in results if r.get("result") == "AUTO_SHORTLIST")
+    rejected  = sum(1 for r in results if r.get("result") == "REJECT")
+
+    return {
+        "screened": len(results),
+        "promoted_to_shortlist": promoted,
+        "rejected": rejected,
+        "stayed_pending": len(results) - promoted - rejected,
+        "details": results,
+    }

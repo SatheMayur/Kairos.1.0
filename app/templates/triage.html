@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}Quick Review{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Quick Candidate Review</h1>
+    <p class="text-muted text-sm">Review pending candidates one by one — press S to shortlist, R to reject, Space to skip</p>
+  </div>
+  <div class="topbar-right">
+    <select id="triage-job" onchange="startTriage()" style="padding:6px 12px;font-size:12.5px;min-width:200px">
+      <option value="">Select a job to review…</option>
+    </select>
+  </div>
+</div>
+
+<!-- Progress bar -->
+<div id="triage-progress-wrap" style="display:none;margin-bottom:20px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <span class="text-sm text-muted" id="triage-progress-label">0 of 0 reviewed</span>
+    <span class="text-sm" id="triage-stats" style="color:var(--text-secondary)"></span>
+  </div>
+  <div style="height:6px;background:var(--bg-overlay);border-radius:99px;overflow:hidden">
+    <div id="triage-progress-bar" style="height:100%;background:var(--accent);border-radius:99px;transition:width .3s ease;width:0%"></div>
+  </div>
+</div>
+
+<!-- Main triage card -->
+<div id="triage-start" class="card" style="text-align:center;padding:48px 24px">
+  <div style="font-size:32px;margin-bottom:12px">⚡</div>
+  <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Select a job above to start reviewing</div>
+  <div class="text-muted text-sm">You'll see each pending candidate one at a time.<br>Shortlist the good ones, reject the rest — done in minutes.</div>
+</div>
+
+<div id="triage-card" style="display:none">
+  <!-- Candidate card -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-primary)" id="tc-name">–</div>
+        <div class="text-muted text-sm" id="tc-sub" style="margin-top:2px">–</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="text-align:right">
+          <div style="font-size:28px;font-weight:800" id="tc-score">–</div>
+          <div class="text-xs text-muted">AI Score</div>
+        </div>
+        <a id="tc-profile-link" href="#" target="_blank" class="btn btn-secondary btn-sm">Full Profile</a>
+      </div>
+    </div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+        <div>
+          <div class="text-xs text-muted" style="font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Details</div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div class="text-sm"><span style="color:var(--text-muted);min-width:60px;display:inline-block">Exp</span> <span id="tc-exp">–</span></div>
+            <div class="text-sm"><span style="color:var(--text-muted);min-width:60px;display:inline-block">Location</span> <span id="tc-loc">–</span></div>
+            <div class="text-sm"><span style="color:var(--text-muted);min-width:60px;display:inline-block">Exp. CTC</span> <span id="tc-salary">–</span></div>
+            <div class="text-sm"><span style="color:var(--text-muted);min-width:60px;display:inline-block">Education</span> <span id="tc-edu">–</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="text-xs text-muted" style="font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Skills</div>
+          <div id="tc-skills" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+        </div>
+        <div>
+          <div class="text-xs text-muted" style="font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">AI Insights</div>
+          <div id="tc-strengths" style="margin-bottom:8px"></div>
+          <div id="tc-concerns"></div>
+        </div>
+      </div>
+      <div id="tc-reasoning" style="font-size:12px;color:var(--text-secondary);font-style:italic;border-top:1px solid var(--border-subtle);padding-top:10px;display:none"></div>
+    </div>
+  </div>
+
+  <!-- Action buttons -->
+  <div style="display:flex;gap:12px;justify-content:center;margin-bottom:8px">
+    <button class="btn btn-danger" style="padding:14px 32px;font-size:14px;gap:10px" onclick="triageAction('REJECTED')" id="btn-reject">
+      <span style="font-size:18px">✗</span> Reject <kbd style="font-size:10px;opacity:.7;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">R</kbd>
+    </button>
+    <button class="btn btn-secondary" style="padding:14px 24px;font-size:14px;gap:10px" onclick="triageAction('SKIP')" id="btn-skip">
+      Skip <kbd style="font-size:10px;opacity:.7;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">Space</kbd>
+    </button>
+    <button class="btn btn-primary" style="padding:14px 32px;font-size:14px;gap:10px;background:#10b981" onclick="triageAction('SHORTLISTED')" id="btn-shortlist">
+      <span style="font-size:18px">✓</span> Shortlist <kbd style="font-size:10px;opacity:.7;background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px">S</kbd>
+    </button>
+  </div>
+  <div style="text-align:center" class="text-xs text-muted">Keyboard: <strong>S</strong> = shortlist · <strong>R</strong> = reject · <strong>Space</strong> = skip · <strong>←</strong> = go back</div>
+</div>
+
+<!-- Done state -->
+<div id="triage-done" style="display:none">
+  <div class="card" style="text-align:center;padding:48px 24px">
+    <div style="font-size:40px;margin-bottom:12px">🎉</div>
+    <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:8px">All candidates reviewed!</div>
+    <div class="text-muted text-sm" id="triage-done-summary" style="margin-bottom:20px">–</div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <a href="/ui/shortlist" class="btn btn-primary">View Shortlist →</a>
+      <button class="btn btn-secondary" onclick="startTriage()">Review Again</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let candidates = [];
+let currentIdx = 0;
+let shortlisted = 0;
+let rejected = 0;
+let skipped = 0;
+let total = 0;
+let jobTitle = '';
+let busy = false;
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const jobs = await api('/api/v1/jobs?limit=100');
+  const sel = document.getElementById('triage-job');
+  jobs.filter(j => j.status === 'ACTIVE').forEach(j => {
+    const opt = document.createElement('option');
+    opt.value = j.id;
+    opt.textContent = j.title + (j.company ? ' — ' + j.company : '');
+    sel.appendChild(opt);
+  });
+});
+
+async function startTriage() {
+  const jobId = document.getElementById('triage-job').value;
+  if (!jobId) return;
+
+  document.getElementById('triage-start').style.display = 'none';
+  document.getElementById('triage-done').style.display = 'none';
+  document.getElementById('triage-card').style.display = 'none';
+  document.getElementById('triage-progress-wrap').style.display = 'none';
+
+  try {
+    const data = await api('/api/v1/shortlist/triage?job_id='+jobId+'&limit=100');
+    candidates = data.candidates || [];
+    jobTitle = data.job_title || '';
+    total = candidates.length;
+    currentIdx = 0; shortlisted = 0; rejected = 0; skipped = 0;
+
+    if (!candidates.length) {
+      document.getElementById('triage-start').style.display = 'block';
+      document.getElementById('triage-start').innerHTML = `
+        <div style="font-size:32px;margin-bottom:12px">✅</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px">No pending candidates for this job</div>
+        <div class="text-muted text-sm">All candidates have already been reviewed.</div>`;
+      return;
+    }
+
+    document.getElementById('triage-progress-wrap').style.display = 'block';
+    document.getElementById('triage-card').style.display = 'block';
+    showCandidate(0);
+  } catch(e) {
+    showToast('Failed to load: ' + e.message, 'error');
+  }
+}
+
+function showCandidate(idx) {
+  if (idx >= candidates.length) {
+    showDone();
+    return;
+  }
+  const c = candidates[idx];
+  const score = c.score != null ? Math.round(c.score) : null;
+  const scoreColor = score >= 65 ? '#34d399' : score >= 40 ? '#fbbf24' : '#f87171';
+
+  document.getElementById('tc-name').textContent = c.name;
+  document.getElementById('tc-sub').textContent = [c.current_role, c.current_employer].filter(Boolean).join(' @ ') || '–';
+  const scoreEl = document.getElementById('tc-score');
+  scoreEl.textContent = score != null ? score : '–';
+  scoreEl.style.color = scoreColor;
+  document.getElementById('tc-exp').textContent = c.experience_years != null ? c.experience_years + ' yrs' : '–';
+  document.getElementById('tc-loc').textContent = c.location || '–';
+  document.getElementById('tc-salary').textContent = c.expected_salary ? '₹' + Math.round(c.expected_salary).toLocaleString('en-IN') + '/mo' : '–';
+  document.getElementById('tc-edu').textContent = c.education || '–';
+  document.getElementById('tc-profile-link').href = '/ui/candidate/' + c.candidate_id;
+
+  const skillsEl = document.getElementById('tc-skills');
+  skillsEl.innerHTML = (c.skills && c.skills.length)
+    ? c.skills.slice(0,8).map(s => `<span class="badge badge-blue" style="font-size:10px">${esc(s)}</span>`).join('')
+    : '<span class="text-dim text-sm">None listed</span>';
+
+  const strEl = document.getElementById('tc-strengths');
+  strEl.innerHTML = (c.ai_strengths && c.ai_strengths.length)
+    ? c.ai_strengths.map(s => `<div style="font-size:11.5px;color:#34d399;margin-bottom:3px">✓ ${esc(s)}</div>`).join('')
+    : '';
+
+  const conEl = document.getElementById('tc-concerns');
+  conEl.innerHTML = (c.ai_concerns && c.ai_concerns.length)
+    ? c.ai_concerns.map(s => `<div style="font-size:11.5px;color:#f87171;margin-bottom:3px">⚠ ${esc(s)}</div>`).join('')
+    : '';
+
+  const reasonEl = document.getElementById('tc-reasoning');
+  if (c.ai_reasoning) {
+    reasonEl.textContent = c.ai_reasoning;
+    reasonEl.style.display = 'block';
+  } else {
+    reasonEl.style.display = 'none';
+  }
+
+  // Progress
+  const reviewed = shortlisted + rejected;
+  const pct = total > 0 ? Math.round(reviewed / total * 100) : 0;
+  document.getElementById('triage-progress-bar').style.width = pct + '%';
+  document.getElementById('triage-progress-label').textContent = `${idx + 1} of ${total} — ${reviewed} reviewed`;
+  document.getElementById('triage-stats').textContent = `✓ ${shortlisted} shortlisted · ✗ ${rejected} rejected · → ${skipped} skipped`;
+}
+
+async function triageAction(action) {
+  if (busy || currentIdx >= candidates.length) return;
+  const c = candidates[currentIdx];
+
+  if (action !== 'SKIP') {
+    busy = true;
+    try {
+      await api('/api/v1/shortlist/' + c.entry_id, {
+        method: 'PATCH',
+        body: { status: action }
+      });
+      if (action === 'SHORTLISTED') shortlisted++;
+      else rejected++;
+    } catch(e) {
+      showToast('Failed to update: ' + e.message, 'error');
+      busy = false;
+      return;
+    }
+    busy = false;
+  } else {
+    skipped++;
+  }
+
+  currentIdx++;
+  if (currentIdx >= candidates.length) {
+    showDone();
+  } else {
+    showCandidate(currentIdx);
+  }
+}
+
+function showDone() {
+  document.getElementById('triage-card').style.display = 'none';
+  document.getElementById('triage-done').style.display = 'block';
+  document.getElementById('triage-progress-bar').style.width = '100%';
+  document.getElementById('triage-progress-label').textContent = 'All done!';
+  document.getElementById('triage-done-summary').textContent =
+    `Reviewed ${total} candidates for ${jobTitle} — ${shortlisted} shortlisted, ${rejected} rejected, ${skipped} skipped.`;
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+  if (document.getElementById('triage-card').style.display === 'none') return;
+  if (e.code === 'KeyS') triageAction('SHORTLISTED');
+  else if (e.code === 'KeyR') triageAction('REJECTED');
+  else if (e.code === 'Space') { e.preventDefault(); triageAction('SKIP'); }
+  else if (e.code === 'ArrowLeft' && currentIdx > 0) {
+    currentIdx--;
+    shortlisted = Math.max(0, shortlisted);
+    showCandidate(currentIdx);
+  }
+});
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

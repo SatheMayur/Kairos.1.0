@@ -71,3 +71,11 @@ async def candidate_profile(candidate_id: int, request: Request):
 @router.get("/pipeline", response_class=HTMLResponse)
 async def pipeline(request: Request):
     return _render(request, "pipeline.html", "pipeline")
+
+@router.get("/triage", response_class=HTMLResponse)
+async def triage(request: Request):
+    return _render(request, "triage.html", "triage")
+
+@router.get("/analytics", response_class=HTMLResponse)
+async def analytics(request: Request):
+    return _render(request, "analytics.html", "analytics")

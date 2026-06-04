@@ -291,6 +291,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     <a href="/ui/pipeline" class="nav-item {% if active=='pipeline' %}active{% endif %}">
       <span class="nav-icon">⬡</span> Kanban Board
     </a>
+    <a href="/ui/triage" class="nav-item {% if active=='triage' %}active{% endif %}">
+      <span class="nav-icon">⚡</span> Quick Review
+    </a>
     <a href="/ui/shortlist" class="nav-item {% if active=='shortlist' %}active{% endif %}">
       <span class="nav-icon">◈</span> Shortlist
     </a>
@@ -305,6 +308,11 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     </a>
     <a href="/ui/whatsapp" class="nav-item {% if active=='whatsapp' %}active{% endif %}">
       <span class="nav-icon">◉</span> WhatsApp
+    </a>
+
+    <div class="nav-label">Insights</div>
+    <a href="/ui/analytics" class="nav-item {% if active=='analytics' %}active{% endif %}">
+      <span class="nav-icon">◎</span> Analytics
     </a>
 
     <div class="nav-label">System</div>
@@ -452,6 +460,8 @@ const CMD_PAGES=[
   {icon:'◷',label:'Interviews',sub:'Schedule & track',url:'/ui/interviews',kbd:'G I'},
   {icon:'↑',label:'Import CSV',sub:'Upload Naukri / WorkIndia',url:'/ui/import'},
   {icon:'◉',label:'WhatsApp',sub:'QR scan & conversations',url:'/ui/whatsapp',kbd:'G W'},
+  {icon:'⚡',label:'Quick Review',sub:'One-by-one triage with keyboard shortcuts',url:'/ui/triage'},
+  {icon:'◎',label:'Analytics',sub:'Funnel, source quality, reply rates',url:'/ui/analytics'},
   {icon:'◈',label:'System Health',sub:'Watchdog & cron status',url:'/ui/system'},
 ];
 const CMD_ACTIONS=[

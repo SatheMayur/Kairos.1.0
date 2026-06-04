@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Analytics & Reports</h1>
+    <p class="text-muted text-sm">Pipeline performance · Source quality · Outreach effectiveness</p>
+  </div>
+  <div class="topbar-right">
+    <button class="btn btn-secondary btn-sm" onclick="loadAnalytics()">↺ Refresh</button>
+  </div>
+</div>
+
+<!-- Summary KPIs -->
+<div class="kpi-grid">
+  <div class="kpi blue"><div class="kpi-label">Total Candidates</div><div class="kpi-value" id="a-total">–</div></div>
+  <div class="kpi green"><div class="kpi-label">In Pipeline</div><div class="kpi-value" id="a-pipeline">–</div></div>
+  <div class="kpi green"><div class="kpi-label">Hired</div><div class="kpi-value" id="a-hired">–</div></div>
+  <div class="kpi red"><div class="kpi-label">Rejected</div><div class="kpi-value" id="a-rejected">–</div></div>
+  <div class="kpi purple"><div class="kpi-label">Avg Score</div><div class="kpi-value" id="a-avg-score">–</div></div>
+</div>
+
+<div class="grid-2">
+
+  <!-- Pipeline Funnel -->
+  <div class="card" style="margin-bottom:0">
+    <div class="card-header"><span class="card-title">📊 Hiring Funnel</span></div>
+    <div class="card-body" id="a-funnel">
+      <div style="padding:20px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+    </div>
+  </div>
+
+  <!-- Score Distribution -->
+  <div class="card" style="margin-bottom:0">
+    <div class="card-header"><span class="card-title">📈 Score Distribution</span></div>
+    <div class="card-body" id="a-scores">
+      <div style="padding:20px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<div style="height:16px"></div>
+
+<!-- Outreach effectiveness -->
+<div class="grid-2">
+  <div class="card" style="margin-bottom:0">
+    <div class="card-header"><span class="card-title">📱 WhatsApp Outreach</span></div>
+    <div class="card-body" id="a-wa">
+      <div style="padding:20px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:0">
+    <div class="card-header"><span class="card-title">📧 Email Outreach</span></div>
+    <div class="card-body" id="a-em">
+      <div style="padding:20px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+    </div>
+  </div>
+</div>
+
+<div style="height:16px"></div>
+
+<!-- Source quality -->
+<div class="card">
+  <div class="card-header"><span class="card-title">🔍 Candidate Source Quality</span></div>
+  <div id="a-sources">
+    <div style="padding:20px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+<!-- Per-job breakdown -->
+<div class="card">
+  <div class="card-header"><span class="card-title">💼 Pipeline by Job</span></div>
+  <div id="a-jobs">
+    <div style="padding:20px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', loadAnalytics);
+
+async function loadAnalytics() {
+  try {
+    const d = await api('/api/v1/analytics/overview');
+    renderSummary(d.summary);
+    renderFunnel(d.funnel);
+    renderScores(d.score_distribution);
+    renderOutreach(d.outreach);
+    renderSources(d.sources);
+    renderJobs(d.jobs);
+  } catch(e) {
+    showToast('Failed to load analytics: ' + e.message, 'error');
+  }
+}
+
+function renderSummary(s) {
+  document.getElementById('a-total').textContent = s.total_candidates;
+  document.getElementById('a-pipeline').textContent = s.total_in_pipeline;
+  document.getElementById('a-hired').textContent = s.total_hired;
+  document.getElementById('a-rejected').textContent = s.total_rejected;
+  document.getElementById('a-avg-score').textContent = s.avg_score;
+}
+
+function renderFunnel(funnel) {
+  const max = Math.max(...funnel.map(f => f.count), 1);
+  document.getElementById('a-funnel').innerHTML = funnel.map((f, i) => {
+    const colors = ['#60a5fa','#fbbf24','#a78bfa','#34d399','#10b981'];
+    const color = colors[i % colors.length];
+    const w = Math.max(f.count / max * 100, f.count > 0 ? 4 : 0);
+    return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <div style="width:140px;font-size:12px;color:var(--text-secondary);text-align:right;flex-shrink:0">${esc(f.stage)}</div>
+      <div style="flex:1;height:28px;background:var(--bg-overlay);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${w}%;background:${color};border-radius:4px;display:flex;align-items:center;padding-left:8px;transition:width .6s ease;min-width:${f.count>0?'2px':'0'}">
+          ${f.count > 0 ? `<span style="font-size:11px;font-weight:700;color:#fff;white-space:nowrap">${f.count}</span>` : ''}
+        </div>
+      </div>
+      <div style="width:40px;font-size:11px;color:var(--text-muted);text-align:right;flex-shrink:0">${f.pct}%</div>
+    </div>`;
+  }).join('');
+}
+
+function renderScores(dist) {
+  const entries = Object.entries(dist);
+  const max = Math.max(...entries.map(([,v]) => v), 1);
+  const colors = {'90+':'#10b981','75-89':'#34d399','60-74':'#60a5fa','40-59':'#fbbf24','<40':'#f87171'};
+  document.getElementById('a-scores').innerHTML = entries.map(([label, count]) => {
+    const w = Math.max(count / max * 100, count > 0 ? 3 : 0);
+    return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <div style="width:50px;font-size:11.5px;font-weight:700;color:${colors[label]||'var(--text-muted)'};text-align:right;flex-shrink:0">${label}</div>
+      <div style="flex:1;height:22px;background:var(--bg-overlay);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${w}%;background:${colors[label]||'#60a5fa'};border-radius:4px;display:flex;align-items:center;padding-left:6px;transition:width .6s ease">
+          ${count > 0 ? `<span style="font-size:11px;font-weight:700;color:#fff">${count}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderOutreach(o) {
+  document.getElementById('a-wa').innerHTML = outreachCard(o.wa_sent, o.wa_replied, o.wa_reply_rate, '#34d399');
+  document.getElementById('a-em').innerHTML = outreachCard(o.em_sent, o.em_replied, o.em_reply_rate, '#60a5fa');
+}
+
+function outreachCard(sent, replied, rate, color) {
+  const arc = Math.round(rate * 2.51327); // degrees for a 360-degree circle representation
+  return `<div style="display:flex;align-items:center;gap:20px">
+    <div style="position:relative;width:80px;height:80px;flex-shrink:0">
+      <svg viewBox="0 0 36 36" style="width:80px;height:80px;transform:rotate(-90deg)">
+        <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--bg-overlay)" stroke-width="3"/>
+        <circle cx="18" cy="18" r="15.9" fill="none" stroke="${color}" stroke-width="3"
+          stroke-dasharray="${Math.min(rate,100)} ${100 - Math.min(rate,100)}" stroke-linecap="round"/>
+      </svg>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:${color}">${rate}%</div>
+    </div>
+    <div>
+      <div style="font-size:22px;font-weight:800;color:${color}">${rate}%</div>
+      <div class="text-sm text-muted">reply rate</div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">
+        <div class="text-sm"><span style="color:var(--text-muted)">Sent:</span> <strong>${sent}</strong></div>
+        <div class="text-sm"><span style="color:var(--text-muted)">Replied:</span> <strong style="color:${color}">${replied}</strong></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderSources(sources) {
+  if (!sources.length) {
+    document.getElementById('a-sources').innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No source data yet.</p></div>';
+    return;
+  }
+  document.getElementById('a-sources').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Source</th><th>Candidates</th><th>Shortlisted</th><th>Shortlist Rate</th><th>Avg Score</th><th>Hired</th></tr></thead>
+    <tbody>${sources.map(s => {
+      const rateColor = s.shortlist_rate >= 50 ? '#34d399' : s.shortlist_rate >= 25 ? '#fbbf24' : '#f87171';
+      return `<tr>
+        <td><span class="badge badge-blue" style="font-size:10.5px">${esc(s.source)}</span></td>
+        <td style="font-weight:600">${s.total_candidates}</td>
+        <td>${s.shortlisted}</td>
+        <td><span style="font-weight:700;color:${rateColor}">${s.shortlist_rate}%</span></td>
+        <td>${s.avg_score}</td>
+        <td>${s.hired > 0 ? `<span style="color:#34d399;font-weight:700">${s.hired} ✓</span>` : '–'}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+function renderJobs(jobs) {
+  if (!jobs.length) {
+    document.getElementById('a-jobs').innerHTML = '<div class="empty-state"><div class="empty-state-icon">💼</div><p>No job data yet.</p></div>';
+    return;
+  }
+  document.getElementById('a-jobs').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Job</th><th>Total</th><th>Shortlisted</th><th>Contacted</th><th>Interested</th><th>Scheduled</th><th>Hired</th><th>Rejected</th></tr></thead>
+    <tbody>${jobs.map(j => `<tr>
+      <td style="font-weight:600">${esc(j.title)}</td>
+      <td>${j.total}</td>
+      <td><span style="color:#60a5fa">${j.shortlisted}</span></td>
+      <td><span style="color:#fbbf24">${j.contacted}</span></td>
+      <td><span style="color:#a78bfa">${j.interested}</span></td>
+      <td><span style="color:#34d399">${j.scheduled}</span></td>
+      <td>${j.hired > 0 ? `<span style="font-weight:700;color:#10b981">${j.hired}</span>` : '–'}</td>
+      <td>${j.rejected > 0 ? `<span style="color:#f87171">${j.rejected}</span>` : '–'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

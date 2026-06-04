@@ -12,3 +12,6 @@ htmlcov/
 venv/
 *.egg-info/
 .env.production
+.env.vercel
+.env.local
+.env.*

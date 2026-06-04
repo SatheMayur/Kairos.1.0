@@ -3,522 +3,419 @@
 {% block nav_whatsapp %}bg-emerald-900/50 text-emerald-300{% endblock %}
 
 {% block content %}
-<div x-data="whatsappPage()" x-init="init()" class="space-y-6">
 
-  <!-- Page header -->
-  <div class="flex items-center justify-between">
-    <div>
-      <h1 class="text-lg font-bold text-zinc-100 tracking-tight">WhatsApp Messages</h1>
-      <p class="text-xs text-zinc-500 mt-0.5">Connection · Conversations · Manual send</p>
-    </div>
-    <button @click="loadAll()" class="btn btn-secondary btn-sm">↺ Refresh</button>
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>WhatsApp Messages</h1>
+    <p class="text-muted text-sm">Connection · Conversations · Manual send</p>
   </div>
-
-  <!-- ── CONNECTION STATUS BANNER ─────────────────────────────────────────── -->
-  <!-- CONNECTED -->
-  <div x-show="status === 'CONNECTED'" x-cloak
-       class="flex items-center gap-3 bg-emerald-950/60 border border-emerald-800 text-emerald-200 rounded-xl px-5 py-4">
-    <span class="text-xl flex-shrink-0">✅</span>
-    <div class="flex-1">
-      <div class="font-semibold text-emerald-100">WhatsApp is connected</div>
-      <div class="text-sm text-emerald-300 mt-0.5">Messages send automatically. Everything is working.</div>
-    </div>
-    <div class="flex items-center gap-2 flex-shrink-0">
-      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-      <span class="text-sm font-medium text-emerald-300">Live</span>
-    </div>
+  <div class="topbar-right">
+    <button class="btn btn-secondary btn-sm" onclick="waLoadAll()">↺ Refresh</button>
   </div>
+</div>
 
-  <!-- QR READY -->
-  <div x-show="status === 'QR_READY'" x-cloak
-       class="flex items-center gap-3 bg-yellow-950/60 border border-yellow-800 text-yellow-200 rounded-xl px-5 py-4">
-    <span class="text-xl flex-shrink-0">📱</span>
-    <div class="flex-1">
-      <div class="font-semibold text-yellow-100">WhatsApp needs to be connected — scan the QR code below with your phone</div>
-      <div class="text-sm text-yellow-300 mt-0.5">Follow the steps below to finish connecting.</div>
-    </div>
-    <div class="flex items-center gap-2 flex-shrink-0">
-      <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
-      <span class="text-sm font-medium text-yellow-300">Waiting for scan</span>
-    </div>
+<!-- ── CONNECTION BANNER ──────────────────────────────────────────────────── -->
+<div id="wa-banner-connected" class="alert alert-success" style="display:none;align-items:center;gap:12px">
+  <span style="font-size:20px;flex-shrink:0">✅</span>
+  <div style="flex:1">
+    <div style="font-weight:600;font-size:13px;color:#34d399">WhatsApp is connected</div>
+    <div class="text-sm" style="margin-top:2px">Messages send automatically. Everything is working.</div>
   </div>
+  <div class="live-badge"><div class="pulse"></div> Live</div>
+</div>
 
-  <!-- DISCONNECTED -->
-  <div x-show="status === 'DISCONNECTED'" x-cloak
-       class="flex items-center gap-3 bg-red-950/60 border border-red-800 text-red-200 rounded-xl px-5 py-4">
-    <span class="text-xl flex-shrink-0">🔴</span>
-    <div class="flex-1">
-      <div class="font-semibold text-red-100">WhatsApp is offline — automatic messages are paused</div>
-      <div class="text-sm text-red-300 mt-0.5">Follow the steps below to reconnect.</div>
-    </div>
+<div id="wa-banner-qr" class="alert alert-warn" style="display:none;align-items:center;gap:12px">
+  <span style="font-size:20px;flex-shrink:0">📱</span>
+  <div style="flex:1">
+    <div style="font-weight:600;font-size:13px;color:#fbbf24">WhatsApp needs to be connected — scan the QR code below</div>
+    <div class="text-sm" style="margin-top:2px">Follow the steps below to finish connecting.</div>
   </div>
+  <span style="font-size:11px;color:#fbbf24;white-space:nowrap">Waiting for scan</span>
+</div>
 
-  <!-- ── SECTION A: HOW TO CONNECT ────────────────────────────────────────── -->
-  <div x-show="status === 'DISCONNECTED' || status === 'QR_READY'" x-cloak
-       class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-    <div class="px-5 py-4 border-b border-zinc-800 flex items-center gap-2">
-      <span class="text-base">📋</span>
-      <span class="font-semibold text-zinc-100 text-sm">How to connect WhatsApp</span>
-    </div>
-
-    <div class="p-5 flex flex-col lg:flex-row gap-8">
-
-      <!-- Steps: DISCONNECTED -->
-      <div x-show="status === 'DISCONNECTED'" class="flex-1 space-y-4">
-        <p class="text-xs text-zinc-400 mb-3 font-medium uppercase tracking-wide">Follow these steps on your computer:</p>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
-          <div class="text-sm text-zinc-300">On your computer, open the folder: <span class="font-semibold text-zinc-100">Kairos.1.0 → waha-bridge</span></div>
-        </div>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
-          <div class="text-sm text-zinc-300">Double-click the file: <span class="font-semibold text-emerald-300">start-whatsapp.bat</span></div>
-        </div>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</div>
-          <div class="text-sm text-zinc-300">Wait 10 seconds — the QR code will appear on this page automatically</div>
-        </div>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">4</div>
-          <div class="text-sm text-zinc-300">Scan the QR code with your WhatsApp phone</div>
-        </div>
-      </div>
-
-      <!-- Steps: QR_READY -->
-      <div x-show="status === 'QR_READY'" class="flex-1 space-y-4">
-        <p class="text-xs text-zinc-400 mb-3 font-medium uppercase tracking-wide">Follow these steps on your phone:</p>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
-          <div class="text-sm text-zinc-300">Open <span class="font-semibold text-zinc-100">WhatsApp</span> on your phone</div>
-        </div>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
-          <div class="text-sm text-zinc-300">Tap the three dots <span class="font-semibold text-zinc-100">⋮</span> in the top right corner</div>
-        </div>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</div>
-          <div class="text-sm text-zinc-300">Tap <span class="font-semibold text-zinc-100">Settings → Linked Devices → Link a Device</span></div>
-        </div>
-        <div class="flex items-start gap-4">
-          <div class="w-7 h-7 rounded-full bg-yellow-700 text-yellow-100 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">4</div>
-          <div class="text-sm text-zinc-300">Point your phone camera at the QR code on the right</div>
-        </div>
-      </div>
-
-      <!-- QR Code image (only when QR_READY) -->
-      <div x-show="status === 'QR_READY'" class="flex flex-col items-center gap-3 flex-shrink-0">
-        <div class="bg-white p-3 rounded-xl shadow-lg">
-          <img :src="'/api/v1/wa/qr-image?t=' + Date.now()"
-               x-ref="qrImg"
-               style="width:200px;height:200px;display:block;border-radius:6px"
-               alt="WhatsApp QR code"
-               onerror="this.style.opacity='0.4'">
-        </div>
-        <p class="text-xs text-zinc-500 text-center">This code refreshes every 60 seconds</p>
-      </div>
-
-    </div>
+<div id="wa-banner-offline" class="alert alert-error" style="display:none;align-items:center;gap:12px">
+  <span style="font-size:20px;flex-shrink:0">🔴</span>
+  <div style="flex:1">
+    <div style="font-weight:600;font-size:13px;color:#f87171">WhatsApp is offline — automatic messages are paused</div>
+    <div class="text-sm" style="margin-top:2px">Follow the steps below to reconnect.</div>
   </div>
+</div>
 
-  <!-- ── SECTION B: STATS ROW ──────────────────────────────────────────────── -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Messages Sent</div>
-      <div class="text-3xl font-bold text-emerald-400" x-text="stats.queue_sent">–</div>
-      <div class="text-xs text-zinc-600 mt-1">delivered successfully</div>
-    </div>
-
-    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Waiting to Send</div>
-      <div class="text-3xl font-bold text-yellow-400" x-text="stats.queue_pending">–</div>
-      <div class="text-xs text-zinc-600 mt-1">in queue</div>
-    </div>
-
-    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Failed to Send</div>
-      <div class="text-3xl font-bold text-red-400" x-text="stats.queue_failed">–</div>
-      <div class="text-xs text-zinc-600 mt-1">need retry</div>
-    </div>
-
-    <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <div class="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-2">Candidates Replied</div>
-      <div class="text-3xl font-bold text-blue-400" x-text="stats.replied">–</div>
-      <div class="text-xs text-zinc-600 mt-1">replied to messages</div>
-    </div>
-
+<!-- ── HOW TO CONNECT GUIDE ───────────────────────────────────────────────── -->
+<div id="wa-connect-guide" class="card" style="display:none;margin-bottom:20px">
+  <div class="card-header">
+    <span class="card-title">📋 How to connect WhatsApp</span>
   </div>
+  <div class="card-body" style="padding:20px 24px">
+    <div style="display:flex;gap:40px;flex-wrap:wrap">
 
-  <!-- ── MAIN CONTENT: CONVERSATIONS + SIDEBAR ────────────────────────────── -->
-  <div class="flex flex-col lg:flex-row gap-6 items-start">
-
-    <!-- LEFT: Conversations table -->
-    <div class="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-
-      <!-- Table header + filters -->
-      <div class="px-5 py-4 border-b border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <span class="font-semibold text-zinc-100 text-sm">💬 Conversations</span>
-        <div class="flex gap-2 items-center">
-          <input type="text"
-                 x-model="search"
-                 @input="filterConversations()"
-                 placeholder="Search name or phone…"
-                 class="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-200 placeholder-zinc-500 outline-none focus:border-emerald-500 w-44">
-          <select x-model="filterStatus"
-                  @change="filterConversations()"
-                  class="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-zinc-200 outline-none focus:border-emerald-500">
-            <option value="">All statuses</option>
-            <option value="SENT">Sent</option>
-            <option value="REPLIED">Replied</option>
-            <option value="FAILED">Not Sent</option>
-            <option value="PENDING">Waiting</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Table -->
-      <div class="overflow-x-auto">
-        <table class="w-full border-collapse">
-          <thead>
-            <tr>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Candidate</th>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Phone</th>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Job Role</th>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Message Type</th>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Status</th>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Their Reply</th>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Sent At</th>
-              <th class="text-left text-xs text-zinc-500 uppercase tracking-wide font-semibold px-4 py-3 border-b border-zinc-800 bg-zinc-900 whitespace-nowrap">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Loading state -->
-            <template x-if="loading">
-              <tr>
-                <td colspan="8" class="text-center py-10 text-zinc-500 text-sm">Loading conversations…</td>
-              </tr>
-            </template>
-
-            <!-- Empty state -->
-            <template x-if="!loading && filteredConversations.length === 0">
-              <tr>
-                <td colspan="8" class="text-center py-10 text-zinc-500 text-sm">
-                  <div class="text-3xl opacity-30 mb-2">💬</div>
-                  <div>No conversations yet.</div>
-                </td>
-              </tr>
-            </template>
-
-            <!-- Rows -->
-            <template x-for="conv in filteredConversations" :key="conv.id">
-              <tr class="hover:bg-zinc-800/40 cursor-pointer transition-colors"
-                  @click="viewConversation(conv)">
-                <td class="px-4 py-3 border-b border-zinc-800/50 text-sm font-semibold text-zinc-200" x-text="conv.candidate_name || '–'"></td>
-                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-400" x-text="conv.candidate_phone || '–'"></td>
-                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-400" x-text="conv.job_title || '–'"></td>
-                <td class="px-4 py-3 border-b border-zinc-800/50">
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-zinc-700 text-zinc-300 font-medium"
-                        x-text="(conv.type || '').replace(/_/g, ' ')"></span>
-                </td>
-                <td class="px-4 py-3 border-b border-zinc-800/50">
-                  <!-- SENT badge -->
-                  <span x-show="conv.status === 'SENT'"
-                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-blue-900/40 text-blue-300 border border-blue-800">Sent</span>
-                  <!-- REPLIED badge -->
-                  <span x-show="conv.status === 'REPLIED'"
-                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-800">Replied</span>
-                  <!-- FAILED badge -->
-                  <span x-show="conv.status === 'FAILED'"
-                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-red-900/40 text-red-300 border border-red-800">Not Sent</span>
-                  <!-- PENDING badge -->
-                  <span x-show="conv.status === 'PENDING'"
-                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-yellow-900/40 text-yellow-300 border border-yellow-800">Waiting</span>
-                  <!-- Other -->
-                  <span x-show="!['SENT','REPLIED','FAILED','PENDING'].includes(conv.status)"
-                        class="text-xs px-2 py-0.5 rounded-full font-semibold bg-zinc-700 text-zinc-300"
-                        x-text="conv.status"></span>
-                </td>
-                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-400 max-w-[140px] truncate"
-                    :title="conv.reply || ''"
-                    x-text="conv.reply ? (conv.reply.substring(0,25) + (conv.reply.length > 25 ? '…' : '')) : '–'"></td>
-                <td class="px-4 py-3 border-b border-zinc-800/50 text-xs text-zinc-500 whitespace-nowrap"
-                    x-text="conv.sent_at ? new Date(conv.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–'"></td>
-                <td class="px-4 py-3 border-b border-zinc-800/50" @click.stop>
-                  <button class="text-xs px-2 py-1 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 transition-colors"
-                          @click="manualPhone = conv.candidate_phone || ''; manualMessage = 'Hi ' + (conv.candidate_name || '').split(' ')[0] + ', ';"
-                          title="Quick reply">💬</button>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- RIGHT: Sidebar -->
-    <div class="w-full lg:w-80 flex-shrink-0 space-y-4">
-
-      <!-- Manual Send card -->
-      <div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-        <div class="px-5 py-4 border-b border-zinc-800">
-          <span class="font-semibold text-zinc-100 text-sm">📤 Send a WhatsApp Message</span>
-        </div>
-        <div class="p-5 space-y-4">
-          <div>
-            <label class="block text-xs text-zinc-400 mb-1.5 font-medium">Phone number (10 digits)</label>
-            <input type="text" x-model="manualPhone" placeholder="9876543210"
-                   class="w-full text-sm bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-200 placeholder-zinc-500 outline-none focus:border-emerald-500 transition-colors">
+      <!-- Computer steps (shown when DISCONNECTED) -->
+      <div id="wa-steps-computer" style="flex:1;min-width:260px">
+        <div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:.8px;font-weight:700;margin-bottom:16px">Follow these steps on your computer:</div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:flex-start;gap:14px">
+            <div style="width:26px;height:26px;border-radius:50%;background:var(--bg-overlay);border:1px solid var(--border-default);color:var(--text-primary);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">1</div>
+            <div class="text-sm" style="color:#d4d4d8">On your computer, open the folder: <strong style="color:var(--text-primary)">Kairos.1.0 → waha-bridge</strong></div>
           </div>
-          <div>
-            <label class="block text-xs text-zinc-400 mb-1.5 font-medium">Message</label>
-            <textarea x-model="manualMessage" rows="4"
-                      placeholder="Type your WhatsApp message…"
-                      class="w-full text-sm bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-200 placeholder-zinc-500 outline-none focus:border-emerald-500 transition-colors resize-y"></textarea>
+          <div style="display:flex;align-items:flex-start;gap:14px">
+            <div style="width:26px;height:26px;border-radius:50%;background:var(--bg-overlay);border:1px solid var(--border-default);color:var(--text-primary);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">2</div>
+            <div class="text-sm" style="color:#d4d4d8">Double-click the file: <strong style="color:var(--accent)">start-whatsapp.bat</strong></div>
           </div>
-          <button @click="sendManual()"
-                  :disabled="sending"
-                  :class="sending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-emerald-600'"
-                  class="w-full py-2 px-4 bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
-            <span x-show="!sending">💬 Send Message</span>
-            <span x-show="sending" class="flex items-center gap-2">
-              <span class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-              Sending…
-            </span>
-          </button>
+          <div style="display:flex;align-items:flex-start;gap:14px">
+            <div style="width:26px;height:26px;border-radius:50%;background:var(--bg-overlay);border:1px solid var(--border-default);color:var(--text-primary);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">3</div>
+            <div class="text-sm" style="color:#d4d4d8">Wait 10 seconds — the QR code will appear on this page automatically</div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:14px">
+            <div style="width:26px;height:26px;border-radius:50%;background:var(--bg-overlay);border:1px solid var(--border-default);color:var(--text-primary);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">4</div>
+            <div class="text-sm" style="color:#d4d4d8">Scan the QR code with your WhatsApp phone</div>
+          </div>
         </div>
       </div>
 
-      <!-- Messages Not Sent card -->
-      <div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-        <div class="px-5 py-4 border-b border-zinc-800">
-          <span class="font-semibold text-zinc-100 text-sm">❌ Messages Not Sent</span>
-        </div>
-        <div class="p-5 space-y-4">
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-zinc-400">Failed messages</span>
-            <span class="text-2xl font-bold text-red-400" x-text="stats.queue_failed">0</span>
+      <!-- Phone steps + QR (shown when QR_READY) -->
+      <div id="wa-steps-phone" style="flex:1;min-width:260px;display:none">
+        <div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:.8px;font-weight:700;margin-bottom:16px">Follow these steps on your phone:</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:14px;flex:1;min-width:200px">
+            <div style="display:flex;align-items:flex-start;gap:14px">
+              <div style="width:26px;height:26px;border-radius:50%;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.3);color:#fbbf24;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">1</div>
+              <div class="text-sm" style="color:#d4d4d8">Open <strong style="color:var(--text-primary)">WhatsApp</strong> on your phone</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:14px">
+              <div style="width:26px;height:26px;border-radius:50%;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.3);color:#fbbf24;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">2</div>
+              <div class="text-sm" style="color:#d4d4d8">Tap the three dots <strong style="color:var(--text-primary)">⋮</strong> in the top right corner</div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:14px">
+              <div style="width:26px;height:26px;border-radius:50%;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.3);color:#fbbf24;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">3</div>
+              <div class="text-sm" style="color:#d4d4d8">Tap <strong style="color:var(--text-primary)">Settings → Linked Devices → Link a Device</strong></div>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:14px">
+              <div style="width:26px;height:26px;border-radius:50%;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.3);color:#fbbf24;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">4</div>
+              <div class="text-sm" style="color:#d4d4d8">Point your phone camera at the QR code on the right</div>
+            </div>
           </div>
-          <p class="text-xs text-zinc-500" x-show="stats.queue_failed === 0">All messages sent successfully — nothing to retry.</p>
-          <p class="text-xs text-zinc-500" x-show="stats.queue_failed > 0">These messages failed to send. Click the button below to try sending them again.</p>
-          <button @click="retryFailed()"
-                  :disabled="retrying || stats.queue_failed === 0"
-                  :class="(retrying || stats.queue_failed === 0) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-700'"
-                  class="w-full py-2 px-4 bg-red-800/60 border border-red-700 text-red-200 text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
-            <span x-show="!retrying">↺ Retry Sending Now</span>
-            <span x-show="retrying" class="flex items-center gap-2">
-              <span class="w-3.5 h-3.5 border-2 border-red-300/30 border-t-red-300 rounded-full animate-spin"></span>
-              Retrying…
-            </span>
-          </button>
+          <!-- QR image -->
+          <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex-shrink:0">
+            <div style="background:#fff;padding:12px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.5)">
+              <img id="wa-qr-img" src="/api/v1/wa/qr-image" alt="WhatsApp QR code"
+                   style="width:180px;height:180px;display:block;border-radius:4px"
+                   onerror="this.style.opacity='.3'">
+            </div>
+            <div class="text-xs text-muted" style="text-align:center">This code refreshes every 60 seconds</div>
+          </div>
         </div>
       </div>
 
-      <!-- Auto-reply logic card (collapsible) -->
-      <div class="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden" x-data="{ open: false }">
-        <button @click="open = !open"
-                class="w-full px-5 py-4 border-b border-zinc-800 flex items-center justify-between hover:bg-zinc-800/40 transition-colors">
-          <span class="font-semibold text-zinc-100 text-sm">🤖 How auto-replies work</span>
-          <span class="text-zinc-500 text-xs" x-text="open ? '▲ Hide' : '▼ Show'"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ── KPI CARDS ──────────────────────────────────────────────────────────── -->
+<div class="kpi-grid">
+  <div class="kpi green">
+    <div class="kpi-label">Messages Sent</div>
+    <div class="kpi-value" id="kpi-sent">–</div>
+    <div class="kpi-sub">delivered successfully</div>
+  </div>
+  <div class="kpi yellow">
+    <div class="kpi-label">Waiting to Send</div>
+    <div class="kpi-value" id="kpi-pending">–</div>
+    <div class="kpi-sub">in queue</div>
+  </div>
+  <div class="kpi red">
+    <div class="kpi-label">Failed to Send</div>
+    <div class="kpi-value" id="kpi-failed">–</div>
+    <div class="kpi-sub">need retry</div>
+  </div>
+  <div class="kpi blue">
+    <div class="kpi-label">Candidates Replied</div>
+    <div class="kpi-value" id="kpi-replied">–</div>
+    <div class="kpi-sub">replied to messages</div>
+  </div>
+</div>
+
+<!-- ── CONVERSATIONS + SIDEBAR ────────────────────────────────────────────── -->
+<div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+
+  <!-- LEFT: Conversations table -->
+  <div class="card" style="flex:1;min-width:0;margin-bottom:0">
+    <div class="card-header">
+      <span class="card-title">💬 Conversations</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="wa-search" placeholder="Search name or phone…"
+               oninput="waFilter()" style="width:170px;padding:5px 10px;font-size:12px">
+        <select id="wa-filter-status" onchange="waFilter()" style="padding:5px 10px;font-size:12px">
+          <option value="">All statuses</option>
+          <option value="SENT">Sent</option>
+          <option value="REPLIED">Replied</option>
+          <option value="FAILED">Not Sent</option>
+          <option value="PENDING">Waiting</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Candidate</th>
+            <th>Phone</th>
+            <th>Job Role</th>
+            <th>Message Type</th>
+            <th>Status</th>
+            <th>Their Reply</th>
+            <th>Sent At</th>
+          </tr>
+        </thead>
+        <tbody id="wa-conv-body">
+          <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">
+            <div class="spinner" style="margin:0 auto 8px"></div>Loading conversations…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RIGHT: Manual send + Failed messages -->
+  <div style="width:300px;flex-shrink:0;display:flex;flex-direction:column;gap:16px">
+
+    <!-- Manual send card -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-header">
+        <span class="card-title">📤 Send a WhatsApp Message</span>
+      </div>
+      <div class="card-body">
+        <div class="form-group">
+          <label>Phone number (10 digits)</label>
+          <input type="text" id="wa-send-phone" placeholder="9876543210" maxlength="12">
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>Message</label>
+          <textarea id="wa-send-message" placeholder="Type your WhatsApp message…" style="min-height:80px"></textarea>
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="waSend()" id="wa-send-btn">
+          📤 Send Message
         </button>
-        <div x-show="open" x-collapse class="p-5 space-y-4 text-sm">
-          <p class="text-xs text-zinc-400">When a candidate replies to your WhatsApp message, the system reads their reply and responds automatically:</p>
-
-          <div class="flex items-start gap-3">
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-800 flex-shrink-0 mt-0.5">YES / Interested</span>
-            <div class="text-xs text-zinc-400 leading-relaxed">
-              Candidate is marked as <strong class="text-zinc-300">Interested</strong>. System sends them 3 interview time options and creates an interview slot.
-            </div>
-          </div>
-
-          <div class="flex items-start gap-3">
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-700 text-zinc-300 flex-shrink-0 mt-0.5">1 / 2 / 3</span>
-            <div class="text-xs text-zinc-400 leading-relaxed">
-              Candidate picks a slot. System confirms their interview time and updates their status to <strong class="text-zinc-300">Interview Scheduled</strong>.
-            </div>
-          </div>
-
-          <div class="flex items-start gap-3">
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-900/40 text-red-300 border border-red-800 flex-shrink-0 mt-0.5">NO / Not interested</span>
-            <div class="text-xs text-zinc-400 leading-relaxed">
-              Candidate is marked as <strong class="text-zinc-300">Not Interested</strong>. System sends a polite goodbye. No rejection email is sent.
-            </div>
-          </div>
-
-          <div class="flex items-start gap-3">
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-900/40 text-yellow-300 border border-yellow-800 flex-shrink-0 mt-0.5">Anything else</span>
-            <div class="text-xs text-zinc-400 leading-relaxed">
-              System replies asking them to say YES or NO. Their status stays the same.
-            </div>
-          </div>
-
-          <div class="flex items-start gap-3">
-            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-zinc-700 text-zinc-300 flex-shrink-0 mt-0.5">Unknown number</span>
-            <div class="text-xs text-zinc-400 leading-relaxed">
-              Message is ignored — no candidate found with that phone number.
-            </div>
-          </div>
-
-          <div class="mt-2 p-3 bg-zinc-800 rounded-lg border border-zinc-700 text-xs space-y-1.5">
-            <div class="text-zinc-500 uppercase tracking-wide font-semibold text-[10px] mb-2">Words that count as YES</div>
-            <div class="text-emerald-400">yes, haan, ok, sure, interested, apply, send, great, confirm, proceed…</div>
-            <div class="text-zinc-500 uppercase tracking-wide font-semibold text-[10px] mt-2 mb-1">Words that count as NO</div>
-            <div class="text-red-400">no, nahi, not interested, busy, already placed, stop, unsubscribe…</div>
-          </div>
-        </div>
+        <div id="wa-send-result" style="margin-top:10px;display:none"></div>
       </div>
-
     </div>
-  </div>
 
-  <!-- ── VIEW MESSAGE MODAL ─────────────────────────────────────────────────── -->
-  <div x-show="showMsgModal" x-cloak
-       class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-5 backdrop-blur-sm"
-       @click.self="showMsgModal = false">
-    <div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto shadow-2xl"
-         x-show="showMsgModal" x-transition>
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="font-bold text-zinc-100">Message Details</h3>
-        <button @click="showMsgModal = false" class="text-zinc-500 hover:text-zinc-300 text-lg leading-none p-1">✕</button>
+    <!-- Failed messages retry card -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-header">
+        <span class="card-title">❌ Messages Not Sent</span>
+        <span class="badge badge-red" id="failed-count-badge" style="display:none">0</span>
       </div>
-      <template x-if="selectedConv">
-        <div class="space-y-4">
-          <div>
-            <div class="font-semibold text-zinc-200" x-text="selectedConv.candidate_name"></div>
-            <div class="text-xs text-zinc-500 mt-0.5" x-text="selectedConv.job_title + ' · ' + (selectedConv.candidate_phone || '–')"></div>
-          </div>
-          <div class="text-xs text-zinc-500"
-               x-text="selectedConv.sent_at ? 'Sent: ' + new Date(selectedConv.sent_at).toLocaleString('en-IN') : 'Not yet sent'"></div>
-          <div class="bg-zinc-800 rounded-lg p-4 text-sm text-zinc-300 whitespace-pre-wrap border border-zinc-700 leading-relaxed"
-               x-text="selectedConv.message || '(no message)'"></div>
-          <div x-show="selectedConv.reply" class="flex items-start gap-2">
-            <span class="text-xs px-2 py-0.5 rounded-full font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-800 flex-shrink-0 mt-0.5">Their reply</span>
-            <span class="text-sm text-emerald-300" x-text="selectedConv.reply"></span>
-          </div>
-        </div>
-      </template>
+      <div class="card-body">
+        <div id="wa-failed-msg" class="text-sm text-muted">All messages sent successfully — nothing to retry.</div>
+        <button class="btn btn-danger btn-sm" id="wa-retry-btn" style="display:none;width:100%;margin-top:10px"
+                onclick="waRetryFailed()">↺ Retry Sending Now</button>
+      </div>
     </div>
-  </div>
 
+    <!-- Auto-reply info card -->
+    <div class="card" style="margin-bottom:0">
+      <div class="card-header">
+        <span class="card-title">🤖 Auto-Reply</span>
+      </div>
+      <div class="card-body">
+        <p class="text-sm text-muted" style="line-height:1.6">
+          When a candidate replies to a WhatsApp message, the system reads it automatically
+          and moves them through the hiring steps — no manual action needed.
+        </p>
+      </div>
+    </div>
+
+  </div>
 </div>
 
 <script>
-function whatsappPage() {
-  return {
-    status: 'DISCONNECTED',
-    qrReady: false,
-    stats: { queue_sent: 0, queue_pending: 0, queue_failed: 0, outreach_sent: 0, replied: 0, interested: 0 },
-    conversations: [],
-    filteredConversations: [],
-    search: '',
-    filterStatus: '',
-    loading: true,
-    retrying: false,
-    selectedConv: null,
-    showMsgModal: false,
-    manualPhone: '',
-    manualMessage: '',
-    sending: false,
+// ─── State ────────────────────────────────────────────────────────────────
+let waConversations = [];
+let waStatus = '';
+let waPollTimer = null;
 
-    async init() {
-      await this.loadAll();
-      setInterval(() => this.loadAll(), 15000);
-      setInterval(() => this.pollConnection(), 3000);
-    },
+// ─── Startup ──────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  waLoadAll();
+  waPollTimer = setInterval(waPollConnection, 5000);
+});
 
-    async loadAll() {
-      await Promise.all([this.loadStats(), this.loadConversations()]);
-    },
+async function waLoadAll() {
+  await Promise.all([waPollConnection(), waLoadStats(), waLoadConversations()]);
+}
 
-    async loadStats() {
-      try {
-        const s = await api('/api/v1/wa/dashboard/stats');
-        this.stats = { ...this.stats, ...s };
-      } catch (e) {}
-    },
+// ─── Connection status ─────────────────────────────────────────────────────
+async function waPollConnection() {
+  try {
+    const r = await fetch('/api/v1/wa/connection');
+    const d = await r.json();
+    waStatus = d.status || 'DISCONNECTED';
+    waUpdateBanner(waStatus);
+  } catch { waUpdateBanner('DISCONNECTED'); }
+}
 
-    async loadConversations() {
-      try {
-        this.conversations = await api('/api/v1/wa/dashboard/conversations');
-        this.loading = false;
-        this.filterConversations();
-      } catch (e) {
-        this.loading = false;
-      }
-    },
+function waUpdateBanner(status) {
+  document.getElementById('wa-banner-connected').style.display = status === 'CONNECTED'  ? 'flex' : 'none';
+  document.getElementById('wa-banner-qr').style.display        = status === 'QR_READY'   ? 'flex' : 'none';
+  document.getElementById('wa-banner-offline').style.display   = (status !== 'CONNECTED' && status !== 'QR_READY') ? 'flex' : 'none';
 
-    async pollConnection() {
-      try {
-        const r = await fetch('/api/v1/wa/connection');
-        if (!r.ok) return;
-        const d = await r.json();
-        if (d.status === 'CONNECTED') {
-          this.status = 'CONNECTED';
-          this.qrReady = false;
-        } else if (d.status === 'QR_READY' && d.qr_data) {
-          this.status = 'QR_READY';
-          this.qrReady = true;
-        } else {
-          this.status = 'DISCONNECTED';
-          this.qrReady = false;
-        }
-      } catch (e) {}
-    },
+  const guide = document.getElementById('wa-connect-guide');
+  const stepsPC    = document.getElementById('wa-steps-computer');
+  const stepsPhone = document.getElementById('wa-steps-phone');
 
-    async retryFailed() {
-      if (this.retrying) return;
-      this.retrying = true;
-      try {
-        await api('/api/v1/cron/watchdog', { method: 'POST' });
-        this.$dispatch('show-toast', {
-          message: 'Retrying ' + this.stats.queue_failed + ' failed message' + (this.stats.queue_failed !== 1 ? 's' : '') + ' — they will send within 30 seconds',
-          type: 'success'
-        });
-        setTimeout(() => this.loadAll(), 3000);
-      } catch (e) {
-        this.$dispatch('show-toast', { message: 'Could not retry — please try again', type: 'error' });
-      } finally {
-        setTimeout(() => { this.retrying = false; }, 2000);
-      }
-    },
+  if (status === 'CONNECTED') {
+    guide.style.display = 'none';
+  } else {
+    guide.style.display = 'block';
+    stepsPC.style.display    = status === 'DISCONNECTED' ? 'block' : 'none';
+    stepsPhone.style.display = status === 'QR_READY'     ? 'block' : 'none';
+    // Refresh QR image when QR_READY
+    if (status === 'QR_READY') {
+      const img = document.getElementById('wa-qr-img');
+      if (img) img.src = '/api/v1/wa/qr-image?t=' + Date.now();
+    }
+  }
+}
 
-    async sendManual() {
-      const phone = (this.manualPhone || '').trim();
-      const message = (this.manualMessage || '').trim();
-      if (!phone || !message) {
-        this.$dispatch('show-toast', { message: 'Please enter a phone number and a message', type: 'error' });
-        return;
-      }
-      this.sending = true;
-      try {
-        await api('/api/v1/wa/dashboard/send', { method: 'POST', body: { phone, message } });
-        this.$dispatch('show-toast', { message: 'Message added to send queue', type: 'success' });
-        this.manualMessage = '';
-        setTimeout(() => this.loadAll(), 2000);
-      } catch (e) {
-        this.$dispatch('show-toast', { message: 'Could not send message: ' + (e.message || 'unknown error'), type: 'error' });
-      } finally {
-        this.sending = false;
-      }
-    },
+// ─── Stats ─────────────────────────────────────────────────────────────────
+async function waLoadStats() {
+  try {
+    const r = await fetch('/api/v1/wa/dashboard/stats');
+    const d = await r.json();
+    document.getElementById('kpi-sent').textContent    = d.queue_sent    ?? '–';
+    document.getElementById('kpi-pending').textContent = d.queue_pending  ?? '–';
+    document.getElementById('kpi-failed').textContent  = d.queue_failed   ?? '–';
+    document.getElementById('kpi-replied').textContent = d.replied        ?? '–';
 
-    filterConversations() {
-      const q = (this.search || '').toLowerCase();
-      const st = this.filterStatus;
-      this.filteredConversations = this.conversations.filter(r => {
-        const matchQ = !q
-          || (r.candidate_name || '').toLowerCase().includes(q)
-          || (r.candidate_phone || '').includes(q)
-          || (r.job_title || '').toLowerCase().includes(q);
-        const matchSt = !st || r.status === st;
-        return matchQ && matchSt;
-      });
-    },
+    const failedCount = d.queue_failed || 0;
+    const badge = document.getElementById('failed-count-badge');
+    const retryBtn = document.getElementById('wa-retry-btn');
+    const failedMsg = document.getElementById('wa-failed-msg');
+    if (failedCount > 0) {
+      badge.textContent = failedCount;
+      badge.style.display = 'inline';
+      retryBtn.style.display = 'block';
+      failedMsg.textContent = failedCount + ' message' + (failedCount === 1 ? '' : 's') + ' could not be sent.';
+    } else {
+      badge.style.display = 'none';
+      retryBtn.style.display = 'none';
+      failedMsg.textContent = 'All messages sent successfully — nothing to retry.';
+    }
+  } catch(e) { console.error('Stats error', e); }
+}
 
-    viewConversation(conv) {
-      this.selectedConv = conv;
-      this.showMsgModal = true;
-    },
-  };
+// ─── Conversations ──────────────────────────────────────────────────────────
+async function waLoadConversations() {
+  const tbody = document.getElementById('wa-conv-body');
+  try {
+    const r = await fetch('/api/v1/wa/dashboard/conversations');
+    waConversations = await r.json();
+    waFilter();
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--red)">Could not load conversations</td></tr>';
+  }
+}
+
+function waFilter() {
+  const search = (document.getElementById('wa-search').value || '').toLowerCase();
+  const statusFilter = document.getElementById('wa-filter-status').value;
+  const filtered = waConversations.filter(c => {
+    const matchSearch = !search ||
+      (c.candidate_name || '').toLowerCase().includes(search) ||
+      (c.candidate_phone || '').includes(search);
+    const matchStatus = !statusFilter || c.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
+  waRenderTable(filtered);
+}
+
+const WA_STATUS_LABELS = { SENT:'Sent', REPLIED:'Replied', FAILED:'Not Sent', PENDING:'Waiting' };
+const WA_STATUS_BADGE  = { SENT:'badge-green', REPLIED:'badge-blue', FAILED:'badge-red', PENDING:'badge-yellow' };
+const WA_TYPE_LABELS   = { OUTREACH:'Outreach', FOLLOWUP:'Follow-up', INTERVIEW_INVITE:'Interview invite', REJECTION:'Rejection' };
+
+function waRenderTable(rows) {
+  const tbody = document.getElementById('wa-conv-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">💬</div><p>No conversations found.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(c => {
+    const statusLabel = WA_STATUS_LABELS[c.status] || c.status;
+    const statusClass = WA_STATUS_BADGE[c.status]  || 'badge-grey';
+    const typeLabel   = WA_TYPE_LABELS[c.type]     || c.type;
+    const sentAt      = c.sent_at ? new Date(c.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    const reply       = c.reply ? ('<span title="' + esc(c.reply) + '">' + esc(c.reply.substring(0,30)) + (c.reply.length > 30 ? '…' : '') + '</span>') : '<span style="color:var(--text-dim)">—</span>';
+    return `<tr>
+      <td style="font-weight:500">${esc(c.candidate_name)}</td>
+      <td style="font-family:monospace;font-size:11.5px">${esc(c.candidate_phone || '—')}</td>
+      <td>${esc(c.job_title)}</td>
+      <td>${esc(typeLabel)}</td>
+      <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+      <td class="text-sm">${reply}</td>
+      <td class="text-sm text-muted">${sentAt}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Manual send ───────────────────────────────────────────────────────────
+async function waSend() {
+  const phone   = (document.getElementById('wa-send-phone').value || '').trim();
+  const message = (document.getElementById('wa-send-message').value || '').trim();
+  const resultEl = document.getElementById('wa-send-result');
+  const btn = document.getElementById('wa-send-btn');
+
+  if (!phone || !message) {
+    resultEl.innerHTML = '<div class="alert alert-warn">Please enter a phone number and message.</div>';
+    resultEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  resultEl.style.display = 'none';
+
+  try {
+    const r = await fetch('/api/v1/wa/dashboard/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, message })
+    });
+    if (r.ok) {
+      resultEl.innerHTML = '<div class="alert alert-success">✓ Message queued — will be sent in a few seconds.</div>';
+      document.getElementById('wa-send-phone').value = '';
+      document.getElementById('wa-send-message').value = '';
+      setTimeout(waLoadStats, 3000);
+    } else {
+      const e = await r.json().catch(() => ({}));
+      resultEl.innerHTML = '<div class="alert alert-error">Could not send: ' + esc(e.detail || 'Unknown error') + '</div>';
+    }
+  } catch {
+    resultEl.innerHTML = '<div class="alert alert-error">Network error — please try again.</div>';
+  }
+
+  resultEl.style.display = 'block';
+  btn.disabled = false;
+  btn.textContent = '📤 Send Message';
+}
+
+// ─── Retry failed ──────────────────────────────────────────────────────────
+async function waRetryFailed() {
+  const btn = document.getElementById('wa-retry-btn');
+  btn.disabled = true;
+  btn.textContent = 'Retrying…';
+  try {
+    await fetch('/api/v1/wa/dashboard/retry', { method: 'POST' });
+    await waLoadStats();
+    showToast('Retrying failed messages…', 'info');
+  } catch { showToast('Could not retry — please refresh', 'error'); }
+  btn.disabled = false;
+  btn.textContent = '↺ Retry Sending Now';
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
+
 {% endblock %}

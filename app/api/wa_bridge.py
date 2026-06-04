@@ -286,6 +286,22 @@ async def bridge_disconnect(
     return {"ok": True}
 
 
+@router.post("/dashboard/retry")
+async def wa_retry_failed(db: AsyncSession = Depends(get_db)):
+    """Re-queue failed messages for immediate retry (called from dashboard)."""
+    res = await db.execute(
+        select(WAQueue).where(WAQueue.status == WAQueueStatus.FAILED)
+    )
+    failed = res.scalars().all()
+    retried = 0
+    for msg in failed:
+        msg.status = WAQueueStatus.PENDING
+        msg.error = None
+        retried += 1
+    await db.commit()
+    return {"retried": retried}
+
+
 @router.post("/dashboard/send")
 async def wa_manual_send(payload: dict, db: AsyncSession = Depends(get_db)):
     """Queue a manual WhatsApp message from the dashboard."""

@@ -106,6 +106,7 @@ function renderTable(data){
       <td><span class="badge ${srcColors[c.source]||'badge-grey'}" style="font-size:10px">${c.source||'–'}</span></td>
       <td class="tr-action">
         <div class="flex gap-2">
+          <a href="/ui/candidate/${c.id}" class="btn btn-primary btn-sm">View Profile</a>
           ${c.email?`<a href="mailto:${esc(c.email)}" class="btn btn-secondary btn-sm" title="${esc(c.email)}">✉</a>`:''}
           ${c.phone?`<a href="tel:${esc(c.phone)}" class="btn btn-secondary btn-sm" title="${esc(c.phone)}">📞</a>`:''}
         </div>

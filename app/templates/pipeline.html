@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Pipeline{% endblock %}
+{% block nav_pipeline %}bg-emerald-900/50 text-emerald-300{% endblock %}
+
+{% block content %}
+
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Hiring Pipeline</h1>
+    <p class="text-muted text-sm">Visual view of all candidates across hiring stages</p>
+  </div>
+  <div class="topbar-right" style="display:flex;gap:8px;align-items:center">
+    <select id="pipe-job-filter" onchange="loadPipeline()" style="padding:5px 10px;font-size:12px">
+      <option value="">All Jobs</option>
+    </select>
+    <button class="btn btn-secondary btn-sm" onclick="loadPipeline()">↺ Refresh</button>
+  </div>
+</div>
+
+<!-- Pipeline summary KPIs -->
+<div class="kpi-grid" style="margin-bottom:20px" id="pipe-kpi-row">
+  <div class="kpi blue"><div class="kpi-label">Shortlisted</div><div class="kpi-value" id="kpi-sl">–</div></div>
+  <div class="kpi yellow"><div class="kpi-label">Contacted</div><div class="kpi-value" id="kpi-contacted">–</div></div>
+  <div class="kpi purple"><div class="kpi-label">Interested</div><div class="kpi-value" id="kpi-interested">–</div></div>
+  <div class="kpi blue"><div class="kpi-label">Interview Scheduled</div><div class="kpi-value" id="kpi-scheduled">–</div></div>
+  <div class="kpi green"><div class="kpi-label">Hired</div><div class="kpi-value" id="kpi-hired">–</div></div>
+</div>
+
+<!-- Kanban board -->
+<div id="kanban-board" style="display:flex;gap:14px;overflow-x:auto;padding-bottom:12px;align-items:flex-start">
+  <div style="padding:40px;text-align:center;color:var(--text-muted);flex:1">
+    <div class="spinner" style="margin:0 auto 10px"></div>Loading pipeline…
+  </div>
+</div>
+
+<!-- Move candidate modal -->
+<div id="move-modal" class="modal-overlay">
+  <div class="modal-box modal-sm">
+    <div class="modal-header">
+      <span class="modal-title" id="move-modal-title">Move Candidate</span>
+      <button class="btn btn-ghost btn-sm" onclick="hideModal('move-modal')">✕</button>
+    </div>
+    <p class="text-sm text-muted" style="margin-bottom:16px">Move <strong id="move-cand-name">this candidate</strong> to a different stage:</p>
+    <div style="display:flex;flex-direction:column;gap:6px" id="move-options"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STAGES = [
+  { key: 'PENDING',            label: 'Pending Review',      color: '#a1a1aa', badge: 'badge-grey'   },
+  { key: 'SHORTLISTED',        label: 'Shortlisted',         color: '#60a5fa', badge: 'badge-blue'   },
+  { key: 'CONTACTED',          label: 'Contacted',           color: '#fbbf24', badge: 'badge-yellow' },
+  { key: 'INTERESTED',         label: 'Interested',          color: '#a78bfa', badge: 'badge-purple' },
+  { key: 'INTERVIEW_SCHEDULED',label: 'Interview Scheduled', color: '#34d399', badge: 'badge-green'  },
+  { key: 'HIRED',              label: 'Hired ✓',             color: '#10b981', badge: 'badge-green'  },
+  { key: 'REJECTED',           label: 'Rejected',            color: '#f87171', badge: 'badge-red'    },
+  { key: 'NOT_INTERESTED',     label: 'Not Interested',      color: '#f87171', badge: 'badge-red'    },
+];
+
+let allEntries = [];
+let candMap = {};
+let jobsMap = {};
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const jobs = await api('/api/v1/jobs?limit=100');
+  const sel = document.getElementById('pipe-job-filter');
+  jobs.filter(j => j.status === 'ACTIVE').forEach(j => {
+    const opt = document.createElement('option');
+    opt.value = j.id;
+    opt.textContent = j.title + (j.company ? ' — ' + j.company : '');
+    sel.appendChild(opt);
+  });
+  jobs.forEach(j => { jobsMap[j.id] = j; });
+  loadPipeline();
+});
+
+async function loadPipeline() {
+  const jobId = document.getElementById('pipe-job-filter').value;
+  const url = '/api/v1/shortlist?limit=500' + (jobId ? '&job_id='+jobId : '');
+  try {
+    allEntries = await api(url);
+    // Load candidate names
+    const candIds = [...new Set(allEntries.map(e => e.candidate_id))];
+    const chunks = [];
+    for (let i = 0; i < candIds.length; i += 50) chunks.push(candIds.slice(i, i + 50));
+    await Promise.all(chunks.map(async ids => {
+      try {
+        const res = await api('/api/v1/candidates?limit=50&ids='+ids.join(','));
+        (res || []).forEach(c => { candMap[c.id] = c; });
+      } catch {}
+    }));
+    renderKanban();
+  } catch(e) {
+    showToast('Failed to load pipeline: '+e.message, 'error');
+  }
+}
+
+function renderKanban() {
+  // KPI counts
+  const counts = {};
+  STAGES.forEach(s => { counts[s.key] = allEntries.filter(e => e.status === s.key).length; });
+  document.getElementById('kpi-sl').textContent         = counts['SHORTLISTED'] || 0;
+  document.getElementById('kpi-contacted').textContent  = counts['CONTACTED'] || 0;
+  document.getElementById('kpi-interested').textContent = counts['INTERESTED'] || 0;
+  document.getElementById('kpi-scheduled').textContent  = counts['INTERVIEW_SCHEDULED'] || 0;
+  document.getElementById('kpi-hired').textContent      = counts['HIRED'] || 0;
+
+  // Kanban columns — skip PENDING, NOT_INTERESTED in main view unless they have entries
+  const visibleStages = STAGES.filter(s =>
+    s.key !== 'PENDING' && s.key !== 'NOT_INTERESTED' || counts[s.key] > 0
+  );
+
+  const board = document.getElementById('kanban-board');
+  board.innerHTML = visibleStages.map(stage => {
+    const cards = allEntries.filter(e => e.status === stage.key);
+    return `<div style="min-width:220px;max-width:260px;flex-shrink:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:${stage.color}">${stage.label}</div>
+        <span class="badge ${stage.badge}" style="font-size:10px">${cards.length}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${cards.length === 0
+          ? `<div style="padding:16px;text-align:center;border:1px dashed var(--border-default);border-radius:var(--radius-md);color:var(--text-dim);font-size:11.5px">No candidates</div>`
+          : cards.map(e => renderCard(e, stage)).join('')
+        }
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCard(e, stage) {
+  const c = candMap[e.candidate_id];
+  const j = jobsMap[e.job_id];
+  const name = c ? esc(c.name) : '#' + e.candidate_id;
+  const role = c ? esc(c.current_role || c.location || '') : '';
+  const job = j ? esc(j.title) : '';
+  const score = e.score != null ? Math.round(e.score) : null;
+  const scoreColor = score >= 65 ? '#34d399' : score >= 40 ? '#fbbf24' : '#f87171';
+
+  return `<div style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:12px;cursor:pointer;transition:border-color .15s"
+    onmouseover="this.style.borderColor='${stage.color}'" onmouseout="this.style.borderColor='var(--border-default)'"
+    onclick="window.location='/ui/candidate/${e.candidate_id}'">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+      <div style="font-weight:600;font-size:12.5px;color:var(--text-primary);line-height:1.3">${name}</div>
+      ${score != null ? `<div style="font-size:13px;font-weight:700;color:${scoreColor};flex-shrink:0">${score}</div>` : ''}
+    </div>
+    ${role ? `<div style="font-size:10.5px;color:var(--text-muted);margin-top:3px">${role}</div>` : ''}
+    ${job ? `<div style="font-size:10px;color:var(--text-dim);margin-top:4px">📋 ${job}</div>` : ''}
+    <div style="display:flex;gap:6px;margin-top:10px">
+      <button class="btn btn-secondary btn-sm" style="flex:1;justify-content:center;font-size:10.5px"
+        onclick="event.stopPropagation();openMoveModal(${e.id},'${esc(c ? c.name : '#'+e.candidate_id)}','${stage.key}')">
+        Move →
+      </button>
+    </div>
+  </div>`;
+}
+
+let _moveEntryId = null;
+function openMoveModal(entryId, candName, currentStatus) {
+  _moveEntryId = entryId;
+  document.getElementById('move-cand-name').textContent = candName;
+  const opts = document.getElementById('move-options');
+  opts.innerHTML = STAGES
+    .filter(s => s.key !== currentStatus)
+    .map(s => `<button class="btn btn-secondary" style="justify-content:flex-start;gap:10px;padding:10px 14px"
+      onclick="moveTo('${s.key}')">
+      <span class="badge ${s.badge}" style="font-size:10px;min-width:80px;text-align:center">${s.label}</span>
+    </button>`).join('');
+  showModal('move-modal');
+}
+
+async function moveTo(newStatus) {
+  if (!_moveEntryId) return;
+  try {
+    await api('/api/v1/shortlist/'+_moveEntryId, {method:'PATCH', body:{status: newStatus}});
+    showToast('Moved to '+newStatus.replace(/_/g,' '), 'success');
+    hideModal('move-modal');
+    loadPipeline();
+  } catch(e) { showToast('Failed: '+e.message, 'error'); }
+}
+</script>
+{% endblock %}

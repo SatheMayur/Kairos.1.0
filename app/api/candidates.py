@@ -53,6 +53,131 @@ async def delete_candidate(candidate_id: int, db: AsyncSession = Depends(get_db)
     await db.delete(candidate)
 
 
+@router.get("/{candidate_id}/profile")
+async def get_candidate_profile(
+    candidate_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Full candidate profile: contact info + all jobs + outreach history + interviews + AI insights."""
+    from app.models.shortlist import ShortlistEntry
+    from app.models.job import Job
+    from app.models.outreach import OutreachLog
+    from app.models.interview import Interview
+
+    candidate = await db.get(Candidate, candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    # Shortlist entries with job details
+    sl_res = await db.execute(
+        select(ShortlistEntry).where(ShortlistEntry.candidate_id == candidate_id)
+        .order_by(ShortlistEntry.created_at.desc())
+    )
+    entries = sl_res.scalars().all()
+
+    job_ids = list({e.job_id for e in entries})
+    jobs_map = {}
+    if job_ids:
+        jr = await db.execute(select(Job).where(Job.id.in_(job_ids)))
+        jobs_map = {j.id: j for j in jr.scalars().all()}
+
+    shortlist_data = []
+    for e in entries:
+        j = jobs_map.get(e.job_id)
+        bd = e.score_breakdown or {}
+        shortlist_data.append({
+            "id": e.id,
+            "job_id": e.job_id,
+            "job_title": j.title if j else f"Job #{e.job_id}",
+            "job_company": j.company if j else "",
+            "status": e.status.value,
+            "score": e.score,
+            "recruiter_notes": e.recruiter_notes,
+            "ai_strengths": bd.get("ai_strengths", []),
+            "ai_concerns": bd.get("ai_concerns", []),
+            "ai_reasoning": bd.get("ai_reasoning", ""),
+            "ai_opener": bd.get("ai_opener", ""),
+            "score_breakdown": {k: v for k, v in bd.items() if not k.startswith("ai_")},
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+        })
+
+    # Outreach logs
+    ol_res = await db.execute(
+        select(OutreachLog).where(OutreachLog.candidate_id == candidate_id)
+        .order_by(OutreachLog.created_at.desc())
+        .limit(50)
+    )
+    outreach_data = []
+    for o in ol_res.scalars().all():
+        outreach_data.append({
+            "id": o.id,
+            "job_id": o.job_id,
+            "channel": o.channel.value,
+            "type": o.outreach_type.value,
+            "status": o.status.value,
+            "message": (o.message or "")[:300],
+            "reply": o.reply_text,
+            "sent_at": o.sent_at.isoformat() if o.sent_at else None,
+            "replied_at": o.replied_at.isoformat() if o.replied_at else None,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        })
+
+    # Interviews
+    iv_res = await db.execute(
+        select(Interview).where(Interview.candidate_id == candidate_id)
+        .order_by(Interview.created_at.desc())
+    )
+    interview_data = []
+    for i in iv_res.scalars().all():
+        interview_data.append({
+            "id": i.id,
+            "job_id": i.job_id,
+            "round": i.round.value,
+            "status": i.status.value,
+            "scheduled_at": i.scheduled_at.isoformat() if i.scheduled_at else None,
+            "meet_link": i.meet_link,
+            "notes": i.notes,
+            "created_at": i.created_at.isoformat() if i.created_at else None,
+        })
+
+    # Build chronological timeline
+    timeline = []
+    for o in outreach_data:
+        ts = o.get("sent_at") or o.get("created_at")
+        timeline.append({"ts": ts, "type": "outreach", "channel": o["channel"], "status": o["status"], "detail": o["type"]})
+        if o.get("reply"):
+            timeline.append({"ts": o.get("replied_at") or ts, "type": "reply", "detail": (o["reply"] or "")[:100]})
+    for i in interview_data:
+        ts = i.get("scheduled_at") or i.get("created_at")
+        timeline.append({"ts": ts, "type": "interview", "round": i["round"], "status": i["status"]})
+    timeline.sort(key=lambda x: x.get("ts") or "", reverse=True)
+
+    return {
+        "id": candidate.id,
+        "name": candidate.name,
+        "email": candidate.email,
+        "phone": candidate.phone,
+        "whatsapp": candidate.whatsapp,
+        "location": candidate.location,
+        "current_role": candidate.current_role,
+        "current_employer": candidate.current_employer,
+        "experience_years": candidate.experience_years,
+        "expected_salary": candidate.expected_salary,
+        "current_salary": candidate.current_salary,
+        "notice_period_days": candidate.notice_period_days,
+        "skills": candidate.skills or [],
+        "education": candidate.education,
+        "source": candidate.source.value if candidate.source else None,
+        "source_ref": candidate.source_ref,
+        "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
+        "shortlist": shortlist_data,
+        "outreach": outreach_data,
+        "interviews": interview_data,
+        "timeline": timeline[:30],
+    }
+
+
 async def _get_or_404(candidate_id: int, db: AsyncSession) -> Candidate:
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     obj = result.scalar_one_or_none()

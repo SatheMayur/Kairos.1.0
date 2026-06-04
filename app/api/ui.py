@@ -60,3 +60,14 @@ async def system(request: Request):
 @router.get("/whatsapp", response_class=HTMLResponse)
 async def whatsapp(request: Request):
     return _render(request, "whatsapp.html", "whatsapp")
+
+@router.get("/candidate/{candidate_id}", response_class=HTMLResponse)
+async def candidate_profile(candidate_id: int, request: Request):
+    return templates.TemplateResponse(
+        request, "candidate_profile.html",
+        {"active": "candidates", "candidate_id": candidate_id}
+    )
+
+@router.get("/pipeline", response_class=HTMLResponse)
+async def pipeline(request: Request):
+    return _render(request, "pipeline.html", "pipeline")

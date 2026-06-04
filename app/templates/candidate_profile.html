@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% block title %}Candidate Profile{% endblock %}
+{% block content %}
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="/ui/candidates" class="btn btn-ghost btn-sm" style="margin-bottom:6px;padding-left:0">← Back to Candidates</a>
+    <h1 id="cand-name">Loading…</h1>
+    <p class="text-muted text-sm" id="cand-sub">–</p>
+  </div>
+  <div class="topbar-right" id="cand-actions" style="gap:8px;display:flex"></div>
+</div>
+
+<!-- Top info row -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+
+  <!-- Contact card -->
+  <div class="card" style="margin-bottom:0">
+    <div class="card-header"><span class="card-title">📇 Contact</span></div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:60px">Email</span>
+        <span id="c-email" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:60px">Phone</span>
+        <span id="c-phone" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:60px">WhatsApp</span>
+        <span id="c-wa" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:60px">Location</span>
+        <span id="c-loc" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:60px">Source</span>
+        <span id="c-source" class="text-sm">–</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Work details card -->
+  <div class="card" style="margin-bottom:0">
+    <div class="card-header"><span class="card-title">💼 Work Details</span></div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:80px">Current Role</span>
+        <span id="c-role" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:80px">Company</span>
+        <span id="c-employer" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:80px">Experience</span>
+        <span id="c-exp" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:80px">Current CTC</span>
+        <span id="c-ctc" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:80px">Expected CTC</span>
+        <span id="c-ectc" class="text-sm">–</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:11px;color:var(--text-muted);min-width:80px">Notice Period</span>
+        <span id="c-notice" class="text-sm">–</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Skills card -->
+  <div class="card" style="margin-bottom:0">
+    <div class="card-header"><span class="card-title">🔧 Skills</span></div>
+    <div class="card-body">
+      <div id="c-skills" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      <div style="margin-top:12px">
+        <span style="font-size:11px;color:var(--text-muted)">Education</span>
+        <div id="c-education" class="text-sm" style="margin-top:4px">–</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Jobs applied for (shortlist) -->
+<div class="card">
+  <div class="card-header"><span class="card-title">📋 Job Applications & Scores</span></div>
+  <div id="c-jobs-body">
+    <div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+<!-- AI Insights card (shown when AI data exists) -->
+<div id="c-ai-card" class="card" style="display:none">
+  <div class="card-header">
+    <span class="card-title">🤖 AI Assessment</span>
+    <span class="badge badge-purple" style="font-size:10px">Claude AI</span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+      <div>
+        <div class="text-xs text-muted" style="font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Strengths</div>
+        <div id="c-strengths" style="display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+      <div>
+        <div class="text-xs text-muted" style="font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Concerns</div>
+        <div id="c-concerns" style="display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+    </div>
+    <div id="c-reasoning" style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;border-top:1px solid var(--border-subtle);padding-top:12px;display:none"></div>
+    <div id="c-opener" style="margin-top:12px;padding:12px;background:var(--bg-surface);border-radius:var(--radius-md);border-left:3px solid var(--accent);font-size:12.5px;color:var(--text-secondary);line-height:1.6;display:none"></div>
+  </div>
+</div>
+
+<!-- Timeline -->
+<div class="card">
+  <div class="card-header"><span class="card-title">🕐 Activity Timeline</span></div>
+  <div id="c-timeline" style="padding:8px 0">
+    <div style="padding:20px;text-align:center;color:var(--text-muted)">No activity yet.</div>
+  </div>
+</div>
+
+<!-- Quick Send WhatsApp -->
+<div class="card">
+  <div class="card-header"><span class="card-title">📤 Send WhatsApp Message</span></div>
+  <div class="card-body" style="display:flex;gap:12px;align-items:flex-end">
+    <div style="flex:1">
+      <label style="font-size:11px;color:var(--text-muted)">Message</label>
+      <textarea id="prof-wa-msg" placeholder="Type a WhatsApp message…" style="min-height:60px;width:100%;margin-top:4px"></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="profSendWA()" id="prof-wa-btn">📤 Send</button>
+  </div>
+  <div id="prof-wa-result" style="padding:0 18px 14px;display:none"></div>
+</div>
+
+<script>
+const CAND_ID = {{ candidate_id }};
+const SL_STATUS_COLORS = {
+  SHORTLISTED:'badge-blue', CONTACTED:'badge-yellow', INTERESTED:'badge-green',
+  INTERVIEW_SCHEDULED:'badge-purple', HIRED:'badge-green', REJECTED:'badge-red',
+  NOT_INTERESTED:'badge-red', DROPPED:'badge-grey', PENDING:'badge-grey'
+};
+const SL_STATUS_LABELS = {
+  SHORTLISTED:'Shortlisted', CONTACTED:'Contacted', INTERESTED:'Interested',
+  INTERVIEW_SCHEDULED:'Interview Scheduled', HIRED:'Hired ✓', REJECTED:'Rejected',
+  NOT_INTERESTED:'Not Interested', DROPPED:'Dropped', PENDING:'Pending Review'
+};
+const CH_ICONS = { WHATSAPP:'📱', EMAIL:'📧', SMS:'💬', CALL:'📞' };
+
+document.addEventListener('DOMContentLoaded', loadProfile);
+
+async function loadProfile() {
+  try {
+    const d = await api('/api/v1/candidates/'+CAND_ID+'/profile');
+    renderProfile(d);
+  } catch(e) {
+    document.getElementById('cand-name').textContent = 'Error loading profile';
+    showToast('Failed to load profile: '+e.message, 'error');
+  }
+}
+
+function renderProfile(d) {
+  document.getElementById('cand-name').textContent = d.name;
+  document.getElementById('cand-sub').textContent =
+    [d.current_role, d.current_employer, d.location].filter(Boolean).join(' · ') || 'No details available';
+  document.title = d.name + ' — Profile';
+
+  // Contact
+  set('c-email', d.email || '–');
+  set('c-phone', d.phone || '–');
+  set('c-wa', d.whatsapp || d.phone || '–');
+  set('c-loc', d.location || '–');
+  set('c-source', (d.source || 'Manual').replace(/_/g,' '));
+
+  // Work
+  set('c-role', d.current_role || '–');
+  set('c-employer', d.current_employer || '–');
+  set('c-exp', d.experience_years != null ? d.experience_years + ' years' : '–');
+  set('c-ctc', d.current_salary ? '₹'+Math.round(d.current_salary).toLocaleString('en-IN')+'/mo' : '–');
+  set('c-ectc', d.expected_salary ? '₹'+Math.round(d.expected_salary).toLocaleString('en-IN')+'/mo' : '–');
+  set('c-notice', d.notice_period_days != null ? d.notice_period_days + ' days' : '–');
+
+  // Skills
+  const skillsEl = document.getElementById('c-skills');
+  skillsEl.innerHTML = (d.skills && d.skills.length)
+    ? d.skills.map(s=>`<span class="badge badge-blue" style="font-size:10.5px">${esc(s)}</span>`).join('')
+    : '<span class="text-muted text-sm">No skills listed</span>';
+  set('c-education', d.education || '–');
+
+  // Action buttons
+  const actionsEl = document.getElementById('cand-actions');
+  const phone = d.whatsapp || d.phone || '';
+  actionsEl.innerHTML = `
+    ${phone ? `<a href="https://wa.me/91${phone.replace(/\D/g,'').slice(-10)}" target="_blank" class="btn btn-secondary btn-sm">💬 WhatsApp</a>` : ''}
+    ${d.email ? `<a href="mailto:${esc(d.email)}" class="btn btn-secondary btn-sm">✉ Email</a>` : ''}
+  `;
+
+  // Jobs / shortlist
+  renderJobs(d.shortlist || []);
+
+  // AI insights (from first shortlist entry that has AI data)
+  const withAI = (d.shortlist || []).find(e => e.ai_strengths && e.ai_strengths.length > 0);
+  if (withAI) {
+    document.getElementById('c-ai-card').style.display = 'block';
+    const sEl = document.getElementById('c-strengths');
+    sEl.innerHTML = withAI.ai_strengths.map(s=>`<div style="font-size:12px;color:#34d399">✓ ${esc(s)}</div>`).join('') || '<span class="text-muted text-sm">–</span>';
+    const cEl = document.getElementById('c-concerns');
+    cEl.innerHTML = withAI.ai_concerns.map(c=>`<div style="font-size:12px;color:#f87171">⚠ ${esc(c)}</div>`).join('') || '<span class="text-muted text-sm">None</span>';
+    if (withAI.ai_reasoning) {
+      const r = document.getElementById('c-reasoning');
+      r.textContent = withAI.ai_reasoning;
+      r.style.display = 'block';
+    }
+    if (withAI.ai_opener) {
+      const o = document.getElementById('c-opener');
+      o.innerHTML = '<span style="font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.5px;text-transform:uppercase">Suggested outreach opener</span><br>' + esc(withAI.ai_opener);
+      o.style.display = 'block';
+    }
+  }
+
+  // Timeline
+  renderTimeline(d.timeline || []);
+}
+
+function renderJobs(entries) {
+  const body = document.getElementById('c-jobs-body');
+  if (!entries.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><p>No job applications yet.</p></div>';
+    return;
+  }
+  body.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Job</th><th>Company</th><th>Score</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>${entries.map(e=>`<tr>
+      <td style="font-weight:600">${esc(e.job_title)}</td>
+      <td class="text-muted text-sm">${esc(e.job_company || '–')}</td>
+      <td>
+        <div style="font-size:18px;font-weight:700;color:${(e.score||0)>=65?'#34d399':(e.score||0)>=40?'#fbbf24':'#f87171'}">${e.score!=null?Math.round(e.score):'–'}</div>
+      </td>
+      <td>
+        <select class="badge ${SL_STATUS_COLORS[e.status]||'badge-grey'}"
+          onchange="updateStatus(${e.id},this.value)"
+          style="background:transparent;border:none;cursor:pointer;font-size:10.5px;font-weight:600;outline:none;padding:2px 6px">
+          ${Object.keys(SL_STATUS_LABELS).map(s=>`<option value="${s}" ${s===e.status?'selected':''} style="background:#27272a;color:#e4e4e7">${SL_STATUS_LABELS[s]}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <div class="flex gap-2">
+          <a href="/ui/shortlist?job=${e.job_id}" class="btn btn-secondary btn-sm">View Pipeline</a>
+        </div>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+function renderTimeline(items) {
+  const el = document.getElementById('c-timeline');
+  if (!items.length) return;
+  el.innerHTML = items.map(item => {
+    const ts = item.ts ? new Date(item.ts).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
+    let icon, label, color;
+    if (item.type === 'reply') {
+      icon = '💬'; color = '#34d399';
+      label = `<strong style="color:#34d399">Replied:</strong> ${esc((item.detail||'').substring(0,100))}`;
+    } else if (item.type === 'outreach') {
+      icon = CH_ICONS[item.channel] || '📧'; color = 'var(--text-muted)';
+      const statusColor = item.status === 'REPLIED' ? '#34d399' : item.status === 'FAILED' ? '#f87171' : 'var(--text-muted)';
+      label = `${esc((item.detail||'').replace(/_/g,' '))} sent via ${item.channel} <span style="color:${statusColor}">[${item.status}]</span>`;
+    } else if (item.type === 'interview') {
+      icon = '📅'; color = '#60a5fa';
+      label = `<strong style="color:#60a5fa">${esc(item.round)} interview</strong> — ${esc(item.status)}`;
+    } else {
+      icon = '•'; color = 'var(--text-muted)';
+      label = esc(item.detail || '');
+    }
+    return `<div style="display:flex;gap:14px;padding:10px 18px;border-bottom:1px solid var(--border-subtle)">
+      <div style="font-size:16px;flex-shrink:0;margin-top:1px">${icon}</div>
+      <div style="flex:1">
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">${label}</div>
+        <div style="font-size:10.5px;color:var(--text-dim);margin-top:2px">${ts}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function updateStatus(shortlistId, newStatus) {
+  try {
+    await api('/api/v1/shortlist/'+shortlistId, {method:'PATCH', body:{status: newStatus}});
+    showToast('Status updated to '+newStatus, 'success');
+  } catch(e) { showToast('Failed: '+e.message, 'error'); loadProfile(); }
+}
+
+async function profSendWA() {
+  const msg = (document.getElementById('prof-wa-msg').value || '').trim();
+  const btn = document.getElementById('prof-wa-btn');
+  const result = document.getElementById('prof-wa-result');
+  if (!msg) { showToast('Enter a message', 'error'); return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const d = await api('/api/v1/candidates/'+CAND_ID+'/profile');
+    const phone = d.whatsapp || d.phone || '';
+    if (!phone) { showToast('Candidate has no phone number', 'error'); return; }
+    await api('/api/v1/wa/dashboard/send', {method:'POST', body:{phone, message: msg}});
+    result.innerHTML = '<div class="alert alert-success">✓ Message queued — will be sent in a few seconds.</div>';
+    result.style.display = 'block';
+    document.getElementById('prof-wa-msg').value = '';
+  } catch(e) {
+    result.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+    result.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = '📤 Send';
+}
+
+function set(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

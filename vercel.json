@@ -7,7 +7,7 @@
   },
   "crons": [
     { "path": "/api/v1/cron/daily",    "schedule": "30 4 * * *" },
-    { "path": "/api/v1/cron/watchdog", "schedule": "0 */6 * * *" }
+    { "path": "/api/v1/cron/watchdog", "schedule": "0 1 * * *" }
   ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/index" }

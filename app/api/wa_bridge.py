@@ -54,6 +54,20 @@ async def poll_queue(
     return [{"id": r.id, "phone": r.phone, "message": r.message} for r in rows]
 
 
+@router.get("/command")
+async def get_pending_command(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_auth),
+):
+    """Bridge polls this for one-shot commands (e.g. RELINK). Consumed once."""
+    from app.models.wa_connection import WaConnection
+    row = await db.get(WaConnection, 1)
+    cmd = row.pending_command if row else None
+    if row and cmd:
+        row.pending_command = None  # consume — only act once
+    return {"command": cmd}
+
+
 @router.post("/ack")
 async def ack_messages(
     payload: dict,
@@ -300,6 +314,24 @@ async def wa_retry_failed(db: AsyncSession = Depends(get_db)):
         retried += 1
     await db.commit()
     return {"retried": retried}
+
+
+@router.post("/dashboard/relink")
+async def wa_relink(db: AsyncSession = Depends(get_db)):
+    """Dashboard asks to switch WhatsApp number: log out the current device and
+    show a fresh QR. Leaves a one-shot RELINK command for the bridge to pick up."""
+    from datetime import datetime
+    from app.models.wa_connection import WaConnection
+    row = await db.get(WaConnection, 1)
+    if not row:
+        row = WaConnection(id=1, status="DISCONNECTED")
+        db.add(row)
+    row.pending_command = "RELINK"
+    row.status = "RELINKING"
+    row.qr_data = None
+    row.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"ok": True}
 
 
 @router.post("/dashboard/send")

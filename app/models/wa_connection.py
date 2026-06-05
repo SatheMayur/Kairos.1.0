@@ -14,3 +14,5 @@ class WaConnection(Base):
     qr_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_poll_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # One-shot command the dashboard leaves for the bridge to pick up (e.g. "RELINK")
+    pending_command: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

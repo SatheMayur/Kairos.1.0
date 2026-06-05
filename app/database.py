@@ -67,6 +67,7 @@ async def init_db() -> None:
             # here — idempotent and safe to run on every startup.
             _column_backfills = [
                 "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS last_poll_at TIMESTAMP",
+                "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS pending_command VARCHAR(20)",
             ]
             for stmt in _column_backfills:
                 try:

@@ -21,7 +21,16 @@
     <div style="font-weight:600;font-size:13px;color:#34d399">WhatsApp is connected</div>
     <div class="text-sm" style="margin-top:2px">Messages send automatically. Everything is working.</div>
   </div>
+  <button class="btn btn-secondary btn-sm" onclick="relinkWhatsApp()" title="Disconnect this number and link a different one">🔄 Switch Number</button>
   <div class="live-badge"><div class="pulse"></div> Live</div>
+</div>
+
+<div id="wa-banner-relink" class="alert alert-info" style="display:none;align-items:center;gap:12px">
+  <div class="spinner" style="flex-shrink:0"></div>
+  <div style="flex:1">
+    <div style="font-weight:600;font-size:13px;color:#60a5fa">Switching WhatsApp number…</div>
+    <div class="text-sm" style="margin-top:2px">The current number is being logged out. A new QR code will appear here in a few seconds — then scan it with the new phone. Keep the WhatsApp window open on your computer.</div>
+  </div>
 </div>
 
 <div id="wa-banner-qr" class="alert alert-warn" style="display:none;align-items:center;gap:12px">
@@ -255,11 +264,17 @@ async function waPollConnection() {
 }
 
 function waUpdateBanner(status) {
+  const relinking = status === 'RELINKING';
   document.getElementById('wa-banner-connected').style.display = status === 'CONNECTED'  ? 'flex' : 'none';
   document.getElementById('wa-banner-qr').style.display        = status === 'QR_READY'   ? 'flex' : 'none';
-  document.getElementById('wa-banner-offline').style.display   = (status !== 'CONNECTED' && status !== 'QR_READY') ? 'flex' : 'none';
+  document.getElementById('wa-banner-relink').style.display    = relinking ? 'flex' : 'none';
+  document.getElementById('wa-banner-offline').style.display   =
+    (status !== 'CONNECTED' && status !== 'QR_READY' && !relinking) ? 'flex' : 'none';
 
   const guide = document.getElementById('wa-connect-guide');
+
+  // While switching, hide the connect guide until the fresh QR arrives
+  if (relinking) { guide.style.display = 'none'; return; }
   const stepsPC    = document.getElementById('wa-steps-computer');
   const stepsPhone = document.getElementById('wa-steps-phone');
 
@@ -396,6 +411,27 @@ async function waSend() {
   resultEl.style.display = 'block';
   btn.disabled = false;
   btn.textContent = '📤 Send Message';
+}
+
+// ─── Switch WhatsApp number ──────────────────────────────────────────────────
+async function relinkWhatsApp() {
+  const ok = confirm(
+    "Switch to a different WhatsApp number?\n\n" +
+    "• The number connected now will be logged out and will stop sending messages.\n" +
+    "• A new QR code will appear here in a few seconds.\n" +
+    "• Scan it with the NEW phone to finish.\n\n" +
+    "Keep the WhatsApp window open on your computer while this happens."
+  );
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/v1/wa/dashboard/relink', { method: 'POST' });
+    if (!r.ok) throw new Error();
+    showToast('Switching number — a new QR code will appear shortly', 'info');
+    waStatus = 'RELINKING';
+    waUpdateBanner('RELINKING');
+  } catch {
+    showToast('Could not start the switch — please try again', 'error');
+  }
 }
 
 // ─── Retry failed ──────────────────────────────────────────────────────────

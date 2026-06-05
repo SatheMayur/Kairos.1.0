@@ -68,9 +68,37 @@ app.get('/api/sessions/default', (_, res) => res.json({
 }));
 app.listen(3001, () => console.log('[BRIDGE] Local health server on :3001'));
 
+// ── Switch number (relink): log out current, clear session, show fresh QR ──
+let relinking = false;
+async function doRelink() {
+  if (relinking) return;
+  relinking = true;
+  console.log('[RELINK] Switching WhatsApp number — logging out current device…');
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  try { if (sock) await sock.logout(); } catch (e) { console.error('[RELINK] logout:', e.message); }
+  try {
+    if (fs.existsSync(SESSION_DIR)) fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+  } catch (e) { console.error('[RELINK] clear session:', e.message); }
+  isConnected = false;
+  console.log('[RELINK] Cleared. Generating a new QR code to scan…');
+  setTimeout(() => { relinking = false; connectToWhatsApp().catch(console.error); }, 1500);
+}
+
+// ── Check Vercel for one-shot commands (e.g. RELINK) ───────────────────────
+async function checkCommand() {
+  try {
+    const { data } = await axios.get(`${VERCEL}/api/v1/wa/command`, { headers, timeout: 8000 });
+    if (data && data.command === 'RELINK') await doRelink();
+  } catch (err) {
+    if (err.response?.status !== 401) console.error('[CMD ERR]', err.message);
+  }
+}
+
 // ── Poll Vercel for outgoing messages ─────────────────────────────────────
 async function pollAndSend() {
   if (!isConnected) return;
+  await checkCommand();
+  if (relinking) return;
   try {
     const { data: messages } = await axios.get(`${VERCEL}/api/v1/wa/poll`, { headers, timeout: 8000 });
     if (!messages.length) return;

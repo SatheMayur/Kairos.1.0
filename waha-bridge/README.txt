@@ -20,5 +20,12 @@ IF WHATSAPP DISCONNECTS:
   2. Go to your recruitment system dashboard
   3. Open WhatsApp page and scan the QR code
 
+TO SWITCH TO A DIFFERENT WHATSAPP NUMBER:
+  No need to delete any files. While this window is running:
+  1. Open the WhatsApp page in your dashboard
+  2. Click the "Switch Number" button
+  3. A new QR code appears — scan it with the NEW phone
+  (The old number is logged out automatically.)
+
 NEED HELP?
   Contact your system administrator.

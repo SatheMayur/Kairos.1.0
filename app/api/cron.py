@@ -249,3 +249,52 @@ async def cron_watchdog():
     from app.services.watchdog import run_watchdog
     results = await run_watchdog()
     return {"ran_at": datetime.utcnow().isoformat() + "Z", **results}
+
+
+@router.post("/daily", dependencies=[Depends(_verify_secret)])
+async def cron_daily():
+    """The full daily routine — runs by itself every day at 10:00 AM IST.
+
+    Does all the routine recruitment work end to end (find candidates → score →
+    contact → follow up → wrap up interviews → remind), then emails Kirti a
+    briefing that summarises what was done and lists only the few things that
+    still need a human decision. No human action is required to start this.
+    """
+    results: dict = {}
+
+    async def _step(name, coro):
+        try:
+            results[name] = await coro
+        except Exception as exc:  # never let one step abort the rest
+            logger.error("[CRON/daily] step '%s' failed: %s", name, exc)
+            await log_error(message=str(exc), source=f"cron:daily:{name}", exc=exc, path="/cron/daily")
+            results[name] = {"error": str(exc)[:200]}
+
+    await _step("source", cron_source())
+    await _step("outreach", cron_outreach())
+    await _step("followup", cron_followup())
+    await _step("post_interview", cron_post_interview())
+    await _step("reminders", cron_reminders())
+
+    # Final step: send the daily briefing summarising the run above
+    digest_sent = False
+    if settings.digest_enabled:
+        async with AsyncSessionLocal() as db:
+            try:
+                subject, body = await generate_digest(db, run_results=results)
+                digest_sent = await queue_email_direct(
+                    to=settings.digest_recipient_email,
+                    subject=subject,
+                    body=body,
+                    candidate_name="Kirti Chand",
+                    role="HR Manager",
+                    priority="HIGH",
+                )
+            except Exception as exc:
+                logger.error("[CRON/daily] digest failed: %s", exc)
+                await log_error(message=str(exc), source="cron:daily:digest", exc=exc, path="/cron/daily")
+
+    results["digest_sent"] = digest_sent
+    results["ran_at"] = datetime.utcnow().isoformat() + "Z"
+    logger.info("[CRON/daily] complete — digest_sent=%s", digest_sent)
+    return results

@@ -6,13 +6,8 @@
     }
   },
   "crons": [
-    { "path": "/api/v1/cron/source",        "schedule": "30 1 * * *" },
-    { "path": "/api/v1/cron/outreach",       "schedule": "0 3 * * *"  },
-    { "path": "/api/v1/cron/followup",       "schedule": "30 3 * * *" },
-    { "path": "/api/v1/cron/post-interview", "schedule": "0 4 * * *"  },
-    { "path": "/api/v1/cron/reminders",      "schedule": "0 2 * * *"  },
-    { "path": "/api/v1/cron/digest",         "schedule": "30 2 * * *" },
-    { "path": "/api/v1/cron/watchdog",       "schedule": "0 4 * * *" }
+    { "path": "/api/v1/cron/daily",    "schedule": "30 4 * * *" },
+    { "path": "/api/v1/cron/watchdog", "schedule": "0 */6 * * *" }
   ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/index" }

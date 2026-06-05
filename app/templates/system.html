@@ -11,6 +11,23 @@
 
 <div id="alert-area"></div>
 
+<!-- Daily autopilot -->
+<div class="card" style="margin-bottom:20px;border-color:rgba(16,185,129,.3)">
+  <div class="card-header">
+    <span class="card-title">🌅 Daily Autopilot</span>
+    <span class="text-muted text-sm">Runs by itself every day at 10:00 AM — you don't need to do anything</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px">
+      Every morning the system automatically finds new candidates, scores them, sends first messages and follow-ups,
+      sends interview reminders, wraps up finished interviews, and then emails you a short briefing — including the
+      few things that need <strong>your</strong> decision. You can also run the whole routine right now:
+    </p>
+    <button class="btn btn-primary" onclick="runDaily()" id="daily-btn">▶ Run today's routine now</button>
+    <div id="daily-result" style="margin-top:12px"></div>
+  </div>
+</div>
+
 <!-- Watchdog status -->
 <div class="card" style="margin-bottom:20px">
   <div class="card-header"><span class="card-title">🔍 Last Health Check</span><span class="text-muted text-sm">Runs automatically — fixes common problems before you notice them</span></div>
@@ -62,7 +79,7 @@
 <div class="card">
   <div class="card-header">
     <span class="card-title">Automatic Daily Tasks</span>
-    <span class="text-muted text-sm">These run on their own every day. You can also run them manually anytime.</span>
+    <span class="text-muted text-sm">All of these now run together every day at 10:00 AM as part of Daily Autopilot. You can still run any one manually.</span>
   </div>
   <div class="table-wrap">
     <table>
@@ -374,6 +391,27 @@ async function runCron(name) {
   } catch(e) {
     area.innerHTML = `<div class="alert alert-error"><strong>/cron/${name} failed:</strong> ${esc(e.message)}</div>`;
   }
+}
+
+async function runDaily() {
+  const btn = document.getElementById('daily-btn');
+  const out = document.getElementById('daily-result');
+  btn.disabled = true; btn.textContent = 'Running… this can take a minute';
+  out.innerHTML = `<div class="alert alert-info">Running the full daily routine…</div>`;
+  try {
+    const r = await api('/api/v1/cron/daily', {method:'POST'});
+    const src = r.source && r.source.jobs ? Object.values(r.source.jobs).reduce((a,j)=>a+((j&&j.new_entries)||0),0) : 0;
+    const contacted = (r.outreach && r.outreach.sent_total) || 0;
+    const fu = r.followup ? ((r.followup.followup1_sent||0)+(r.followup.followup2_sent||0)) : 0;
+    out.innerHTML = `<div class="alert alert-success">
+      <strong>Done.</strong> Found ${src} new candidate(s), contacted ${contacted}, sent ${fu} follow-up(s).
+      ${r.digest_sent ? 'Your briefing email is on its way.' : 'Briefing email was not sent (check email setup).'}
+    </div>`;
+    showToast('Daily routine finished', 'success');
+  } catch(e) {
+    out.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '▶ Run today\'s routine now';
 }
 
 async function runAllCrons() {

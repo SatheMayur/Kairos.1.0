@@ -22,8 +22,12 @@ from app.models.wa_queue import WAQueue, WAQueueStatus
 logger = logging.getLogger(__name__)
 
 
-async def generate_digest(db: AsyncSession) -> tuple[str, str]:
-    """Return (subject, html_body) for the morning digest email."""
+async def generate_digest(db: AsyncSession, run_results: dict | None = None) -> tuple[str, str]:
+    """Return (subject, html_body) for the morning digest email.
+
+    When ``run_results`` is provided (from the daily autonomous run), the email
+    leads with a plain-English summary of what the system did on its own.
+    """
 
     now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -97,11 +101,75 @@ async def generate_digest(db: AsyncSession) -> tuple[str, str]:
     )
     new_candidates = new_cands_res.scalars().all()
 
+    # ── Things that need a human decision ────────────────────────────────────
+    from app.models.outreach import OutreachLog, OutreachStatus
+    from app.services.duplicates import find_duplicates
+    from app.services.data_quality import analyze_candidates
+
+    all_cands_res = await db.execute(select(Candidate))
+    all_cands = all_cands_res.scalars().all()
+
+    bounced_res = await db.execute(
+        select(OutreachLog.candidate_id).where(OutreachLog.status == OutreachStatus.BOUNCED)
+    )
+    bounced_ids = frozenset(r[0] for r in bounced_res.all())
+
+    dup_summary = find_duplicates(all_cands)["summary"]
+    dq_summary = analyze_candidates(all_cands, bounced_ids)["summary"]
+
+    # Interviews that already happened but have no logged outcome yet
+    awaiting_outcome_res = await db.execute(
+        select(Interview).where(
+            Interview.status == InterviewStatus.CONFIRMED,
+            Interview.scheduled_at < now,
+        )
+    )
+    awaiting_outcome = len(awaiting_outcome_res.scalars().all())
+
     # ── Build email body ─────────────────────────────────────────────────────
     date_str = now.strftime("%A, %d %B %Y")
     subject = f"📋 Daily HR Briefing — {date_str}"
 
     sections = []
+
+    # What the system did on its own this morning (daily autonomous run only)
+    if run_results:
+        def _n(step, *keys):
+            d = run_results.get(step) or {}
+            if not isinstance(d, dict) or "error" in d:
+                return None
+            for k in keys:
+                if k in d:
+                    return d[k]
+            return None
+
+        sourced = 0
+        src = run_results.get("source") or {}
+        if isinstance(src, dict) and "jobs" in src:
+            for jr in src["jobs"].values():
+                sourced += (jr or {}).get("new_entries", 0) if isinstance(jr, dict) else 0
+        contacted = _n("outreach", "sent_total") or 0
+        fu = run_results.get("followup") or {}
+        followups = (fu.get("followup1_sent", 0) + fu.get("followup2_sent", 0)) if isinstance(fu, dict) and "error" not in fu else 0
+        reminders = _n("reminders", "reminders_sent") or 0
+        pi = run_results.get("post_interview") or {}
+        wrapped = pi.get("auto_completed", 0) if isinstance(pi, dict) and "error" not in pi else 0
+
+        did_items = "".join(
+            f"<li style='margin-bottom:4px'>{txt}</li>" for txt in [
+                f"Found <b>{sourced}</b> new matching candidate(s) and scored them",
+                f"Sent first contact to <b>{contacted}</b> shortlisted candidate(s)",
+                f"Sent <b>{followups}</b> follow-up message(s) to people who hadn't replied",
+                f"Sent <b>{reminders}</b> interview reminder(s)",
+                f"Wrapped up <b>{wrapped}</b> finished interview(s)",
+            ]
+        )
+        sections.append(f"""
+<div style='background:#0c1f17;border:1px solid #10b98140;border-radius:10px;padding:14px 16px;margin-bottom:8px'>
+<h2 style='color:#10b981;font-size:14px;margin:0 0 8px'>🤖 What I did automatically this morning</h2>
+<ul style='font-size:13px;color:#d4d4d8;padding-left:18px;margin:0'>{did_items}</ul>
+<p style='font-size:11px;color:#71717a;margin:8px 0 0'>You didn't have to do anything for the above — it ran on its own at 10:00 AM.</p>
+</div>""")
 
     # Today's interviews
     if todays_interviews:
@@ -170,6 +238,38 @@ async def generate_digest(db: AsyncSession) -> tuple[str, str]:
         sections.append(f"""
 <h2 style='color:#a78bfa;font-size:14px;margin:20px 0 8px'>🆕 New Candidates Yesterday ({len(new_candidates)})</h2>
 <p style='font-size:13px;color:#d4d4d8'>{names}{extra}</p>""")
+
+    # Needs your decision — the short list of things only a human can settle
+    base_url = "https://kgirdharlal-recruitment.vercel.app"
+    decision_rows = []
+    if pipeline["pending"] > 0:
+        decision_rows.append((f"{pipeline['pending']} candidate(s) waiting for your review",
+                              "Quick Review", f"{base_url}/ui/triage"))
+    if awaiting_outcome > 0:
+        decision_rows.append((f"{awaiting_outcome} interview(s) finished — log how they went",
+                              "Interviews", f"{base_url}/ui/interviews"))
+    if dup_summary["resume_clusters"] > 0 or dup_summary["contact_clusters"] > 0:
+        total_dup = dup_summary["resume_clusters"] + dup_summary["contact_clusters"]
+        decision_rows.append((f"{total_dup} possible duplicate group(s) to check "
+                              f"({dup_summary['resume_clusters']} copy-pasted résumé groups)",
+                              "Duplicate Check", f"{base_url}/ui/duplicates"))
+    if dq_summary["with_issues"] > 0:
+        decision_rows.append((f"{dq_summary['with_issues']} candidate record(s) need fixing "
+                              f"({dq_summary['high']} urgent)",
+                              "Needs Fixing", f"{base_url}/ui/needs-fixing"))
+
+    if decision_rows:
+        items = "".join(
+            f"<li style='margin-bottom:6px'>{txt} — "
+            f"<a href='{url}' style='color:#10b981'>{label} →</a></li>"
+            for txt, label, url in decision_rows
+        )
+        sections.append(f"""
+<h2 style='color:#fb923c;font-size:14px;margin:20px 0 8px'>🔔 Needs Your Decision</h2>
+<ul style='font-size:13px;color:#d4d4d8;padding-left:18px;margin:0'>{items}</ul>
+<p style='font-size:11px;color:#71717a;margin-top:6px'>These are the only things the system cannot decide on its own.</p>""")
+    else:
+        sections.append("<p style='font-size:13px;color:#34d399;margin-top:16px'>🔔 Nothing needs your decision right now — you're all caught up.</p>")
 
     body = f"""
 <div style='font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif;background:#09090b;color:#f4f4f5;max-width:640px;margin:0 auto;padding:32px 24px;border-radius:12px'>

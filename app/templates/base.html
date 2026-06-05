@@ -289,6 +289,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     <a href="/ui/duplicates" class="nav-item {% if active=='duplicates' %}active{% endif %}">
       <span class="nav-icon">⧉</span> Duplicate Check
     </a>
+    <a href="/ui/needs-fixing" class="nav-item {% if active=='needs-fixing' %}active{% endif %}">
+      <span class="nav-icon">⚒</span> Needs Fixing
+    </a>
 
     <div class="nav-label">Pipeline</div>
     <a href="/ui/pipeline" class="nav-item {% if active=='pipeline' %}active{% endif %}">
@@ -296,6 +299,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     </a>
     <a href="/ui/triage" class="nav-item {% if active=='triage' %}active{% endif %}">
       <span class="nav-icon">⚡</span> Quick Review
+    </a>
+    <a href="/ui/compare" class="nav-item {% if active=='compare' %}active{% endif %}">
+      <span class="nav-icon">⚖</span> Compare Top
     </a>
     <a href="/ui/shortlist" class="nav-item {% if active=='shortlist' %}active{% endif %}">
       <span class="nav-icon">◈</span> Shortlist
@@ -465,6 +471,8 @@ const CMD_PAGES=[
   {icon:'◉',label:'WhatsApp',sub:'QR scan & conversations',url:'/ui/whatsapp',kbd:'G W'},
   {icon:'⚡',label:'Quick Review',sub:'One-by-one triage with keyboard shortcuts',url:'/ui/triage'},
   {icon:'⧉',label:'Duplicate Check',sub:'Find repeat applicants & copy-pasted resumes',url:'/ui/duplicates'},
+  {icon:'⚒',label:'Needs Fixing',sub:'Candidate records with problems to fix',url:'/ui/needs-fixing'},
+  {icon:'⚖',label:'Compare Top',sub:'Best candidates for a role, side by side',url:'/ui/compare'},
   {icon:'◎',label:'Analytics',sub:'Funnel, source quality, reply rates',url:'/ui/analytics'},
   {icon:'◈',label:'System Health',sub:'Watchdog & cron status',url:'/ui/system'},
 ];

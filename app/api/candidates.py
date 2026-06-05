@@ -32,6 +32,25 @@ async def list_candidates(
     return result.scalars().all()
 
 
+@router.get("/quality-issues")
+async def quality_issues(limit: int = 1000, db: AsyncSession = Depends(get_db)):
+    """Candidate records that need a human to fix them — bad/missing contact info,
+    bounced emails, junk salary values, or too little data to score."""
+    from app.services.data_quality import analyze_candidates
+    from app.models.outreach import OutreachLog, OutreachStatus
+
+    res = await db.execute(
+        select(Candidate).order_by(Candidate.created_at.desc()).limit(limit)
+    )
+    candidates = res.scalars().all()
+
+    bres = await db.execute(
+        select(OutreachLog.candidate_id).where(OutreachLog.status == OutreachStatus.BOUNCED)
+    )
+    bounced = frozenset(row[0] for row in bres.all())
+    return analyze_candidates(candidates, bounced)
+
+
 @router.get("/duplicates")
 async def detect_duplicates(limit: int = 1000, db: AsyncSession = Depends(get_db)):
     """Find likely duplicates — the same person applying twice (shared email/phone)
@@ -63,6 +82,62 @@ async def candidate_duplicates(candidate_id: int, db: AsyncSession = Depends(get
         if any(m["id"] == candidate_id for m in cl["candidates"])
     ]
     return {"clusters": mine}
+
+
+@router.post("/{candidate_id}/merge")
+async def merge_candidate(
+    candidate_id: int, duplicate_id: int, db: AsyncSession = Depends(get_db)
+):
+    """Merge a duplicate record into this one: move its history here, fill any
+    blank fields from it, then delete the duplicate. Keeps the lower-id record."""
+    from app.models.shortlist import ShortlistEntry
+    from app.models.outreach import OutreachLog
+    from app.models.interview import Interview
+
+    if candidate_id == duplicate_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a candidate into itself.")
+
+    keep = await _get_or_404(candidate_id, db)
+    dupe = await _get_or_404(duplicate_id, db)
+
+    # Job IDs the kept candidate already has a shortlist entry for
+    keep_sl = await db.execute(
+        select(ShortlistEntry.job_id).where(ShortlistEntry.candidate_id == keep.id)
+    )
+    keep_job_ids = {row[0] for row in keep_sl.all()}
+
+    # Move the duplicate's shortlist entries over (skip jobs already covered)
+    dupe_sl = await db.execute(
+        select(ShortlistEntry).where(ShortlistEntry.candidate_id == dupe.id)
+    )
+    for entry in dupe_sl.scalars().all():
+        if entry.job_id in keep_job_ids:
+            await db.delete(entry)
+        else:
+            entry.candidate_id = keep.id
+
+    # Move outreach + interview history
+    for Model in (OutreachLog, Interview):
+        rows = await db.execute(select(Model).where(Model.candidate_id == dupe.id))
+        for r in rows.scalars().all():
+            r.candidate_id = keep.id
+
+    # Fill any blank fields on the kept record from the duplicate
+    for field in (
+        "email", "phone", "whatsapp", "location", "current_role", "current_employer",
+        "education", "experience_years", "expected_salary", "current_salary",
+        "notice_period_days", "raw_profile", "resume_url",
+    ):
+        if not getattr(keep, field) and getattr(dupe, field):
+            setattr(keep, field, getattr(dupe, field))
+
+    merged_skills = list({*(keep.skills or []), *(dupe.skills or [])})
+    if merged_skills:
+        keep.skills = merged_skills
+
+    await db.delete(dupe)
+    await db.flush()
+    return {"ok": True, "kept_id": keep.id, "removed_id": duplicate_id}
 
 
 @router.patch("/{candidate_id}", response_model=CandidateRead)

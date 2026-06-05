@@ -47,6 +47,133 @@ async def list_entries(
     return result.scalars().all()
 
 
+@router.get("/triage")
+async def get_triage_candidates(
+    job_id: int,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return PENDING candidates for rapid triage review, enriched with full candidate data."""
+    job = await db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    sl_res = await db.execute(
+        select(ShortlistEntry)
+        .where(
+            ShortlistEntry.job_id == job_id,
+            ShortlistEntry.status == ShortlistStatus.PENDING,
+        )
+        .order_by(ShortlistEntry.score.desc())
+        .limit(limit)
+    )
+    entries = sl_res.scalars().all()
+
+    cand_ids = [e.candidate_id for e in entries]
+    cands = {}
+    if cand_ids:
+        cr = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
+        cands = {c.id: c for c in cr.scalars().all()}
+
+    result = []
+    for e in entries:
+        c = cands.get(e.candidate_id)
+        if not c:
+            continue
+        bd = e.score_breakdown or {}
+        result.append({
+            "entry_id": e.id,
+            "candidate_id": c.id,
+            "name": c.name,
+            "email": c.email,
+            "phone": c.phone,
+            "location": c.location,
+            "current_role": c.current_role,
+            "current_employer": c.current_employer,
+            "experience_years": c.experience_years,
+            "expected_salary": c.expected_salary,
+            "skills": c.skills or [],
+            "education": c.education,
+            "score": e.score,
+            "ai_strengths": bd.get("ai_strengths", []),
+            "ai_concerns": bd.get("ai_concerns", []),
+            "ai_reasoning": bd.get("ai_reasoning", ""),
+        })
+
+    return {
+        "job_title": job.title,
+        "total_pending": len(result),
+        "candidates": result,
+    }
+
+
+@router.get("/compare")
+async def compare_candidates(
+    job_id: int,
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db),
+):
+    """Top candidates for a job, side by side — for making the final call."""
+    job = await db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    sl_res = await db.execute(
+        select(ShortlistEntry)
+        .where(
+            ShortlistEntry.job_id == job_id,
+            ShortlistEntry.status.notin_([
+                ShortlistStatus.REJECTED,
+                ShortlistStatus.DROPPED,
+                ShortlistStatus.NOT_INTERESTED,
+            ]),
+        )
+        .order_by(ShortlistEntry.score.desc())
+        .limit(limit)
+    )
+    entries = sl_res.scalars().all()
+
+    cand_ids = [e.candidate_id for e in entries]
+    cands = {}
+    if cand_ids:
+        cr = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
+        cands = {c.id: c for c in cr.scalars().all()}
+
+    result = []
+    for e in entries:
+        c = cands.get(e.candidate_id)
+        if not c:
+            continue
+        bd = e.score_breakdown or {}
+        result.append({
+            "entry_id": e.id,
+            "candidate_id": c.id,
+            "name": c.name,
+            "status": e.status.value,
+            "score": e.score,
+            "email": c.email,
+            "phone": c.phone or c.whatsapp,
+            "location": c.location,
+            "current_role": c.current_role,
+            "current_employer": c.current_employer,
+            "experience_years": c.experience_years,
+            "expected_salary": c.expected_salary,
+            "notice_period_days": c.notice_period_days,
+            "skills": c.skills or [],
+            "education": c.education,
+            "ai_strengths": bd.get("ai_strengths", []),
+            "ai_concerns": bd.get("ai_concerns", []),
+            "ai_reasoning": bd.get("ai_reasoning", ""),
+        })
+
+    return {
+        "job_id": job.id,
+        "job_title": job.title,
+        "job_company": job.company,
+        "candidates": result,
+    }
+
+
 @router.get("/{entry_id}", response_model=ShortlistEntryRead)
 async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)):
     return await _get_or_404(entry_id, db)
@@ -118,66 +245,6 @@ async def score_and_add(job_id: int, candidate_id: int, db: AsyncSession = Depen
         db.add(entry)
     await db.flush()
     return entry
-
-
-@router.get("/triage")
-async def get_triage_candidates(
-    job_id: int,
-    limit: int = 50,
-    db: AsyncSession = Depends(get_db),
-):
-    """Return PENDING candidates for rapid triage review, enriched with full candidate data."""
-    job = await db.get(Job, job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-
-    sl_res = await db.execute(
-        select(ShortlistEntry)
-        .where(
-            ShortlistEntry.job_id == job_id,
-            ShortlistEntry.status == ShortlistStatus.PENDING,
-        )
-        .order_by(ShortlistEntry.score.desc())
-        .limit(limit)
-    )
-    entries = sl_res.scalars().all()
-
-    cand_ids = [e.candidate_id for e in entries]
-    cands = {}
-    if cand_ids:
-        cr = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
-        cands = {c.id: c for c in cr.scalars().all()}
-
-    result = []
-    for e in entries:
-        c = cands.get(e.candidate_id)
-        if not c:
-            continue
-        bd = e.score_breakdown or {}
-        result.append({
-            "entry_id": e.id,
-            "candidate_id": c.id,
-            "name": c.name,
-            "email": c.email,
-            "phone": c.phone,
-            "location": c.location,
-            "current_role": c.current_role,
-            "current_employer": c.current_employer,
-            "experience_years": c.experience_years,
-            "expected_salary": c.expected_salary,
-            "skills": c.skills or [],
-            "education": c.education,
-            "score": e.score,
-            "ai_strengths": bd.get("ai_strengths", []),
-            "ai_concerns": bd.get("ai_concerns", []),
-            "ai_reasoning": bd.get("ai_reasoning", ""),
-        })
-
-    return {
-        "job_title": job.title,
-        "total_pending": len(result),
-        "candidates": result,
-    }
 
 
 async def _get_or_404(entry_id: int, db: AsyncSession) -> ShortlistEntry:

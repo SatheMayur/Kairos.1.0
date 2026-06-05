@@ -67,6 +67,21 @@ function clusterSig(cl) { return cl.candidates.map(c => c.id).sort((a,b)=>a-b).j
 
 document.addEventListener('DOMContentLoaded', loadDuplicates);
 
+async function mergeCluster(ids) {
+  if (!ids || ids.length < 2) return;
+  const sorted = ids.slice().sort((a,b)=>a-b);
+  const keep = sorted[0];
+  const others = sorted.slice(1);
+  if (!confirm(`This will combine ${ids.length} records into one (keeping the earliest), moving all their history together. The extra ${others.length} record(s) will be removed. Continue?`)) return;
+  try {
+    for (const dup of others) {
+      await api(`/api/v1/candidates/${keep}/merge?duplicate_id=${dup}`, {method:'POST'});
+    }
+    showToast('Merged into one record ✓', 'success');
+    loadDuplicates();
+  } catch(e) { showToast('Merge failed: '+e.message, 'error'); }
+}
+
 async function loadDuplicates() {
   try {
     const d = await api('/api/v1/candidates/duplicates');
@@ -148,7 +163,10 @@ function renderContact(clusters) {
         <span style="font-size:12.5px;color:var(--text-secondary)">
           ${cl.candidates.length} records with the ${esc(cl.match)}${cl.shared_email ? ' (<strong>'+esc(cl.shared_email)+'</strong>)' : ''}${cl.shared_phone ? ' (<strong>'+esc(cl.shared_phone)+'</strong>)' : ''}
         </span>
-        <button class="btn btn-ghost btn-sm" onclick="markReviewed('${sig}')">✓ I've checked these</button>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" onclick='mergeCluster(${JSON.stringify(cl.candidates.map(c=>c.id))})'>⛓ Merge into one</button>
+          <button class="btn btn-ghost btn-sm" onclick="markReviewed('${sig}')">✓ I've checked these</button>
+        </div>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         ${cl.candidates.map(c => candCard(c, '#fbbf24')).join('')}

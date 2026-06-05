@@ -83,3 +83,11 @@ async def analytics(request: Request):
 @router.get("/duplicates", response_class=HTMLResponse)
 async def duplicates(request: Request):
     return _render(request, "duplicates.html", "duplicates")
+
+@router.get("/needs-fixing", response_class=HTMLResponse)
+async def needs_fixing(request: Request):
+    return _render(request, "needs_fixing.html", "needs-fixing")
+
+@router.get("/compare", response_class=HTMLResponse)
+async def compare(request: Request):
+    return _render(request, "compare.html", "compare")

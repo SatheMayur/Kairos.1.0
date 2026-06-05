@@ -61,6 +61,18 @@ async def init_db() -> None:
     import app.models.error_log     # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if _is_postgres:
+            # create_all never alters existing tables, so columns added to a model
+            # after its table already existed in production are missing. Backfill them
+            # here — idempotent and safe to run on every startup.
+            _column_backfills = [
+                "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS last_poll_at TIMESTAMP",
+            ]
+            for stmt in _column_backfills:
+                try:
+                    await conn.exec_driver_sql(stmt)
+                except Exception:  # never let a backfill block startup
+                    pass
 
 
 async def get_db() -> AsyncSession:  # type: ignore[return]

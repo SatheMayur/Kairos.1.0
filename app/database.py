@@ -1,4 +1,5 @@
 """SQLAlchemy async engine, session factory, and Base."""
+import asyncio
 import os
 import re
 
@@ -48,8 +49,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def init_db() -> None:
-    """Create all tables on startup."""
+def _import_models() -> None:
     import app.models.candidate     # noqa: F401
     import app.models.job           # noqa: F401
     import app.models.shortlist     # noqa: F401
@@ -60,28 +60,41 @@ async def init_db() -> None:
     import app.models.watchdog      # noqa: F401
     import app.models.error_log     # noqa: F401
     import app.models.daily_plan    # noqa: F401
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+
+
+# Schema is ensured lazily on first DB use. Vercel's serverless runtime does not
+# reliably run FastAPI's startup/lifespan, so we cannot depend on init_db() alone.
+_schema_lock = asyncio.Lock()
+_schema_ready = False
+
+
+async def ensure_schema() -> None:
+    """Create tables and backfill any missing columns. Idempotent; runs once per process.
+
+    Each statement runs in AUTOCOMMIT so one failure can't abort the rest (a shared
+    transaction would poison every later statement after the first error)."""
+    global _schema_ready
+    if _schema_ready:
+        return
+    async with _schema_lock:
+        if _schema_ready:
+            return
+        _import_models()
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        except Exception:
+            pass
+
         if _is_postgres:
-            # create_all never ALTERs existing tables, so any column added to a
-            # model after its table already existed in production is missing.
-            #
-            # 1) Explicit backfills (with sensible defaults) for known columns.
-            _column_backfills = [
-                "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS last_poll_at TIMESTAMP",
-                "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS pending_command VARCHAR(20)",
+            # Every column the models declare → ADD COLUMN IF NOT EXISTS (no-op if present).
+            # Known columns with defaults go first so they get the right default.
+            stmts = [
                 "ALTER TABLE wa_queue ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0",
                 "ALTER TABLE wa_queue ADD COLUMN IF NOT EXISTS last_retry_at TIMESTAMP",
+                "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS last_poll_at TIMESTAMP",
+                "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS pending_command VARCHAR(20)",
             ]
-            for stmt in _column_backfills:
-                try:
-                    await conn.exec_driver_sql(stmt)
-                except Exception:  # never let a backfill block startup
-                    pass
-
-            # 2) General safety net: ensure every column the models declare exists.
-            #    ADD COLUMN IF NOT EXISTS is a no-op when the column is already there,
-            #    so this stops schema-drift bugs from recurring one column at a time.
             dialect = engine.dialect
             for table in Base.metadata.sorted_tables:
                 for col in table.columns:
@@ -89,16 +102,35 @@ async def init_db() -> None:
                         continue
                     try:
                         coltype = col.type.compile(dialect=dialect)
-                        await conn.exec_driver_sql(
+                        stmts.append(
                             f'ALTER TABLE {table.name} '
                             f'ADD COLUMN IF NOT EXISTS {col.name} {coltype}'
                         )
                     except Exception:
                         pass
+            try:
+                async with engine.connect() as conn:
+                    conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+                    for stmt in stmts:
+                        try:
+                            await conn.exec_driver_sql(stmt)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        _schema_ready = True
+
+
+async def init_db() -> None:
+    """Startup hook (when the runtime runs it). Lazy ensure_schema covers the rest."""
+    await ensure_schema()
 
 
 async def get_db() -> AsyncSession:  # type: ignore[return]
     """FastAPI dependency that yields a scoped DB session."""
+    if not _schema_ready:
+        await ensure_schema()
     async with AsyncSessionLocal() as session:
         try:
             yield session

@@ -11,6 +11,9 @@
   <div class="topbar-right" id="cand-actions" style="gap:8px;display:flex"></div>
 </div>
 
+<!-- Duplicate warning (shown only when this candidate is part of a duplicate group) -->
+<div id="dup-warning" class="alert alert-warn" style="display:none;margin-bottom:20px"></div>
+
 <!-- Top info row -->
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
 
@@ -157,10 +160,30 @@ async function loadProfile() {
   try {
     const d = await api('/api/v1/candidates/'+CAND_ID+'/profile');
     renderProfile(d);
+    checkDuplicates();
   } catch(e) {
     document.getElementById('cand-name').textContent = 'Error loading profile';
     showToast('Failed to load profile: '+e.message, 'error');
   }
+}
+
+async function checkDuplicates() {
+  try {
+    const d = await api('/api/v1/candidates/'+CAND_ID+'/duplicates');
+    if (!d.clusters || !d.clusters.length) return;
+    const el = document.getElementById('dup-warning');
+    const lines = d.clusters.map(cl => {
+      const others = cl.candidates.filter(c => c.id !== CAND_ID);
+      const links = others.map(c => `<a href="/ui/candidate/${c.id}" style="color:inherit;text-decoration:underline">${esc(c.name)}</a>`).join(', ');
+      if (cl.kind === 'same_resume') {
+        return `<strong>Possible copy-pasted resume.</strong> This resume is ${cl.identical ? 'word-for-word identical' : 'nearly identical'} to: ${links}. Verify the work is genuinely theirs before shortlisting or making an offer.`;
+      }
+      return `<strong>Possible duplicate application.</strong> Shares ${esc(cl.match)} with: ${links}. This may be the same person who applied more than once.`;
+    });
+    el.innerHTML = '⚠️ ' + lines.join('<br><br>⚠️ ') +
+      `<br><br><a href="/ui/duplicates" style="color:inherit;text-decoration:underline">Open Duplicate Check →</a>`;
+    el.style.display = 'block';
+  } catch(e) { /* non-blocking */ }
 }
 
 function renderProfile(d) {

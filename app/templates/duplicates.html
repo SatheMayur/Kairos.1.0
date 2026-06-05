@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Duplicate Check{% endblock %}
+{% block content %}
+
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Duplicate Check</h1>
+    <p class="text-muted text-sm">Catches the same person applying twice, and copy-pasted resumes</p>
+  </div>
+  <div class="topbar-right">
+    <button class="btn btn-secondary btn-sm" onclick="loadDuplicates()">↺ Re-scan</button>
+  </div>
+</div>
+
+<!-- Summary KPIs -->
+<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:22px" id="dup-kpis">
+  <div class="kpi"><div class="kpi-label">Candidates Scanned</div><div class="kpi-value" id="kpi-total">–</div></div>
+  <div class="kpi yellow"><div class="kpi-label">Possible Same Person</div><div class="kpi-value" id="kpi-contact">–</div><div class="kpi-sub">groups</div></div>
+  <div class="kpi red"><div class="kpi-label">Copy-Pasted Resumes</div><div class="kpi-value" id="kpi-resume">–</div><div class="kpi-sub">groups</div></div>
+  <div class="kpi"><div class="kpi-label">Candidates Flagged</div><div class="kpi-value" id="kpi-flagged">–</div></div>
+</div>
+
+<!-- Copy-pasted resumes (most important — fraud risk) -->
+<div class="card">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="card-title">⚠️ Copy-Pasted Resumes</span>
+      <span class="badge badge-red" style="font-size:10px">verify before offering</span>
+    </div>
+    <span class="text-muted text-sm">Different people with the same resume — confirm in person before shortlisting</span>
+  </div>
+  <div id="resume-body">
+    <div style="padding:28px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+<!-- Same person -->
+<div class="card">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="card-title">👥 Possibly the Same Person</span>
+      <span class="badge badge-yellow" style="font-size:10px">applied more than once</span>
+    </div>
+    <span class="text-muted text-sm">Share an email or phone number — keep one, ignore the rest</span>
+  </div>
+  <div id="contact-body">
+    <div style="padding:28px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Locally remembered "already checked" clusters so they stay hidden after review.
+const REVIEWED_KEY = 'dup_reviewed_v1';
+function getReviewed() {
+  try { return JSON.parse(localStorage.getItem(REVIEWED_KEY) || '[]'); } catch { return []; }
+}
+function markReviewed(sig) {
+  const r = getReviewed();
+  if (!r.includes(sig)) { r.push(sig); localStorage.setItem(REVIEWED_KEY, JSON.stringify(r)); }
+  loadDuplicates();
+}
+// A stable signature for a cluster = sorted candidate IDs
+function clusterSig(cl) { return cl.candidates.map(c => c.id).sort((a,b)=>a-b).join('-'); }
+
+document.addEventListener('DOMContentLoaded', loadDuplicates);
+
+async function loadDuplicates() {
+  try {
+    const d = await api('/api/v1/candidates/duplicates');
+    document.getElementById('kpi-total').textContent   = d.summary.total_candidates;
+    document.getElementById('kpi-contact').textContent = d.summary.contact_clusters;
+    document.getElementById('kpi-resume').textContent  = d.summary.resume_clusters;
+    document.getElementById('kpi-flagged').textContent = d.summary.flagged_candidates;
+    renderResume(d.same_resume || []);
+    renderContact(d.same_contact || []);
+  } catch(e) {
+    showToast('Could not run the check: ' + e.message, 'error');
+  }
+}
+
+function candCard(c, accent) {
+  const sub = [c.current_role, c.current_employer, c.location].filter(Boolean).join(' · ');
+  return `<div style="flex:1;min-width:200px;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <a href="/ui/candidate/${c.id}" style="font-weight:600;font-size:13px;color:var(--text-primary)"
+         onmouseover="this.style.color='${accent}'" onmouseout="this.style.color='var(--text-primary)'">${esc(c.name)}</a>
+      <span class="badge badge-grey" style="font-size:9.5px">${esc(c.source||'–')}</span>
+    </div>
+    ${sub ? `<div style="font-size:11px;color:var(--text-muted);margin-top:3px">${esc(sub)}</div>` : ''}
+    <div style="font-size:10.5px;color:var(--text-dim);margin-top:6px">
+      ${c.email ? '✉ '+esc(c.email)+'<br>' : ''}${c.phone ? '📞 '+esc(c.phone) : ''}
+    </div>
+    <a href="/ui/candidate/${c.id}" class="btn btn-secondary btn-sm" style="margin-top:10px;width:100%;justify-content:center">View Profile</a>
+  </div>`;
+}
+
+function renderResume(clusters) {
+  const reviewed = getReviewed();
+  const visible = clusters.filter(cl => !reviewed.includes(clusterSig(cl)));
+  const body = document.getElementById('resume-body');
+  if (!visible.length) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-state-icon" style="font-size:24px">✓</div>
+      <p>No copy-pasted resumes need attention.</p></div>`;
+    return;
+  }
+  body.innerHTML = visible.map(cl => {
+    const sig = clusterSig(cl);
+    const tag = cl.identical
+      ? '<span class="badge badge-red" style="font-size:10px">word-for-word identical</span>'
+      : '<span class="badge badge-orange" style="font-size:10px">nearly identical</span>';
+    return `<div style="padding:16px 18px;border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px">
+          ${tag}
+          <span style="font-size:12.5px;color:var(--text-secondary)">
+            ${cl.candidates.length} candidates share ${esc(cl.match)}${cl.shared_employer ? ' — listed employer: <strong>'+esc(cl.shared_employer)+'</strong>' : ''}
+          </span>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="markReviewed('${sig}')">✓ I've checked these</button>
+      </div>
+      <div class="alert alert-warn" style="margin-bottom:12px;font-size:11.5px">
+        These resumes are too similar to be a coincidence. Do not shortlist or send an offer to any of them
+        until you have personally verified who actually did the work.
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${cl.candidates.map(c => candCard(c, '#f87171')).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderContact(clusters) {
+  const reviewed = getReviewed();
+  const visible = clusters.filter(cl => !reviewed.includes(clusterSig(cl)));
+  const body = document.getElementById('contact-body');
+  if (!visible.length) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-state-icon" style="font-size:24px">✓</div>
+      <p>No duplicate applications found.</p></div>`;
+    return;
+  }
+  body.innerHTML = visible.map(cl => {
+    const sig = clusterSig(cl);
+    return `<div style="padding:16px 18px;border-bottom:1px solid var(--border-subtle)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:12.5px;color:var(--text-secondary)">
+          ${cl.candidates.length} records with the ${esc(cl.match)}${cl.shared_email ? ' (<strong>'+esc(cl.shared_email)+'</strong>)' : ''}${cl.shared_phone ? ' (<strong>'+esc(cl.shared_phone)+'</strong>)' : ''}
+        </span>
+        <button class="btn btn-ghost btn-sm" onclick="markReviewed('${sig}')">✓ I've checked these</button>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${cl.candidates.map(c => candCard(c, '#fbbf24')).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+</script>
+{% endblock %}

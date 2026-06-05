@@ -79,3 +79,7 @@ async def triage(request: Request):
 @router.get("/analytics", response_class=HTMLResponse)
 async def analytics(request: Request):
     return _render(request, "analytics.html", "analytics")
+
+@router.get("/duplicates", response_class=HTMLResponse)
+async def duplicates(request: Request):
+    return _render(request, "duplicates.html", "duplicates")

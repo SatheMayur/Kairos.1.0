@@ -286,6 +286,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     <a href="/ui/candidates" class="nav-item {% if active=='candidates' %}active{% endif %}">
       <span class="nav-icon">◎</span> Candidates <span class="nav-kbd">G C</span>
     </a>
+    <a href="/ui/duplicates" class="nav-item {% if active=='duplicates' %}active{% endif %}">
+      <span class="nav-icon">⧉</span> Duplicate Check
+    </a>
 
     <div class="nav-label">Pipeline</div>
     <a href="/ui/pipeline" class="nav-item {% if active=='pipeline' %}active{% endif %}">
@@ -461,6 +464,7 @@ const CMD_PAGES=[
   {icon:'↑',label:'Import CSV',sub:'Upload Naukri / WorkIndia',url:'/ui/import'},
   {icon:'◉',label:'WhatsApp',sub:'QR scan & conversations',url:'/ui/whatsapp',kbd:'G W'},
   {icon:'⚡',label:'Quick Review',sub:'One-by-one triage with keyboard shortcuts',url:'/ui/triage'},
+  {icon:'⧉',label:'Duplicate Check',sub:'Find repeat applicants & copy-pasted resumes',url:'/ui/duplicates'},
   {icon:'◎',label:'Analytics',sub:'Funnel, source quality, reply rates',url:'/ui/analytics'},
   {icon:'◈',label:'System Health',sub:'Watchdog & cron status',url:'/ui/system'},
 ];

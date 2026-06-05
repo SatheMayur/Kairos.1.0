@@ -32,9 +32,37 @@ async def list_candidates(
     return result.scalars().all()
 
 
+@router.get("/duplicates")
+async def detect_duplicates(limit: int = 1000, db: AsyncSession = Depends(get_db)):
+    """Find likely duplicates — the same person applying twice (shared email/phone)
+    or different people submitting copy-pasted resumes (identical resume text)."""
+    from app.services.duplicates import find_duplicates
+
+    res = await db.execute(
+        select(Candidate).order_by(Candidate.created_at.desc()).limit(limit)
+    )
+    return find_duplicates(res.scalars().all())
+
+
 @router.get("/{candidate_id}", response_model=CandidateRead)
 async def get_candidate(candidate_id: int, db: AsyncSession = Depends(get_db)):
     return await _get_or_404(candidate_id, db)
+
+
+@router.get("/{candidate_id}/duplicates")
+async def candidate_duplicates(candidate_id: int, db: AsyncSession = Depends(get_db)):
+    """Duplicate clusters that include this candidate — powers the profile warning."""
+    from app.services.duplicates import find_duplicates
+
+    res = await db.execute(
+        select(Candidate).order_by(Candidate.created_at.desc()).limit(1000)
+    )
+    result = find_duplicates(res.scalars().all())
+    mine = [
+        cl for cl in result["same_contact"] + result["same_resume"]
+        if any(m["id"] == candidate_id for m in cl["candidates"])
+    ]
+    return {"clusters": mine}
 
 
 @router.patch("/{candidate_id}", response_model=CandidateRead)

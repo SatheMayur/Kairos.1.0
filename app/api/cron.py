@@ -85,6 +85,19 @@ async def cron_outreach():
     job_results: dict = {}
 
     async with AsyncSessionLocal() as db:
+        # Decide the channel once: prefer WhatsApp, but if the bridge is offline
+        # (no poll in the last 3 minutes) fall back to email so candidates are
+        # still reached even when nobody's computer is running the bridge.
+        from datetime import timedelta
+        from app.models.wa_connection import WaConnection
+        conn = await db.get(WaConnection, 1)
+        wa_live = bool(
+            conn and conn.status == "CONNECTED" and conn.last_poll_at
+            and (datetime.utcnow() - conn.last_poll_at) < timedelta(minutes=3)
+        )
+        primary_channel = OutreachChannel.WHATSAPP if wa_live else OutreachChannel.EMAIL
+        logger.info("[CRON/outreach] whatsapp_live=%s primary_channel=%s", wa_live, primary_channel.value)
+
         result = await db.execute(
             select(ShortlistEntry).where(ShortlistEntry.status == ShortlistStatus.SHORTLISTED)
         )
@@ -110,9 +123,8 @@ async def cron_outreach():
                     candidates.append(c)
 
             try:
-                # Always prefer WhatsApp (Baileys bridge polls DB queue)
-                # Falls back to email if candidate has no phone
-                primary_channel = OutreachChannel.WHATSAPP
+                # primary_channel decided above: WhatsApp when the bridge is
+                # live, otherwise email (so the autopilot never stalls).
                 logs = await send_bulk_outreach(
                     candidates=candidates,
                     job=job,
@@ -151,6 +163,8 @@ async def cron_outreach():
         "ran_at": datetime.utcnow().isoformat() + "Z",
         "sent_total": sent_total,
         "platform_messages": skipped_platform,
+        "channel": primary_channel.value,
+        "whatsapp_live": wa_live,
         "jobs": job_results,
     }
 

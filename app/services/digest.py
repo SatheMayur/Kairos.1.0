@@ -149,6 +149,9 @@ async def generate_digest(db: AsyncSession, run_results: dict | None = None) -> 
             for jr in src["jobs"].values():
                 sourced += (jr or {}).get("new_entries", 0) if isinstance(jr, dict) else 0
         contacted = _n("outreach", "sent_total") or 0
+        _out = run_results.get("outreach") or {}
+        _wa_live_run = _out.get("whatsapp_live", True) if isinstance(_out, dict) else True
+        _channel_note = "" if _wa_live_run else " <span style='color:#fbbf24'>(by email — WhatsApp was offline)</span>"
         fu = run_results.get("followup") or {}
         followups = (fu.get("followup1_sent", 0) + fu.get("followup2_sent", 0)) if isinstance(fu, dict) and "error" not in fu else 0
         reminders = _n("reminders", "reminders_sent") or 0
@@ -158,7 +161,7 @@ async def generate_digest(db: AsyncSession, run_results: dict | None = None) -> 
         did_items = "".join(
             f"<li style='margin-bottom:4px'>{txt}</li>" for txt in [
                 f"Found <b>{sourced}</b> new matching candidate(s) and scored them",
-                f"Sent first contact to <b>{contacted}</b> shortlisted candidate(s)",
+                f"Sent first contact to <b>{contacted}</b> shortlisted candidate(s){_channel_note}",
                 f"Sent <b>{followups}</b> follow-up message(s) to people who hadn't replied",
                 f"Sent <b>{reminders}</b> interview reminder(s)",
                 f"Wrapped up <b>{wrapped}</b> finished interview(s)",

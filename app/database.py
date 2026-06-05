@@ -63,18 +63,38 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         if _is_postgres:
-            # create_all never alters existing tables, so columns added to a model
-            # after its table already existed in production are missing. Backfill them
-            # here — idempotent and safe to run on every startup.
+            # create_all never ALTERs existing tables, so any column added to a
+            # model after its table already existed in production is missing.
+            #
+            # 1) Explicit backfills (with sensible defaults) for known columns.
             _column_backfills = [
                 "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS last_poll_at TIMESTAMP",
                 "ALTER TABLE wa_connection ADD COLUMN IF NOT EXISTS pending_command VARCHAR(20)",
+                "ALTER TABLE wa_queue ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0",
+                "ALTER TABLE wa_queue ADD COLUMN IF NOT EXISTS last_retry_at TIMESTAMP",
             ]
             for stmt in _column_backfills:
                 try:
                     await conn.exec_driver_sql(stmt)
                 except Exception:  # never let a backfill block startup
                     pass
+
+            # 2) General safety net: ensure every column the models declare exists.
+            #    ADD COLUMN IF NOT EXISTS is a no-op when the column is already there,
+            #    so this stops schema-drift bugs from recurring one column at a time.
+            dialect = engine.dialect
+            for table in Base.metadata.sorted_tables:
+                for col in table.columns:
+                    if col.primary_key:
+                        continue
+                    try:
+                        coltype = col.type.compile(dialect=dialect)
+                        await conn.exec_driver_sql(
+                            f'ALTER TABLE {table.name} '
+                            f'ADD COLUMN IF NOT EXISTS {col.name} {coltype}'
+                        )
+                    except Exception:
+                        pass
 
 
 async def get_db() -> AsyncSession:  # type: ignore[return]

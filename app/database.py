@@ -59,6 +59,7 @@ async def init_db() -> None:
     import app.models.wa_connection # noqa: F401
     import app.models.watchdog      # noqa: F401
     import app.models.error_log     # noqa: F401
+    import app.models.daily_plan    # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         if _is_postgres:

@@ -57,6 +57,20 @@
   </div>
 </div>
 
+<!-- Today's plan (recruitment-manager agent) -->
+<div class="card" id="plan-card" style="border-color:rgba(96,165,250,.3)">
+  <div class="card-header">
+    <span class="card-title">🧭 Your Plan for Today</span>
+    <div class="flex gap-2 items-center">
+      <span class="text-muted text-sm" id="plan-meta"></span>
+      <button class="btn btn-secondary btn-sm" onclick="planMyDay()" id="plan-btn">↻ Plan my day</button>
+    </div>
+  </div>
+  <div class="card-body" id="plan-body">
+    <div class="text-muted text-sm">Loading today's plan…</div>
+  </div>
+</div>
+
 <!-- Pipeline Funnel -->
 <div class="card" style="margin-bottom:20px">
   <div class="card-header">
@@ -458,7 +472,48 @@ async function runCron(name){
   }catch(e){showToast('Failed: '+e.message,'error')}
 }
 
+// ── Today's plan (recruitment-manager agent) ───────────────────────────────
+function renderPlan(plan){
+  const body=document.getElementById('plan-body');
+  const meta=document.getElementById('plan-meta');
+  if(!plan||(!plan.manager_note&&(!plan.priorities||!plan.priorities.length))){
+    body.innerHTML='<div class="text-muted text-sm">No plan yet today. Click “Plan my day”.</div>';
+    meta.textContent='';
+    return;
+  }
+  if(plan.created_at){
+    const t=new Date(plan.created_at);
+    meta.textContent=(plan.source==='ai'?'AI':'Auto')+' · '+t.toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  }
+  const items=(plan.priorities||[]).slice(0,5).map((p,i)=>`
+    <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+      <div style="width:24px;height:24px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${esc(p.title||'')}</div>
+        ${p.why?`<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">${esc(p.why)}</div>`:''}
+        ${p.action?`<div style="font-size:11.5px;color:var(--accent);margin-top:2px">${esc(p.action)}</div>`:''}
+      </div>
+    </div>`).join('');
+  body.innerHTML=`${plan.manager_note?`<p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px">${esc(plan.manager_note)}</p>`:''}${items}`;
+}
+
+async function loadPlan(){
+  try{ renderPlan(await api('/api/v1/orchestrator/today')); }
+  catch(e){ document.getElementById('plan-body').innerHTML='<div class="text-muted text-sm">Could not load the plan.</div>'; }
+}
+
+async function planMyDay(){
+  const btn=document.getElementById('plan-btn');
+  btn.disabled=true; btn.textContent='Thinking…';
+  try{
+    renderPlan(await api('/api/v1/orchestrator/plan',{method:'POST'}));
+    showToast('Plan updated','success');
+  }catch(e){ showToast('Failed: '+e.message,'error'); }
+  btn.disabled=false; btn.textContent='↻ Plan my day';
+}
+
 loadDashboard();
+loadPlan();
 setInterval(loadDashboard,30000);
 </script>
 {% endblock %}

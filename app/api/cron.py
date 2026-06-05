@@ -284,6 +284,18 @@ async def cron_daily():
             await log_error(message=str(exc), source=f"cron:daily:{name}", exc=exc, path="/cron/daily")
             results[name] = {"error": str(exc)[:200]}
 
+    # Reasoning step first: the manager agent looks at today's state and plans.
+    # This is advisory — it explains and prioritises; the steps below still run
+    # deterministically with their own guardrails.
+    try:
+        from app.services.orchestrator import generate_plan
+        async with AsyncSessionLocal() as db:
+            await generate_plan(db, persist=True)
+            await db.commit()
+    except Exception as exc:
+        logger.error("[CRON/daily] planning failed: %s", exc)
+        await log_error(message=str(exc), source="cron:daily:plan", exc=exc, path="/cron/daily")
+
     await _step("source", cron_source())
     await _step("outreach", cron_outreach())
     await _step("followup", cron_followup())

@@ -132,6 +132,28 @@ async def generate_digest(db: AsyncSession, run_results: dict | None = None) -> 
 
     sections = []
 
+    # The recruitment-manager agent's plan for today (leads the email)
+    try:
+        from app.services.orchestrator import get_latest_plan
+        plan = await get_latest_plan(db)
+    except Exception:
+        plan = None
+    if plan and (plan.get("manager_note") or plan.get("priorities")):
+        _li = []
+        for p in (plan.get("priorities") or [])[:5]:
+            p = p or {}
+            title = p.get("title", "")
+            why = (" — " + p["why"]) if p.get("why") else ""
+            action = (" <span style='color:#a1a1aa'>" + p["action"] + "</span>") if p.get("action") else ""
+            _li.append("<li style='margin-bottom:6px'><b>" + title + "</b>" + why + action + "</li>")
+        prio_items = "".join(_li)
+        sections.append(f"""
+<div style='background:#0c1620;border:1px solid #60a5fa40;border-radius:10px;padding:14px 16px;margin-bottom:8px'>
+<h2 style='color:#60a5fa;font-size:14px;margin:0 0 8px'>🧭 Your plan for today</h2>
+<p style='font-size:13px;color:#d4d4d8;line-height:1.6;margin:0 0 8px'>{plan.get('manager_note','')}</p>
+<ol style='font-size:13px;color:#d4d4d8;padding-left:18px;margin:0'>{prio_items}</ol>
+</div>""")
+
     # What the system did on its own this morning (daily autonomous run only)
     if run_results:
         def _n(step, *keys):

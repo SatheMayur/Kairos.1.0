@@ -259,6 +259,64 @@ Intent guide:
         return _build_auto_response(intent, candidate_name, job_title, job_company, job_location, job_salary_info)
 
 
+async def ai_plan_day(situation: dict) -> dict:
+    """Reason over today's recruitment state and return a prioritised plan.
+
+    Returns dict: {manager_note: str, priorities: [{title, why, action}]}
+    Returns {} when no API key or on failure — caller uses a rule-based fallback.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+
+    if not settings.anthropic_api_key:
+        return {}
+
+    try:
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+        prompt = f"""You are the recruitment manager for K. Girdharlal International, a diamond \
+manufacturing company in Surat. Every morning you review the state of hiring and tell the \
+owner, Kirti, what matters most today.
+
+Kirti is NOT technical. Write in plain, warm, simple English. No jargon, no system terms.
+
+Here is today's situation (numbers from the recruitment system):
+{json.dumps(situation, indent=2)}
+
+Decide what Kirti should focus on today. Think like a sharp hiring manager: interviews and \
+candidates who already said yes matter more than a big pile of unreviewed applicants; people \
+the company can't contact or possible fake/duplicate resumes are worth flagging.
+
+Return ONLY valid JSON:
+{{
+  "manager_note": "<2-4 warm sentences summarising the day and your overall advice>",
+  "priorities": [
+    {{"title": "<short action title>", "why": "<one plain sentence why it matters>", "action": "<what to do / where to click>"}}
+  ]
+}}
+List at most 5 priorities, most important first. If things are quiet, say so kindly."""
+
+        msg = await client.messages.create(
+            model=settings.claude_model,
+            max_tokens=900,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text.strip()
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        if "priorities" in result:
+            logger.info("AI day-plan generated with %d priorities", len(result.get("priorities", [])))
+            return result
+        return {}
+    except Exception as exc:
+        logger.warning("AI day-plan failed: %s — using rule-based fallback", exc)
+        return {}
+
+
 def _build_auto_response(
     intent: str,
     candidate_name: str,

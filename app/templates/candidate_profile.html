@@ -119,6 +119,18 @@
   </div>
 </div>
 
+<!-- WhatsApp conversation (shown when a thread exists) -->
+<div id="c-conv-card" class="card" style="display:none">
+  <div class="card-header">
+    <span class="card-title">💬 WhatsApp Conversation</span>
+    <span class="badge badge-grey" id="c-conv-status" style="font-size:10px"></span>
+  </div>
+  <div class="card-body">
+    <div id="c-conv-collected" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+    <div id="c-conv-thread" style="display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+</div>
+
 <!-- Timeline -->
 <div class="card">
   <div class="card-header"><span class="card-title">🕐 Activity Timeline</span></div>
@@ -161,6 +173,7 @@ async function loadProfile() {
     const d = await api('/api/v1/candidates/'+CAND_ID+'/profile');
     renderProfile(d);
     checkDuplicates();
+    loadConversation();
   } catch(e) {
     document.getElementById('cand-name').textContent = 'Error loading profile';
     showToast('Failed to load profile: '+e.message, 'error');
@@ -183,6 +196,27 @@ async function checkDuplicates() {
     el.innerHTML = '⚠️ ' + lines.join('<br><br>⚠️ ') +
       `<br><br><a href="/ui/duplicates" style="color:inherit;text-decoration:underline">Open Duplicate Check →</a>`;
     el.style.display = 'block';
+  } catch(e) { /* non-blocking */ }
+}
+
+async function loadConversation() {
+  try {
+    const d = await api('/api/v1/candidates/'+CAND_ID+'/conversation');
+    if (!d.exists) return;
+    document.getElementById('c-conv-card').style.display = 'block';
+    const st = document.getElementById('c-conv-status');
+    st.textContent = (d.needs_human ? 'Needs you' : (d.status || '')).replace(/_/g,' ');
+    st.className = 'badge ' + (d.needs_human ? 'badge-red'
+      : d.status === 'SCHEDULING' ? 'badge-purple'
+      : d.status === 'NOT_INTERESTED' ? 'badge-red' : 'badge-green');
+    const col = d.collected || {};
+    const labels = {expected_ctc:'Expected CTC', current_ctc:'Current CTC', notice_period:'Notice', location:'Location', availability:'Availability'};
+    const chips = Object.keys(labels).filter(k=>col[k]).map(k=>`<span class="badge badge-blue" style="font-size:10px">${esc(labels[k])}: ${esc(col[k])}</span>`).join('');
+    document.getElementById('c-conv-collected').innerHTML = chips || '<span class="text-muted text-sm">No details collected yet</span>';
+    document.getElementById('c-conv-thread').innerHTML = (d.history||[]).map(h=>{
+      const inbound = h.dir === 'in';
+      return `<div style="align-self:${inbound?'flex-start':'flex-end'};max-width:80%;background:${inbound?'var(--bg-surface)':'var(--accent-dim)'};border:1px solid ${inbound?'var(--border-default)':'var(--accent-border)'};border-radius:10px;padding:7px 11px;font-size:12px;color:var(--text-secondary)">${esc(h.text)}</div>`;
+    }).join('');
   } catch(e) { /* non-blocking */ }
 }
 

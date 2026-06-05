@@ -24,6 +24,8 @@ from app.models.interview import Interview, InterviewStatus
 from app.models.job import Job
 from app.models.outreach import OutreachChannel, OutreachLog, OutreachStatus, OutreachType
 from app.models.shortlist import ShortlistEntry, ShortlistStatus
+from app.models.conversation import Conversation
+from app.services.conversation_agent import converse
 from app.services.scheduling import generate_slots, propose_interview_slots
 from app.services.whatsapp_openclaw import is_negative, is_positive, send_whatsapp, _extract_phone
 from app.utils.logging import get_logger
@@ -209,27 +211,42 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                 return
             # No active proposal — fall through to AI classification
 
-        # ── AI intent classification ─────────────────────────────────────────
-        from app.services.ai_scoring import ai_classify_reply
-
+        # ── Conversation Agent (multi-turn, with memory) ─────────────────────
         salary_info = "No bar for the right candidate"
         if job.salary_min and job.salary_max:
             salary_info = f"₹{int(job.salary_min):,}–₹{int(job.salary_max):,}/month"
         elif job.salary_min:
             salary_info = f"₹{int(job.salary_min):,}+/month"
 
-        classification = await ai_classify_reply(
-            reply_text=body_text,
-            candidate_name=candidate.name,
-            job_title=job.title,
-            job_company=company,
-            job_location=job.location or "Surat, Gujarat",
-            job_salary_info=salary_info,
+        # Load (or start) the running conversation thread for this candidate+job
+        conv_res = await db.execute(
+            select(Conversation).where(
+                and_(
+                    Conversation.candidate_id == candidate.id,
+                    Conversation.job_id == entry.job_id,
+                )
+            )
+        )
+        conv = conv_res.scalars().first()
+        if not conv:
+            conv = Conversation(candidate_id=candidate.id, job_id=entry.job_id,
+                                collected={}, history=[], status="ACTIVE")
+            db.add(conv)
+
+        classification = await converse(
+            candidate=candidate,
+            job=job,
+            history=conv.history or [],
+            collected=conv.collected or {},
+            new_text=body_text,
+            salary_info=salary_info,
         )
 
         intent = classification.get("intent", "GENERAL")
-        auto_response = classification.get("auto_response", "")
-        logger.info("Reply intent for candidate %d: %s", candidate.id, intent)
+        auto_response = classification.get("reply", "")
+        needs_human = classification.get("needs_human", False)
+        new_collected = classification.get("collected", conv.collected or {})
+        logger.info("Reply intent for candidate %d: %s (needs_human=%s)", candidate.id, intent, needs_human)
 
         if intent == "INTERESTED":
             entry.status = ShortlistStatus.INTERESTED
@@ -324,6 +341,31 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
         else:
             # GENERAL or unrecognised — ask for clear YES/NO
             await send_whatsapp(phone_wa, auto_response, db=db)
+
+        # ── Persist conversation memory ──────────────────────────────────────
+        from datetime import datetime as _dt
+        now_iso = _dt.utcnow().isoformat()
+        outbound_summary = (
+            "(sent interview slot options)"
+            if intent in ("INTERESTED", "SCHEDULE_QUERY")
+            else (auto_response or "")
+        )
+        thread = list(conv.history or [])
+        thread.append({"dir": "in", "text": body_text[:600], "ts": now_iso})
+        if outbound_summary:
+            thread.append({"dir": "out", "text": outbound_summary[:600], "ts": now_iso})
+        conv.history = thread[-20:]   # keep the last 20 turns
+        conv.collected = new_collected
+        conv.last_intent = intent
+        conv.needs_human = bool(needs_human)
+        if intent in ("NOT_INTERESTED", "WITHDRAWAL"):
+            conv.status = "NOT_INTERESTED"
+        elif intent in ("INTERESTED", "SCHEDULE_QUERY"):
+            conv.status = "SCHEDULING"
+        elif needs_human:
+            conv.status = "NEEDS_HUMAN"
+        else:
+            conv.status = "ACTIVE"
 
         await db.commit()
 

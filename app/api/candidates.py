@@ -84,6 +84,29 @@ async def candidate_duplicates(candidate_id: int, db: AsyncSession = Depends(get
     return {"clusters": mine}
 
 
+@router.get("/{candidate_id}/conversation")
+async def candidate_conversation(candidate_id: int, db: AsyncSession = Depends(get_db)):
+    """Latest WhatsApp conversation thread + facts the agent has collected."""
+    from app.models.conversation import Conversation
+    res = await db.execute(
+        select(Conversation).where(Conversation.candidate_id == candidate_id)
+        .order_by(Conversation.updated_at.desc()).limit(1)
+    )
+    conv = res.scalars().first()
+    if not conv:
+        return {"exists": False}
+    return {
+        "exists": True,
+        "job_id": conv.job_id,
+        "status": conv.status,
+        "last_intent": conv.last_intent,
+        "needs_human": conv.needs_human,
+        "collected": conv.collected or {},
+        "history": conv.history or [],
+        "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+    }
+
+
 @router.post("/{candidate_id}/merge")
 async def merge_candidate(
     candidate_id: int, duplicate_id: int, db: AsyncSession = Depends(get_db)

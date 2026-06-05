@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Optional
 
 from app.models.candidate import Candidate
@@ -177,23 +178,38 @@ async def ai_classify_reply(
     # Fast keyword fallback (no API key needed)
     text_lower = reply_text.lower().strip()
 
-    positive_words = {"yes", "haan", "interested", "ok", "sure", "proceed", "agree",
-                      "ready", "available", "confirm", "please", "want", "join"}
-    negative_words = {"no", "nahi", "not interested", "withdraw", "leave", "quit",
-                      "stop", "remove", "don't", "dont", "nope", "cancel"}
-    salary_words = {"salary", "ctc", "pay", "package", "lakh", "k per", "compensation",
-                    "stipend", "hike", "offer", "money", "pay"}
+    # Explicit negatives — checked FIRST so "not interested" beats the "interested" token
+    strong_negatives = {"not interested", "not looking", "no thanks", "withdraw",
+                        "nahi", "nope", "cancel", "please remove", "don't contact"}
+    positive_words = {"yes", "haan", "interested", "ok", "okay", "sure", "proceed", "agree",
+                      "ready", "available", "confirm", "want", "join"}
+    lone_negatives = {"no", "stop", "quit", "remove"}
+    salary_words = {"salary", "ctc", "pay", "package", "lakh", "lpa", "compensation",
+                    "stipend", "hike", "money"}
     schedule_words = {"when", "time", "date", "slot", "schedule", "interview", "meet",
                       "call", "reschedule", "timing"}
 
+    def _kw(words: set) -> bool:
+        # Whole-word match for single words (so "no" doesn't match "notice"/"know"),
+        # substring match for multi-word phrases ("not interested").
+        for w in words:
+            if " " in w or "'" in w:
+                if w in text_lower:
+                    return True
+            elif re.search(r"\b" + re.escape(w) + r"\b", text_lower):
+                return True
+        return False
+
     keyword_intent = None
-    if any(w in text_lower for w in positive_words):
-        keyword_intent = "INTERESTED"
-    elif any(w in text_lower for w in negative_words):
+    if _kw(strong_negatives):
         keyword_intent = "NOT_INTERESTED"
-    elif any(w in text_lower for w in salary_words):
+    elif _kw(positive_words):
+        keyword_intent = "INTERESTED"
+    elif _kw(lone_negatives):
+        keyword_intent = "NOT_INTERESTED"
+    elif _kw(salary_words):
         keyword_intent = "SALARY_QUERY"
-    elif any(w in text_lower for w in schedule_words):
+    elif _kw(schedule_words):
         keyword_intent = "SCHEDULE_QUERY"
 
     if not settings.anthropic_api_key:

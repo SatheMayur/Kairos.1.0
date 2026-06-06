@@ -116,6 +116,7 @@ async def merge_candidate(
     from app.models.shortlist import ShortlistEntry
     from app.models.outreach import OutreachLog
     from app.models.interview import Interview
+    from app.models.conversation import Conversation
 
     if candidate_id == duplicate_id:
         raise HTTPException(status_code=400, detail="Cannot merge a candidate into itself.")
@@ -139,8 +140,9 @@ async def merge_candidate(
         else:
             entry.candidate_id = keep.id
 
-    # Move outreach + interview history
-    for Model in (OutreachLog, Interview):
+    # Move outreach + interview + conversation history (every table that FKs into
+    # candidates.id) so deleting the duplicate cannot orphan a row or violate the FK.
+    for Model in (OutreachLog, Interview, Conversation):
         rows = await db.execute(select(Model).where(Model.candidate_id == dupe.id))
         for r in rows.scalars().all():
             r.candidate_id = keep.id

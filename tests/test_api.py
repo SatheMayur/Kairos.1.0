@@ -137,3 +137,35 @@ async def test_list_outreach(client):
     r = await client.get("/api/v1/outreach")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+@pytest.mark.asyncio
+async def test_merge_reassigns_conversation(db_session):
+    """Merging a duplicate that has a WhatsApp conversation must move the
+    conversation to the kept record — otherwise deleting the duplicate hits a
+    foreign-key violation in Postgres (500) or orphans the row in SQLite."""
+    from sqlalchemy import select
+    from app.models.candidate import Candidate, CandidateSource
+    from app.models.conversation import Conversation
+    from app.api.candidates import merge_candidate
+
+    keep = Candidate(name="Ravi Shah", phone="9000011111", source=CandidateSource.NAUKRI)
+    dupe = Candidate(name="Ravi S.", phone="9000011111", source=CandidateSource.NAUKRI)
+    db_session.add_all([keep, dupe])
+    await db_session.flush()
+
+    db_session.add(Conversation(
+        candidate_id=dupe.id, job_id=1, collected={}, history=[], status="ACTIVE"
+    ))
+    await db_session.flush()
+
+    res = await merge_candidate(keep.id, dupe.id, db_session)
+    assert res["ok"] is True
+
+    convs = (await db_session.execute(select(Conversation))).scalars().all()
+    assert len(convs) == 1
+    assert convs[0].candidate_id == keep.id  # reassigned, not orphaned
+
+    cands = (await db_session.execute(select(Candidate))).scalars().all()
+    assert len(cands) == 1 and cands[0].id == keep.id
+

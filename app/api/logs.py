@@ -103,9 +103,10 @@ async def resolve_all(db: AsyncSession = Depends(get_db)):
 
 @router.delete("/errors")
 async def clear_errors(
-    older_than_days: int = Query(7, ge=1),
+    older_than_days: int = Query(7, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
+    """Delete error entries older than N days. older_than_days=0 clears all."""
     cutoff = datetime.utcnow() - timedelta(days=older_than_days)
     result = await db.execute(
         delete(ErrorLog).where(ErrorLog.logged_at < cutoff)

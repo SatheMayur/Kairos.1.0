@@ -50,6 +50,8 @@ async def cron_status():
         "time": datetime.utcnow().isoformat() + "Z",
         "env": settings.app_env,
         "auto_outreach": settings.auto_outreach_enabled,
+        "ai_enabled": bool(settings.anthropic_api_key),
+        "ai_model": settings.claude_model if settings.anthropic_api_key else None,
     }
 
 

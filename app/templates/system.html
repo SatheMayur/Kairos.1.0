@@ -69,9 +69,9 @@
     <div class="kpi-sub" id="wa-method">–</div>
   </div>
   <div class="kpi" id="apify-kpi">
-    <div class="kpi-label">Claude AI Model</div>
-    <div class="kpi-value" id="apify-status" style="font-size:18px">Sonnet</div>
-    <div class="kpi-sub" id="apify-method">claude-sonnet-4-6</div>
+    <div class="kpi-label">Claude AI Brain</div>
+    <div class="kpi-value" id="apify-status" style="font-size:18px">Checking…</div>
+    <div class="kpi-sub" id="apify-method">–</div>
   </div>
 </div>
 
@@ -325,9 +325,21 @@ async function loadSystemHealth() {
     waStatus.textContent = '?'; waMethod.textContent = 'Could not check';
   }
 
-  // Claude AI
+  // Claude AI — real check based on whether the API key is configured
   const apifyKpi = document.getElementById('apify-kpi');
-  apifyKpi.style.borderColor = 'rgba(52,211,153,.3)';
+  const aiStatus = document.getElementById('apify-status');
+  const aiMethod = document.getElementById('apify-method');
+  if (status && status.ai_enabled) {
+    aiStatus.textContent = '✅ Active';
+    aiStatus.style.color = '#34d399';
+    aiMethod.textContent = (status.ai_model || 'Claude') + ' — smart plans & replies on';
+    apifyKpi.style.borderColor = 'rgba(52,211,153,.3)';
+  } else {
+    aiStatus.textContent = '⚠️ Not switched on';
+    aiStatus.style.color = '#fbbf24';
+    aiMethod.textContent = 'Running on rule-based logic — add ANTHROPIC_API_KEY to enable Claude';
+    apifyKpi.style.borderColor = 'rgba(251,191,36,.3)';
+  }
 
   // DB counts
   const [cands, jobs, sl, ints] = await Promise.all([

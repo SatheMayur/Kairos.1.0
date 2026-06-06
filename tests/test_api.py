@@ -104,7 +104,7 @@ async def test_score_candidate_for_job(client):
 
 
 @pytest.mark.asyncio
-async def test_trigger_sourcing(client):
+async def test_trigger_sourcing(client, mock_adapters):
     job_r = await client.post("/api/v1/jobs", json={
         "title": "Python Dev",
         "skills": ["Python"],

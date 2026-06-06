@@ -8,6 +8,12 @@ from app.models.shortlist import ShortlistEntry
 from app.services.sourcing import source_candidates_for_job
 
 
+@pytest.fixture(autouse=True)
+def _use_mock_adapters(mock_adapters):
+    """All sourcing tests run against the mock adapters (see module docstring)."""
+    yield
+
+
 @pytest_asyncio.fixture
 async def sample_job(db_session):
     job = Job(

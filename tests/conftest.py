@@ -40,3 +40,16 @@ async def client(db_session):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def mock_adapters():
+    """Force the sourcing registry to mock adapters, regardless of .env settings.
+
+    Production sets USE_MOCK_ADAPTERS=false (candidates arrive via CSV import), so
+    without this the registry is empty and sourcing yields 0 candidates in tests.
+    """
+    from app.adapters import registry as reg
+    reg._registry = reg.build_registry(use_mock=True)
+    yield
+    reg.reset_registry()

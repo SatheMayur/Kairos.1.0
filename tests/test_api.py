@@ -169,3 +169,27 @@ async def test_merge_reassigns_conversation(db_session):
     cands = (await db_session.execute(select(Candidate))).scalars().all()
     assert len(cands) == 1 and cands[0].id == keep.id
 
+
+@pytest.mark.asyncio
+async def test_delete_candidate_with_history(db_session):
+    """Deleting a candidate with dependent rows must clear them too, not crash
+    on the foreign keys or leave orphans behind."""
+    from sqlalchemy import select
+    from app.models.candidate import Candidate, CandidateSource
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.models.conversation import Conversation
+    from app.api.candidates import delete_candidate
+
+    c = Candidate(name="Temp Person", phone="9111122223", source=CandidateSource.NAUKRI)
+    db_session.add(c)
+    await db_session.flush()
+    db_session.add(ShortlistEntry(job_id=1, candidate_id=c.id, score=50, status=ShortlistStatus.PENDING))
+    db_session.add(Conversation(candidate_id=c.id, job_id=1, collected={}, history=[], status="ACTIVE"))
+    await db_session.flush()
+
+    await delete_candidate(c.id, db_session)
+
+    assert (await db_session.execute(select(Candidate))).scalars().all() == []
+    assert (await db_session.execute(select(ShortlistEntry))).scalars().all() == []
+    assert (await db_session.execute(select(Conversation))).scalars().all() == []
+

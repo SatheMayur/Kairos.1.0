@@ -177,7 +177,17 @@ async def update_candidate(
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(candidate_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a candidate and all rows that reference it, so the delete can't
+    violate the foreign keys (Postgres 500) or orphan dependent rows."""
+    from sqlalchemy import delete as sa_delete
+    from app.models.shortlist import ShortlistEntry
+    from app.models.outreach import OutreachLog
+    from app.models.interview import Interview
+    from app.models.conversation import Conversation
+
     candidate = await _get_or_404(candidate_id, db)
+    for Model in (ShortlistEntry, OutreachLog, Interview, Conversation):
+        await db.execute(sa_delete(Model).where(Model.candidate_id == candidate_id))
     await db.delete(candidate)
 
 

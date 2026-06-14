@@ -276,15 +276,36 @@ async def wa_qr_image(db: AsyncSession = Depends(get_db)):
 
 @router.get("/connection")
 async def get_connection_status(db: AsyncSession = Depends(get_db)):
-    """Dashboard polls this to get QR data or connection status. No auth required."""
+    """Dashboard polls this for the *real* connection state. No auth required.
+
+    The stored status can say CONNECTED long after the bridge process died, so we
+    treat it as live only if it polled recently. Otherwise the bridge is actually
+    down (computer off / window closed) and nothing can send or receive — report
+    that honestly instead of a misleading green 'connected'.
+    """
     from app.models.wa_connection import WaConnection
     row = await db.get(WaConnection, 1)
     if not row:
-        return {"status": "DISCONNECTED", "qr_data": None}
+        return {"status": "DISCONNECTED", "qr_data": None, "live": False, "last_poll_at": None}
+
+    STALE_MINUTES = 3  # bridge polls every 3s; no poll in 3 min ⇒ process is dead
+    minutes_since = None
+    if row.last_poll_at:
+        minutes_since = (datetime.utcnow() - row.last_poll_at).total_seconds() / 60.0
+    live = row.status == "CONNECTED" and minutes_since is not None and minutes_since <= STALE_MINUTES
+
+    effective = row.status
+    if row.status == "CONNECTED" and not live:
+        # Recorded as connected but not actually polling — the bridge is offline.
+        effective = "DISCONNECTED"
+
     return {
-        "status": row.status,
+        "status": effective,
         "qr_data": row.qr_data,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "last_poll_at": row.last_poll_at.isoformat() if row.last_poll_at else None,
+        "minutes_since_poll": round(minutes_since, 1) if minutes_since is not None else None,
+        "live": live,
     }
 
 

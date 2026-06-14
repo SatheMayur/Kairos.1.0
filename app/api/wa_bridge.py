@@ -92,15 +92,20 @@ async def inbound_message(
 ):
     """Bridge POSTs inbound WhatsApp messages here. Re-routes to webhook handler."""
     from app.api.webhook import _handle_inbound
-    import asyncio
     from_jid = payload.get("from", "")
     body_text = payload.get("body", "").strip()
     session = payload.get("session", "default")
     if not from_jid or not body_text:
         return {"status": "ignored"}
-    # Run async in background — return 200 immediately
-    asyncio.create_task(_handle_inbound(from_jid, body_text, session))
-    return {"status": "queued"}
+    # Process inline — do NOT fire-and-forget. On serverless the function is frozen
+    # the moment it returns, so a detached asyncio task would never finish and the
+    # auto-reply would never be sent. The handler is fast (DB ops + queue insert).
+    try:
+        await _handle_inbound(from_jid, body_text, session)
+    except Exception as exc:
+        logger.error("Inbound handler failed for %s: %s", from_jid, exc)
+        return {"status": "error"}
+    return {"status": "processed"}
 
 
 @router.get("/status")

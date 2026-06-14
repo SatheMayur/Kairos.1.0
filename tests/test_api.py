@@ -193,3 +193,52 @@ async def test_delete_candidate_with_history(db_session):
     assert (await db_session.execute(select(ShortlistEntry))).scalars().all() == []
     assert (await db_session.execute(select(Conversation))).scalars().all() == []
 
+
+@pytest.mark.asyncio
+async def test_inbound_auto_reply_is_processed_inline(tmp_path, monkeypatch):
+    """An inbound candidate reply must produce a queued auto-reply synchronously.
+
+    Regression guard: the handler used to run as a detached asyncio task and
+    returned immediately, so on serverless (frozen after response) the auto-reply
+    was never sent. inbound_message must AWAIT the handler.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession as _AS
+    from app.database import Base
+    from app.models.candidate import Candidate, CandidateSource
+    from app.models.job import Job, JobStatus
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.models.wa_queue import WAQueue
+    import app.api.webhook as webhook
+    from app.api.wa_bridge import inbound_message
+
+    db_file = tmp_path / "inbound.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_file}")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, class_=_AS, expire_on_commit=False)
+
+    async with Session() as s:
+        job = Job(title="Sr. Graphic Designer", company="Facets", location="Surat", status=JobStatus.ACTIVE)
+        s.add(job); await s.flush()
+        cand = Candidate(name="Kavya Rao", phone="9753124680", whatsapp="9753124680",
+                         source=CandidateSource.NAUKRI)
+        s.add(cand); await s.flush()
+        s.add(ShortlistEntry(job_id=job.id, candidate_id=cand.id, score=72,
+                             status=ShortlistStatus.CONTACTED))
+        await s.commit()
+
+    # The handler opens its own session via AsyncSessionLocal — point it at our DB.
+    monkeypatch.setattr(webhook, "AsyncSessionLocal", Session)
+
+    result = await inbound_message(
+        {"from": "919753124680@c.us", "body": "what is the salary?", "session": "default"}
+    )
+    assert result["status"] == "processed"
+
+    # An auto-reply must have been queued by the time the call returned.
+    async with Session() as s:
+        queued = (await s.execute(select(WAQueue))).scalars().all()
+    assert len(queued) >= 1
+    assert "9753124680" in queued[0].phone
+

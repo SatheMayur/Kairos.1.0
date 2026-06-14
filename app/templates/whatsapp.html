@@ -234,6 +234,21 @@
       </div>
     </div>
 
+    <!-- Unmatched incoming messages -->
+    <div class="card" id="wa-unmatched-card" style="margin-bottom:0;display:none">
+      <div class="card-header">
+        <span class="card-title">📥 Couldn't Match</span>
+        <span class="badge badge-yellow" id="wa-unmatched-count" style="font-size:10px"></span>
+      </div>
+      <div class="card-body">
+        <p class="text-sm text-muted" style="margin-bottom:10px;line-height:1.5">
+          These people messaged on WhatsApp but we couldn't link them to a candidate
+          (often a new number). Follow up with them directly.
+        </p>
+        <div id="wa-unmatched-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -250,7 +265,39 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function waLoadAll() {
-  await Promise.all([waPollConnection(), waLoadStats(), waLoadConversations()]);
+  await Promise.all([waPollConnection(), waLoadStats(), waLoadConversations(), waLoadUnmatched()]);
+}
+
+// Incoming messages we couldn't link to a candidate (e.g. WhatsApp privacy IDs).
+// Surfaced so no candidate is ever silently lost.
+async function waLoadUnmatched() {
+  try {
+    const t = await fetch('/api/v1/wa/inbound-trace').then(r => r.json());
+    const received = {};
+    t.forEach(e => {
+      if (e.step === 'RECEIVED') {
+        const m = (e.detail || '').match(/^from (\S+)[^:]*:\s*(.*)$/);
+        if (m && !received[m[1]]) received[m[1]] = { msg: m[2], at: e.at };
+      }
+    });
+    const seen = new Set(); const unmatched = [];
+    t.forEach(e => {
+      if (e.step === 'NO_CANDIDATE') {
+        const m = (e.detail || '').match(/phone (\S+)/);
+        if (m && !seen.has(m[1])) { seen.add(m[1]); unmatched.push({ phone: m[1], ...(received[m[1]] || {}) }); }
+      }
+    });
+    const card = document.getElementById('wa-unmatched-card');
+    if (!unmatched.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    document.getElementById('wa-unmatched-count').textContent = unmatched.length;
+    document.getElementById('wa-unmatched-list').innerHTML = unmatched.slice(0, 8).map(u => `
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:8px 10px">
+        <div style="font-family:monospace;font-size:11.5px;color:var(--text-primary)">${esc(u.phone)}</div>
+        ${u.msg ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">"${esc(u.msg.slice(0, 80))}"</div>` : ''}
+        <a href="https://wa.me/${esc((u.phone || '').replace(/\D/g, ''))}" target="_blank" class="btn btn-secondary btn-sm" style="margin-top:6px;width:100%;justify-content:center">Open in WhatsApp</a>
+      </div>`).join('');
+  } catch (e) { /* non-blocking */ }
 }
 
 // ─── Connection status ─────────────────────────────────────────────────────

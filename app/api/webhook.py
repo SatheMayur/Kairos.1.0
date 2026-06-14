@@ -112,7 +112,65 @@ async def _trace(db, status: str, detail: str):
         logger.warning("inbound trace failed: %s", exc)
 
 
-async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: str | None = None):
+async def _front_desk(db, phone_10: str, body_text: str, push_name: str | None):
+    """HR front desk for people not yet in the system. Like a real employee, it
+    answers anyone who messages — but only ENGAGES (and creates a lead) when the AI
+    judges it's a genuine job inquiry, so it never auto-replies to spam, vendors,
+    or personal contacts. Without an AI provider it stays silent (just flags)."""
+    from app.services.llm import llm_provider, llm_json
+    from app.models.job import Job, JobStatus
+
+    if llm_provider() == "none":
+        await _trace(db, "NO_CANDIDATE", f"phone {phone_10} not matched (front desk needs AI)")
+        return
+
+    jobs = (await db.execute(select(Job).where(Job.status == JobStatus.ACTIVE))).scalars().all()
+    roles = ", ".join(j.title for j in jobs) or "various roles"
+
+    prompt = f"""You are the HR front desk for K. Girdharlal International, a diamond manufacturer in Surat.
+Someone NOT in our system messaged the company WhatsApp. Open roles: {roles}.
+Their WhatsApp name: {push_name or 'unknown'}
+Their message: "{body_text}"
+
+Decide if this is a genuine job-seeker / recruitment inquiry — NOT spam, a forward, a vendor,
+or personal chatter. If yes, write a warm, short WhatsApp reply: greet them, say we're hiring for
+{roles}, and ask which role interests them plus their name, current role and total experience.
+
+Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>", "reply": "<reply or empty>"}}"""
+
+    r = await llm_json(prompt, max_tokens=400)
+    if not r or not r.get("is_jobseeker") or not r.get("reply"):
+        await _trace(db, "NO_CANDIDATE", f"phone {phone_10}: not a job inquiry — left for human review")
+        return
+
+    from app.models.candidate import Candidate, CandidateSource
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.models.conversation import Conversation
+
+    name = (r.get("name") or push_name or "WhatsApp Lead").strip()[:120]
+    cand = Candidate(name=name, phone=phone_10, whatsapp=phone_10, source=CandidateSource.MANUAL)
+    db.add(cand)
+    await db.flush()
+
+    # Put the new lead into the pipeline so the recruiter sees them. Attach to the
+    # first open role as a placeholder; the greeting asks which role they actually want.
+    if jobs:
+        db.add(ShortlistEntry(job_id=jobs[0].id, candidate_id=cand.id, score=0,
+                              status=ShortlistStatus.PENDING))
+        db.add(Conversation(
+            candidate_id=cand.id, job_id=jobs[0].id, collected={}, status="ACTIVE",
+            last_intent="GENERAL",
+            history=[{"dir": "in", "text": body_text[:300]},
+                     {"dir": "out", "text": r["reply"][:300]}],
+        ))
+
+    await send_whatsapp(phone_10, r["reply"], db=db)
+    await _trace(db, "LEAD_CREATED", f"new lead #{cand.id} ({name}) from {phone_10}")
+    await db.commit()
+
+
+async def _handle_inbound(from_jid: str, body_text: str, session: str,
+                          raw_jid: str | None = None, push_name: str | None = None):
     """Core logic — runs in background after 200 is returned to WAHA.
 
     Uses Claude AI to classify the reply intent, then auto-responds accordingly.
@@ -144,7 +202,8 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: 
         )
         candidate = result.scalars().first()
         if not candidate:
-            await _trace(db, "NO_CANDIDATE", f"phone {phone_10} not matched to any candidate")
+            # Unknown sender → HR front desk: greet & capture genuine job-seekers.
+            await _front_desk(db, phone_10, body_text, push_name)
             return
 
         # Prefer an active entry, but fall back to the most recent entry of ANY

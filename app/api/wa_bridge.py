@@ -108,6 +108,20 @@ async def inbound_message(
     return {"status": "processed"}
 
 
+@router.get("/inbound-trace")
+async def wa_inbound_trace(db: AsyncSession = Depends(get_db)):
+    """Recent inbound-handling steps — shows whether replies arrive and how they're handled."""
+    from app.models.watchdog import WatchdogLog
+    res = await db.execute(
+        select(WatchdogLog).where(WatchdogLog.check_name == "wa_inbound")
+        .order_by(WatchdogLog.ran_at.desc()).limit(25)
+    )
+    return [
+        {"at": r.ran_at.isoformat() if r.ran_at else None, "step": r.status, "detail": r.detail}
+        for r in res.scalars().all()
+    ]
+
+
 @router.get("/status")
 async def bridge_status(_: None = Depends(_auth)):
     """Returns 200 if the bridge API is reachable (used by bridge health check)."""

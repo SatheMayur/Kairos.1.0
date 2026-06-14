@@ -98,6 +98,20 @@ def _clean_phone(chat_id: str) -> str:
     return digits[-10:]     # fallback: last 10
 
 
+async def _trace(db, status: str, detail: str):
+    """Record an inbound-handling step so it's visible even with LOG_LEVEL=WARNING.
+
+    Written to watchdog_log (check_name='wa_inbound') and committed immediately,
+    so early-return paths still leave a trail. Readable at GET /wa/inbound-trace.
+    """
+    try:
+        from app.models.watchdog import WatchdogLog
+        db.add(WatchdogLog(check_name="wa_inbound", status=status, detail=(detail or "")[:480]))
+        await db.commit()
+    except Exception as exc:
+        logger.warning("inbound trace failed: %s", exc)
+
+
 async def _handle_inbound(from_jid: str, body_text: str, session: str):
     """Core logic — runs in background after 200 is returned to WAHA.
 
@@ -108,6 +122,8 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
     logger.info("Inbound WhatsApp from %s (%s): %r", from_jid, phone_10, body_text[:80])
 
     async with AsyncSessionLocal() as db:
+        await _trace(db, "RECEIVED", f"from {phone_10}: {body_text[:120]}")
+
         # Find candidate by phone (match last 10 digits)
         result = await db.execute(
             select(Candidate).where(
@@ -119,10 +135,11 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
         )
         candidate = result.scalars().first()
         if not candidate:
-            logger.info("No candidate found for phone %s — ignoring", phone_10)
+            await _trace(db, "NO_CANDIDATE", f"phone {phone_10} not matched to any candidate")
             return
 
-        # Find their active shortlist entry
+        # Prefer an active entry, but fall back to the most recent entry of ANY
+        # status so a genuine reply is never silently dropped on a technicality.
         sl_res = await db.execute(
             select(ShortlistEntry)
             .where(
@@ -132,6 +149,8 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
                         ShortlistStatus.CONTACTED,
                         ShortlistStatus.INTERESTED,
                         ShortlistStatus.SHORTLISTED,
+                        ShortlistStatus.INTERVIEW_SCHEDULED,
+                        ShortlistStatus.PENDING,
                     ]),
                 )
             )
@@ -139,7 +158,15 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
         )
         entry = sl_res.scalars().first()
         if not entry:
-            logger.info("Candidate %d has no active shortlist entry — ignoring reply", candidate.id)
+            any_res = await db.execute(
+                select(ShortlistEntry)
+                .where(ShortlistEntry.candidate_id == candidate.id)
+                .order_by(ShortlistEntry.created_at.desc())
+            )
+            entry = any_res.scalars().first()
+        if not entry:
+            await _trace(db, "NO_ENTRY",
+                         f"candidate {candidate.id} ({candidate.name}) has no shortlist entry")
             return
 
         job_res = await db.execute(select(Job).where(Job.id == entry.job_id))
@@ -163,7 +190,8 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
             last_log.reply_text = body_text[:500]
 
         phone_wa = candidate.whatsapp or candidate.phone or ""
-        first_name = candidate.name.split()[0]
+        name_parts = (candidate.name or "").split()
+        first_name = name_parts[0] if name_parts else "there"
         company = job.company or "K. Girdharlal International"
 
         # ── Slot number check first (fastest path, no AI needed) ────────────
@@ -247,6 +275,8 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
         needs_human = classification.get("needs_human", False)
         new_collected = classification.get("collected", conv.collected or {})
         logger.info("Reply intent for candidate %d: %s (needs_human=%s)", candidate.id, intent, needs_human)
+        await _trace(db, "HANDLED",
+                     f"candidate {candidate.id} ({candidate.name}) intent={intent} -> replying")
 
         if intent == "INTERESTED":
             entry.status = ShortlistStatus.INTERESTED

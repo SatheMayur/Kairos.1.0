@@ -127,6 +127,12 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: 
             raw_note = f" (raw {raw_jid})"
         await _trace(db, "RECEIVED", f"from {phone_10}{raw_note}: {body_text[:110]}")
 
+        # Guard: broadcasts / status / malformed senders have no real number.
+        # Without this, an empty phone makes the LIKE query match a random candidate.
+        if len(phone_10) < 8 or from_jid.endswith("@broadcast") or "broadcast" in (from_jid or "").lower():
+            await _trace(db, "IGNORED", f"non-personal sender ({(from_jid or '')[:40]})")
+            return
+
         # Find candidate by phone (match last 10 digits)
         result = await db.execute(
             select(Candidate).where(

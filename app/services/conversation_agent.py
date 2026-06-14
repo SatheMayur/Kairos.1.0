@@ -53,6 +53,60 @@ def _format_history(history: list, limit: int = 10) -> str:
     return "\n".join(lines) if lines else "(no earlier messages)"
 
 
+def _recruiter_fallback(candidate, job, collected: dict, intent: str,
+                        salary_info: str) -> tuple[str, str, dict]:
+    """Rule-based recruiter behaviour (no API key): screen BEFORE scheduling.
+
+    Returns (reply, action, collected). action ∈ ask_info | schedule | close | answer.
+    A real recruiter acknowledges interest, collects CTC / notice / location, and
+    only then offers interview slots — it never jumps straight to 'pick a slot'.
+    """
+    name = (candidate.name or "").strip()
+    first = name.split()[0] if name else "there"
+    title = job.title
+
+    if intent in ("NOT_INTERESTED", "WITHDRAWAL"):
+        return (
+            f"No problem at all, {first} — thank you for letting me know. "
+            f"I'll keep your profile on file and reach out if a better-suited role comes up. "
+            f"Wishing you all the best! 🙏",
+            "close", collected,
+        )
+
+    asked = bool(collected.get("_asked"))
+    have_core = bool(collected.get("expected_ctc") or collected.get("current_ctc")) \
+        and bool(collected.get("notice_period"))
+
+    screening = (
+        f"To take this forward for the *{title}* role, could you share a few quick details:\n"
+        f"• Current CTC\n• Expected CTC\n• Notice period\n• Current location\n\n"
+        f"This helps me line up the right next step for you. 😊"
+    )
+
+    if intent == "SALARY_QUERY" and not asked:
+        collected["_asked"] = True
+        return (
+            f"Happy to help, {first}! 💰 For the *{title}* role, the salary is: {salary_info}. "
+            f"The final offer depends on your experience and how the interview goes.\n\n{screening}",
+            "ask_info", collected,
+        )
+
+    if not asked and not have_core:
+        collected["_asked"] = True
+        return (
+            f"Hi {first}, wonderful to hear you're interested! 🎉\n\n{screening}",
+            "ask_info", collected,
+        )
+
+    # We've already screened (or the candidate volunteered the key details) →
+    # acknowledge and move to scheduling. The webhook appends the actual slots.
+    return (
+        f"Thank you, {first} — that's really helpful! 🙌 Based on this you look like a "
+        f"strong fit for the *{title}* role, so let's set up a short interview.",
+        "schedule", collected,
+    )
+
+
 async def converse(
     *,
     candidate,
@@ -71,7 +125,7 @@ async def converse(
     # Always run cheap extraction so facts accumulate even on the fallback path.
     collected.update(_extract_fields(new_text))
 
-    # ── Fallback (no API key): reuse the existing keyword classifier ──────────
+    # ── Fallback (no API key): keyword intent + recruiter screening flow ──────
     if not settings.anthropic_api_key:
         from app.services.ai_scoring import ai_classify_reply
         c = await ai_classify_reply(
@@ -82,11 +136,13 @@ async def converse(
             job_location=job.location or "Surat, Gujarat",
             job_salary_info=salary_info,
         )
+        intent = c.get("intent", "GENERAL")
+        reply, action, collected = _recruiter_fallback(
+            candidate, job, collected, intent, salary_info
+        )
         return {
-            "intent": c.get("intent", "GENERAL"),
-            "reply": c.get("auto_response", ""),
-            "collected": collected,
-            "needs_human": c.get("needs_human", False),
+            "intent": intent, "reply": reply, "action": action,
+            "collected": collected, "needs_human": c.get("needs_human", False),
         }
 
     # ── Reasoning path: Claude over the full thread ───────────────────────────
@@ -99,12 +155,23 @@ async def converse(
 a diamond manufacturer in Surat. You are chatting with a candidate, {candidate.name}, about the \
 *{job.title}* role (location: {job.location or 'Surat'}; salary: {salary_info}).
 
-Your goals, in order:
-1. Be warm, brief (WhatsApp style, under 110 words), and human. Use their first name ({first}).
+You behave like a real HR recruiter — warm, professional, and you SCREEN before scheduling.
+
+Your flow, in order:
+1. Be warm, brief (WhatsApp style, under 110 words), human. Use their first name ({first}).
 2. Answer any question they ask using the role facts above.
-3. Naturally collect anything still missing: expected CTC, current CTC, notice period, location, availability.
-4. If they're keen and you have enough info, encourage them toward an interview (we'll send slots separately).
-5. If the message is confusing, emotional, a complaint, or something you shouldn't answer, set needs_human true and reply gently that a team member will follow up.
+3. Before scheduling an interview, make sure you have these screening details:
+   current CTC, expected CTC, notice period, current location. Ask for whatever is missing.
+   Do NOT offer interview slots until you have them.
+4. Once you have those details (or they're clearly already provided), move to scheduling.
+5. If the message is confusing, emotional, a complaint, or something you shouldn't answer,
+   set needs_human true and reply gently that a colleague will follow up.
+
+Choose an action:
+- "ask_info"  : still missing screening details → ask for them (most common early on)
+- "schedule"  : you have the screening details → encourage the interview (slots are added automatically)
+- "answer"    : just answering a question / general chit-chat, not ready to schedule
+- "close"     : they declined or withdrew
 
 What we already know (do NOT ask again): {json.dumps(collected) if collected else '(nothing yet)'}
 
@@ -117,6 +184,7 @@ Candidate's new message:
 Return ONLY valid JSON:
 {{
   "intent": "<INTERESTED|NOT_INTERESTED|SALARY_QUERY|SCHEDULE_QUERY|MORE_INFO|WITHDRAWAL|GENERAL>",
+  "action": "<ask_info|schedule|answer|close>",
   "reply": "<your WhatsApp reply, plain text>",
   "collected": {{"expected_ctc": "", "current_ctc": "", "notice_period": "", "location": "", "availability": ""}},
   "needs_human": <true|false>
@@ -140,11 +208,17 @@ In "collected", only include keys you are confident about (merge with what we kn
             if k in COLLECT_KEYS and v:
                 merged[k] = v
 
-        logger.info("Conversation agent: candidate=%s intent=%s needs_human=%s",
-                    candidate.name, result.get("intent"), result.get("needs_human"))
+        action = result.get("action")
+        if action not in ("ask_info", "schedule", "answer", "close"):
+            # Derive a safe action if the model omitted it.
+            it = result.get("intent", "GENERAL")
+            action = "close" if it in ("NOT_INTERESTED", "WITHDRAWAL") else "answer"
+        logger.info("Conversation agent: candidate=%s intent=%s action=%s",
+                    candidate.name, result.get("intent"), action)
         return {
             "intent": result.get("intent", "GENERAL"),
             "reply": result.get("reply", ""),
+            "action": action,
             "collected": merged,
             "needs_human": bool(result.get("needs_human", False)),
         }
@@ -160,9 +234,11 @@ In "collected", only include keys you are confident about (merge with what we kn
             job_location=job.location or "Surat, Gujarat",
             job_salary_info=salary_info,
         )
+        intent = c.get("intent", "GENERAL")
+        reply, action, collected = _recruiter_fallback(
+            candidate, job, collected, intent, salary_info
+        )
         return {
-            "intent": c.get("intent", "GENERAL"),
-            "reply": c.get("auto_response", ""),
-            "collected": collected,
-            "needs_human": c.get("needs_human", False),
+            "intent": intent, "reply": reply, "action": action,
+            "collected": collected, "needs_human": c.get("needs_human", False),
         }

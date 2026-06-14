@@ -274,18 +274,24 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: 
         )
 
         intent = classification.get("intent", "GENERAL")
+        action = classification.get("action", "answer")
         auto_response = classification.get("reply", "")
         needs_human = classification.get("needs_human", False)
         new_collected = classification.get("collected", conv.collected or {})
-        logger.info("Reply intent for candidate %d: %s (needs_human=%s)", candidate.id, intent, needs_human)
+        logger.info("Reply for candidate %d: intent=%s action=%s", candidate.id, intent, action)
         await _trace(db, "HANDLED",
-                     f"candidate {candidate.id} ({candidate.name}) intent={intent} -> replying")
+                     f"candidate {candidate.id} ({candidate.name}) intent={intent} action={action}")
 
-        if intent == "INTERESTED":
+        # ── Act on the recruiter agent's decision ───────────────────────────
+        # The agent screens first (asks CTC / notice / location) and only chooses
+        # "schedule" once it has enough — so we never jump straight to slots.
+        if action == "close":
+            entry.status = ShortlistStatus.NOT_INTERESTED
+            await send_whatsapp(phone_wa, auto_response, db=db)
+
+        elif action == "schedule":
             entry.status = ShortlistStatus.INTERESTED
             await db.flush()
-
-            # Check if slots already proposed
             existing = await db.execute(
                 select(Interview).where(
                     and_(
@@ -298,8 +304,8 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: 
             if existing.scalars().first():
                 await send_whatsapp(
                     phone_wa,
-                    f"Hi {first_name}, great! I already sent you interview slot options — "
-                    f"please check and reply with *1*, *2*, or *3* to confirm your preferred slot.",
+                    f"{auto_response}\n\nI've already shared a few interview slots — "
+                    f"please reply with *1*, *2*, or *3* to confirm your preferred time.",
                     db=db,
                 )
             else:
@@ -310,78 +316,29 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: 
                 )
                 await send_whatsapp(
                     phone_wa,
-                    f"Hi {first_name}, that's wonderful! 🎉\n\n"
-                    f"Here are 3 available slots for your *{job.title}* interview at {company}:\n\n"
-                    f"{slot_lines}\n\n"
+                    f"{auto_response}\n\nHere are 3 available slots for your *{job.title}* "
+                    f"interview at {company}:\n\n{slot_lines}\n\n"
                     f"Reply with *1*, *2*, or *3* to confirm your preferred slot.",
                     db=db,
                 )
                 try:
                     await propose_interview_slots(
-                        candidate=candidate,
-                        job=job,
-                        channel=OutreachChannel.WHATSAPP,
-                        db=db,
-                        slots=slots,
+                        candidate=candidate, job=job,
+                        channel=OutreachChannel.WHATSAPP, db=db, slots=slots,
                     )
                 except Exception as exc:
                     logger.warning("Could not create interview record: %s", exc)
 
-        elif intent == "NOT_INTERESTED" or intent == "WITHDRAWAL":
-            entry.status = ShortlistStatus.NOT_INTERESTED
-            await send_whatsapp(phone_wa, auto_response, db=db)
-
-        elif intent == "SALARY_QUERY":
-            # Send salary info, then re-ask interest
-            await send_whatsapp(phone_wa, auto_response, db=db)
-
-        elif intent == "SCHEDULE_QUERY":
-            # They're asking about timing — treat as interested, send slots
-            entry.status = ShortlistStatus.INTERESTED
-            await db.flush()
-            existing = await db.execute(
-                select(Interview).where(
-                    and_(
-                        Interview.candidate_id == candidate.id,
-                        Interview.job_id == entry.job_id,
-                        Interview.status == InterviewStatus.PROPOSED,
-                    )
-                )
-            )
-            if existing.scalars().first():
-                await send_whatsapp(phone_wa, auto_response, db=db)
-            else:
-                slots = generate_slots(days_ahead=3, num_slots=3)
-                slot_lines = "\n".join(
-                    f"  {i+1}. {s.strftime('%A %d %b, %I:%M %p IST')}"
-                    for i, s in enumerate(slots)
-                )
-                await send_whatsapp(
-                    phone_wa,
-                    f"Hi {first_name}! Here are 3 available slots for your *{job.title}* interview:\n\n"
-                    f"{slot_lines}\n\n"
-                    f"Reply with *1*, *2*, or *3* to confirm. 📅",
-                    db=db,
-                )
-                try:
-                    await propose_interview_slots(candidate=candidate, job=job, channel=OutreachChannel.WHATSAPP, db=db, slots=slots)
-                except Exception as exc:
-                    logger.warning("Slot proposal error: %s", exc)
-
-        elif intent == "MORE_INFO":
-            await send_whatsapp(phone_wa, auto_response, db=db)
-
-        else:
-            # GENERAL or unrecognised — ask for clear YES/NO
+        else:  # ask_info / answer — screen or answer, but do NOT schedule yet
+            if intent in ("INTERESTED", "SCHEDULE_QUERY", "SALARY_QUERY", "MORE_INFO"):
+                entry.status = ShortlistStatus.INTERESTED
             await send_whatsapp(phone_wa, auto_response, db=db)
 
         # ── Persist conversation memory ──────────────────────────────────────
         from datetime import datetime as _dt
         now_iso = _dt.utcnow().isoformat()
         outbound_summary = (
-            "(sent interview slot options)"
-            if intent in ("INTERESTED", "SCHEDULE_QUERY")
-            else (auto_response or "")
+            "(sent interview slot options)" if action == "schedule" else (auto_response or "")
         )
         thread = list(conv.history or [])
         thread.append({"dir": "in", "text": body_text[:600], "ts": now_iso})
@@ -391,9 +348,9 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: 
         conv.collected = new_collected
         conv.last_intent = intent
         conv.needs_human = bool(needs_human)
-        if intent in ("NOT_INTERESTED", "WITHDRAWAL"):
+        if action == "close":
             conv.status = "NOT_INTERESTED"
-        elif intent in ("INTERESTED", "SCHEDULE_QUERY"):
+        elif action == "schedule":
             conv.status = "SCHEDULING"
         elif needs_human:
             conv.status = "NEEDS_HUMAN"

@@ -55,7 +55,7 @@ def _extract_json(text: str) -> dict:
 
 
 async def _call_gemini(prompt: str, max_tokens: int, s) -> str:
-    model = s.gemini_model or "gemini-2.0-flash"
+    model = s.gemini_model or "gemini-2.5-flash"
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={s.gemini_api_key}"
@@ -66,6 +66,9 @@ async def _call_gemini(prompt: str, max_tokens: int, s) -> str:
             "maxOutputTokens": max_tokens,
             "temperature": 0.4,
             "responseMimeType": "application/json",
+            # Disable "thinking" so the token budget goes to the answer (Gemini 2.5
+            # otherwise spends tokens thinking and can truncate the JSON).
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
     async with httpx.AsyncClient(timeout=20) as client:

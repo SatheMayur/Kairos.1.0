@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     claude_model: str = "claude-haiku-4-5-20251001"  # fast + cheap for high-volume scoring
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"           # fast + free-tier friendly
+    gemini_model: str = "gemini-2.5-flash"           # current, fast, free-tier friendly
 
     # Digest notifications
     digest_recipient_email: str = "kirti@kgirdharlal.com"

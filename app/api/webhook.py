@@ -330,9 +330,15 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: 
                     logger.warning("Could not create interview record: %s", exc)
 
         else:  # ask_info / answer — screen or answer, but do NOT schedule yet
-            if intent in ("INTERESTED", "SCHEDULE_QUERY", "SALARY_QUERY", "MORE_INFO"):
-                entry.status = ShortlistStatus.INTERESTED
-            await send_whatsapp(phone_wa, auto_response, db=db)
+            already_escalated = (conv.status == "NEEDS_HUMAN")
+            if needs_human and already_escalated:
+                # Already handed to a human on a previous turn — stay silent so we
+                # don't keep repeating the same message. Let Kirti take over.
+                auto_response = ""
+            else:
+                if not needs_human and intent in ("INTERESTED", "SCHEDULE_QUERY", "SALARY_QUERY", "MORE_INFO"):
+                    entry.status = ShortlistStatus.INTERESTED
+                await send_whatsapp(phone_wa, auto_response, db=db)
 
         # ── Persist conversation memory ──────────────────────────────────────
         from datetime import datetime as _dt

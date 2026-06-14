@@ -53,29 +53,52 @@ def _format_history(history: list, limit: int = 10) -> str:
     return "\n".join(lines) if lines else "(no earlier messages)"
 
 
+_OBJECTION_MARKERS = (
+    "didn't apply", "didnt apply", "did not apply", "never applied", "not apply",
+    "wrong number", "wrong person", "not me", "who is this", "how did you get",
+    "by mistake", "not mayur", "don't know", "dont know", "not looking",
+)
+
+
 def _recruiter_fallback(candidate, job, collected: dict, intent: str,
-                        salary_info: str) -> tuple[str, str, dict]:
+                        salary_info: str, new_text: str) -> tuple[str, str, dict, bool]:
     """Rule-based recruiter behaviour (no API key): screen BEFORE scheduling.
 
-    Returns (reply, action, collected). action ∈ ask_info | schedule | close | answer.
-    A real recruiter acknowledges interest, collects CTC / notice / location, and
-    only then offers interview slots — it never jumps straight to 'pick a slot'.
+    Returns (reply, action, collected, needs_human). action ∈ ask_info | schedule
+    | close | answer. Rules cannot truly understand free text, so anything that
+    looks like an objection/confusion is handed to a human instead of forced
+    down the scheduling path — and the bot never repeats the same line.
     """
     name = (candidate.name or "").strip()
     first = name.split()[0] if name else "there"
     title = job.title
+    text = (new_text or "").lower()
 
     if intent in ("NOT_INTERESTED", "WITHDRAWAL"):
         return (
             f"No problem at all, {first} — thank you for letting me know. "
             f"I'll keep your profile on file and reach out if a better-suited role comes up. "
             f"Wishing you all the best! 🙏",
-            "close", collected,
+            "close", collected, False,
+        )
+
+    # Objection / wrong-person / confusion — rules can't reason about these, so
+    # escalate to a human rather than barrelling on to scheduling.
+    if any(m in text for m in _OBJECTION_MARKERS):
+        return (
+            f"Apologies for any confusion, {first} 🙏 — let me have someone from our HR team "
+            f"look into this and get back to you personally. Thank you for flagging it.",
+            "answer", collected, True,
         )
 
     asked = bool(collected.get("_asked"))
+    asks = int(collected.get("_asks", 0))
     have_core = bool(collected.get("expected_ctc") or collected.get("current_ctc")) \
         and bool(collected.get("notice_period"))
+    gave_info = bool(re.search(r"\d", text)) or any(
+        w in text for w in ("lpa", "lakh", "ctc", "notice", "immediate", "month",
+                            "surat", "relocat", "yes", "sure", "ok", "ready", "interested")
+    )
 
     screening = (
         f"To take this forward for the *{title}* role, could you share a few quick details:\n"
@@ -85,25 +108,42 @@ def _recruiter_fallback(candidate, job, collected: dict, intent: str,
 
     if intent == "SALARY_QUERY" and not asked:
         collected["_asked"] = True
+        collected["_asks"] = asks + 1
         return (
             f"Happy to help, {first}! 💰 For the *{title}* role, the salary is: {salary_info}. "
             f"The final offer depends on your experience and how the interview goes.\n\n{screening}",
-            "ask_info", collected,
+            "ask_info", collected, False,
         )
 
-    if not asked and not have_core:
+    if not asked:
         collected["_asked"] = True
+        collected["_asks"] = asks + 1
         return (
             f"Hi {first}, wonderful to hear you're interested! 🎉\n\n{screening}",
-            "ask_info", collected,
+            "ask_info", collected, False,
         )
 
-    # We've already screened (or the candidate volunteered the key details) →
-    # acknowledge and move to scheduling. The webhook appends the actual slots.
+    # Already screened once. Only schedule if they actually gave info / agreed.
+    if have_core or gave_info:
+        return (
+            f"Thank you, {first} — that's really helpful! 🙌 Based on this you look like a "
+            f"strong fit for the *{title}* role, so let's set up a short interview.",
+            "schedule", collected, False,
+        )
+
+    # They replied but didn't give details and it's not an objection. Ask once
+    # more; if they still don't, hand to a human rather than repeat forever.
+    if asks >= 2:
+        return (
+            f"No problem, {first} — let me connect you with our HR team who can help you "
+            f"directly from here. 🙏",
+            "answer", collected, True,
+        )
+    collected["_asks"] = asks + 1
     return (
-        f"Thank you, {first} — that's really helpful! 🙌 Based on this you look like a "
-        f"strong fit for the *{title}* role, so let's set up a short interview.",
-        "schedule", collected,
+        f"No worries, {first}! Whenever you're ready, just share your current & expected CTC, "
+        f"notice period and current location and I'll take it forward. 😊",
+        "ask_info", collected, False,
     )
 
 
@@ -137,12 +177,12 @@ async def converse(
             job_salary_info=salary_info,
         )
         intent = c.get("intent", "GENERAL")
-        reply, action, collected = _recruiter_fallback(
-            candidate, job, collected, intent, salary_info
+        reply, action, collected, needs_human = _recruiter_fallback(
+            candidate, job, collected, intent, salary_info, new_text
         )
         return {
             "intent": intent, "reply": reply, "action": action,
-            "collected": collected, "needs_human": c.get("needs_human", False),
+            "collected": collected, "needs_human": needs_human,
         }
 
     # ── Reasoning path: Claude over the full thread ───────────────────────────
@@ -235,10 +275,10 @@ In "collected", only include keys you are confident about (merge with what we kn
             job_salary_info=salary_info,
         )
         intent = c.get("intent", "GENERAL")
-        reply, action, collected = _recruiter_fallback(
-            candidate, job, collected, intent, salary_info
+        reply, action, collected, needs_human = _recruiter_fallback(
+            candidate, job, collected, intent, salary_info, new_text
         )
         return {
             "intent": intent, "reply": reply, "action": action,
-            "collected": collected, "needs_human": c.get("needs_human", False),
+            "collected": collected, "needs_human": needs_human,
         }

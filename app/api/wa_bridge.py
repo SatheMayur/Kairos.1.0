@@ -95,13 +95,14 @@ async def inbound_message(
     from_jid = payload.get("from", "")
     body_text = payload.get("body", "").strip()
     session = payload.get("session", "default")
+    raw_jid = payload.get("raw_jid")
     if not from_jid or not body_text:
         return {"status": "ignored"}
     # Process inline — do NOT fire-and-forget. On serverless the function is frozen
     # the moment it returns, so a detached asyncio task would never finish and the
     # auto-reply would never be sent. The handler is fast (DB ops + queue insert).
     try:
-        await _handle_inbound(from_jid, body_text, session)
+        await _handle_inbound(from_jid, body_text, session, raw_jid=raw_jid)
     except Exception as exc:
         logger.error("Inbound handler failed for %s: %s", from_jid, exc)
         return {"status": "error"}

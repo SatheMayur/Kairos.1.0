@@ -182,8 +182,21 @@ async function connectToWhatsApp() {
     if (type !== 'notify') return;
     for (const msg of messages) {
       if (msg.key.fromMe) continue;
-      const from = msg.key.remoteJid;
+      let from = msg.key.remoteJid;
       if (!from || from.endsWith('@g.us')) continue;
+
+      // WhatsApp privacy "LID": incoming chats can report a privacy id
+      // (<id>@lid) instead of the real phone number, which won't match the
+      // candidate we sent TO. Resolve it back to the phone number when WhatsApp
+      // provides it, so replies match the right candidate and we reply to the
+      // real number. Falls back to the raw value if no mapping is available.
+      const k = msg.key;
+      const pn = k.remoteJidAlt || k.senderPn || k.participantPn || null;
+      if (from.endsWith('@lid') && pn) {
+        console.log(`[LID] resolved ${from} -> ${pn}`);
+        from = pn;
+      }
+
       const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
       if (!body) continue;
 
@@ -191,7 +204,9 @@ async function connectToWhatsApp() {
 
       try {
         await axios.post(`${VERCEL}/api/v1/wa/inbound`, {
-          from, body, session: 'default'
+          from, body, session: 'default',
+          push_name: msg.pushName || null,
+          raw_jid: msg.key.remoteJid,   // original (lid) for diagnostics
         }, { headers, timeout: 10000 });
       } catch (err) {
         console.error('[FORWARD ERR]', err.message);

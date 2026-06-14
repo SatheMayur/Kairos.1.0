@@ -112,7 +112,7 @@ async def _trace(db, status: str, detail: str):
         logger.warning("inbound trace failed: %s", exc)
 
 
-async def _handle_inbound(from_jid: str, body_text: str, session: str):
+async def _handle_inbound(from_jid: str, body_text: str, session: str, raw_jid: str | None = None):
     """Core logic — runs in background after 200 is returned to WAHA.
 
     Uses Claude AI to classify the reply intent, then auto-responds accordingly.
@@ -122,7 +122,10 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str):
     logger.info("Inbound WhatsApp from %s (%s): %r", from_jid, phone_10, body_text[:80])
 
     async with AsyncSessionLocal() as db:
-        await _trace(db, "RECEIVED", f"from {phone_10}: {body_text[:120]}")
+        raw_note = ""
+        if raw_jid and raw_jid != from_jid:
+            raw_note = f" (raw {raw_jid})"
+        await _trace(db, "RECEIVED", f"from {phone_10}{raw_note}: {body_text[:110]}")
 
         # Find candidate by phone (match last 10 digits)
         result = await db.execute(

@@ -50,8 +50,9 @@ async def cron_status():
         "time": datetime.utcnow().isoformat() + "Z",
         "env": settings.app_env,
         "auto_outreach": settings.auto_outreach_enabled,
-        "ai_enabled": bool(settings.anthropic_api_key),
-        "ai_model": settings.claude_model if settings.anthropic_api_key else None,
+        "ai_enabled": bool(settings.gemini_api_key or settings.anthropic_api_key),
+        "ai_provider": "gemini" if settings.gemini_api_key else ("claude" if settings.anthropic_api_key else None),
+        "ai_model": settings.gemini_model if settings.gemini_api_key else (settings.claude_model if settings.anthropic_api_key else None),
     }
 
 

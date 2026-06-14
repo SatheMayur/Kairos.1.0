@@ -156,17 +156,21 @@ async def converse(
     new_text: str,
     salary_info: str,
 ) -> dict:
-    """Decide intent + craft a context-aware reply, updating collected facts."""
-    from app.config import get_settings
-    settings = get_settings()
+    """Decide intent + craft a context-aware reply, updating collected facts.
+
+    Uses whichever AI provider is configured (Gemini or Claude). With no provider,
+    or if the AI call fails, falls back to the rule-based recruiter screening flow.
+    """
+    from app.services.llm import llm_provider, llm_json
 
     collected = dict(collected or {})
-
     # Always run cheap extraction so facts accumulate even on the fallback path.
     collected.update(_extract_fields(new_text))
 
-    # ── Fallback (no API key): keyword intent + recruiter screening flow ──────
-    if not settings.anthropic_api_key:
+    name = (candidate.name or "").strip()
+    first = name.split()[0] if name else "there"
+
+    async def _fallback() -> dict:
         from app.services.ai_scoring import ai_classify_reply
         c = await ai_classify_reply(
             reply_text=new_text,
@@ -177,21 +181,18 @@ async def converse(
             job_salary_info=salary_info,
         )
         intent = c.get("intent", "GENERAL")
-        reply, action, collected, needs_human = _recruiter_fallback(
+        reply, action, coll, needs_human = _recruiter_fallback(
             candidate, job, collected, intent, salary_info, new_text
         )
-        return {
-            "intent": intent, "reply": reply, "action": action,
-            "collected": collected, "needs_human": needs_human,
-        }
+        return {"intent": intent, "reply": reply, "action": action,
+                "collected": coll, "needs_human": needs_human}
 
-    # ── Reasoning path: Claude over the full thread ───────────────────────────
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    # No AI provider configured → rule-based recruiter screening
+    if llm_provider() == "none":
+        return await _fallback()
 
-        first = candidate.name.split()[0]
-        prompt = f"""You are the WhatsApp recruiting assistant for {job.company or 'K. Girdharlal International'}, \
+    # ── Reasoning path (Gemini or Claude) ─────────────────────────────────────
+    prompt = f"""You are the WhatsApp recruiting assistant for {job.company or 'K. Girdharlal International'}, \
 a diamond manufacturer in Surat. You are chatting with a candidate, {candidate.name}, about the \
 *{job.title}* role (location: {job.location or 'Surat'}; salary: {salary_info}).
 
@@ -204,16 +205,17 @@ Your flow, in order:
    current CTC, expected CTC, notice period, current location. Ask for whatever is missing.
    Do NOT offer interview slots until you have them.
 4. Once you have those details (or they're clearly already provided), move to scheduling.
-5. If the message is confusing, emotional, a complaint, or something you shouldn't answer,
-   set needs_human true and reply gently that a colleague will follow up.
+5. If the message is confusing, emotional, off-topic, a complaint, says they did NOT apply,
+   or is something you shouldn't answer — set needs_human true, choose action "answer", and
+   reply gently that a colleague will follow up. Never push scheduling in that case.
 
 Choose an action:
 - "ask_info"  : still missing screening details → ask for them (most common early on)
 - "schedule"  : you have the screening details → encourage the interview (slots are added automatically)
-- "answer"    : just answering a question / general chit-chat, not ready to schedule
+- "answer"    : answering a question, handling confusion/objection, or general chat — not ready to schedule
 - "close"     : they declined or withdrew
 
-What we already know (do NOT ask again): {json.dumps(collected) if collected else '(nothing yet)'}
+What we already know (do NOT ask again): {json.dumps({k: v for k, v in collected.items() if not k.startswith('_')}) or '(nothing yet)'}
 
 Conversation so far:
 {_format_history(history)}
@@ -231,54 +233,26 @@ Return ONLY valid JSON:
 }}
 In "collected", only include keys you are confident about (merge with what we know); omit the rest."""
 
-        msg = await client.messages.create(
-            model=settings.claude_model,
-            max_tokens=500,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        result = json.loads(text)
+    result = await llm_json(prompt, max_tokens=600)
+    if not result or "reply" not in result:
+        return await _fallback()
 
-        merged = dict(collected)
-        for k, v in (result.get("collected") or {}).items():
-            if k in COLLECT_KEYS and v:
-                merged[k] = v
+    merged = dict(collected)
+    for k, v in (result.get("collected") or {}).items():
+        if k in COLLECT_KEYS and v:
+            merged[k] = v
 
-        action = result.get("action")
-        if action not in ("ask_info", "schedule", "answer", "close"):
-            # Derive a safe action if the model omitted it.
-            it = result.get("intent", "GENERAL")
-            action = "close" if it in ("NOT_INTERESTED", "WITHDRAWAL") else "answer"
-        logger.info("Conversation agent: candidate=%s intent=%s action=%s",
-                    candidate.name, result.get("intent"), action)
-        return {
-            "intent": result.get("intent", "GENERAL"),
-            "reply": result.get("reply", ""),
-            "action": action,
-            "collected": merged,
-            "needs_human": bool(result.get("needs_human", False)),
-        }
+    action = result.get("action")
+    if action not in ("ask_info", "schedule", "answer", "close"):
+        it = result.get("intent", "GENERAL")
+        action = "close" if it in ("NOT_INTERESTED", "WITHDRAWAL") else "answer"
 
-    except Exception as exc:
-        logger.warning("Conversation agent failed: %s — keyword fallback", exc)
-        from app.services.ai_scoring import ai_classify_reply
-        c = await ai_classify_reply(
-            reply_text=new_text,
-            candidate_name=candidate.name,
-            job_title=job.title,
-            job_company=job.company or "K. Girdharlal International",
-            job_location=job.location or "Surat, Gujarat",
-            job_salary_info=salary_info,
-        )
-        intent = c.get("intent", "GENERAL")
-        reply, action, collected, needs_human = _recruiter_fallback(
-            candidate, job, collected, intent, salary_info, new_text
-        )
-        return {
-            "intent": intent, "reply": reply, "action": action,
-            "collected": collected, "needs_human": needs_human,
-        }
+    logger.info("Conversation agent (%s): candidate=%s intent=%s action=%s",
+                llm_provider(), candidate.name, result.get("intent"), action)
+    return {
+        "intent": result.get("intent", "GENERAL"),
+        "reply": result.get("reply", ""),
+        "action": action,
+        "collected": merged,
+        "needs_human": bool(result.get("needs_human", False)),
+    }

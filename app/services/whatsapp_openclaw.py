@@ -45,8 +45,8 @@ def _fmt_phone(phone: str) -> str:
 
 
 def _extract_phone(chat_id: str) -> str:
-    """Convert WAHA chatId back to plain digits."""
-    return chat_id.replace("@c.us", "").replace("@lid", "")
+    """Convert any WhatsApp JID back to its local part (drops @c.us/@s.whatsapp.net/@lid)."""
+    return (chat_id or "").split("@")[0]
 
 
 def is_positive(text: str) -> bool:

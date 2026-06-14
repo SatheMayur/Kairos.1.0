@@ -91,11 +91,13 @@ def _verify_signature(body: bytes, sig_header: str) -> bool:
 
 
 def _clean_phone(chat_id: str) -> str:
-    """Extract digits from WAHA chatId: '919876543210@c.us' → '9876543210'"""
-    digits = _extract_phone(chat_id)
+    """Extract the phone digits from ANY WhatsApp JID, e.g.
+    '919876543210@c.us' / '...@s.whatsapp.net' / '...@lid' → '9876543210'."""
+    local = (chat_id or "").split("@")[0]          # drop the @domain first
+    digits = re.sub(r"\D", "", local)              # keep only digits
     if digits.startswith("91") and len(digits) == 12:
-        return digits[2:]   # strip country code → last 10 digits
-    return digits[-10:]     # fallback: last 10
+        return digits[2:]                           # strip India country code
+    return digits[-10:] if len(digits) >= 10 else digits
 
 
 async def _trace(db, status: str, detail: str):

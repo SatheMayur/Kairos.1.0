@@ -29,6 +29,7 @@ from app.services.conversation_agent import converse
 from app.services.scheduling import generate_slots, propose_interview_slots
 from app.services.whatsapp_openclaw import is_negative, is_positive, send_whatsapp, _extract_phone
 from app.utils.logging import get_logger
+from app.utils.phone import to_local_10
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 logger = get_logger(__name__)
@@ -93,11 +94,7 @@ def _verify_signature(body: bytes, sig_header: str) -> bool:
 def _clean_phone(chat_id: str) -> str:
     """Extract the phone digits from ANY WhatsApp JID, e.g.
     '919876543210@c.us' / '...@s.whatsapp.net' / '...@lid' → '9876543210'."""
-    local = (chat_id or "").split("@")[0]          # drop the @domain first
-    digits = re.sub(r"\D", "", local)              # keep only digits
-    if digits.startswith("91") and len(digits) == 12:
-        return digits[2:]                           # strip India country code
-    return digits[-10:] if len(digits) >= 10 else digits
+    return to_local_10(chat_id)
 
 
 async def _trace(db, status: str, detail: str):

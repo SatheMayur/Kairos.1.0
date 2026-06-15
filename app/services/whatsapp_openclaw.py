@@ -21,6 +21,7 @@ import re
 import httpx
 from app.config import get_settings
 from app.utils.logging import get_logger
+from app.utils.phone import jid_local, to_chat_id
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -35,18 +36,12 @@ _NEGATIVE = {"no", "nahi", "nope", "not interested", "not now", "later",
 
 def _fmt_phone(phone: str) -> str:
     """Normalise any Indian mobile to WAHA chatId format: 91XXXXXXXXXX@c.us"""
-    digits = re.sub(r"\D", "", phone)
-    if digits.startswith("91") and len(digits) == 12:
-        return f"{digits}@c.us"
-    if len(digits) == 10:
-        return f"91{digits}@c.us"
-    # Already has country code but not 91 — send as-is
-    return f"{digits}@c.us"
+    return to_chat_id(phone)
 
 
 def _extract_phone(chat_id: str) -> str:
     """Convert any WhatsApp JID back to its local part (drops @c.us/@s.whatsapp.net/@lid)."""
-    return (chat_id or "").split("@")[0]
+    return jid_local(chat_id)
 
 
 def is_positive(text: str) -> bool:

@@ -1,6 +1,7 @@
-"""Claude AI-powered candidate scoring and personalized outreach generation.
+"""AI-powered candidate scoring, outreach, reply classification, and day planning.
 
-Falls back to rule-based scoring when ANTHROPIC_API_KEY is not set.
+Routes every AI call through app.services.llm (Gemini or Claude — whichever key
+is set), and falls back to rule-based logic when no provider is configured.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from typing import Optional
 
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.llm import llm_provider, llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +25,12 @@ async def ai_score_candidate(
 
     Returns dict with keys:
       score (0-10), decision, strengths, concerns, reasoning, personalized_opener
-    Falls back gracefully to rule-based score if API key not set.
+    Falls back gracefully to rule-based score if no AI provider is set.
     """
-    from app.config import get_settings
-    settings = get_settings()
-
-    if not settings.anthropic_api_key:
+    if llm_provider() == "none":
         return {}  # caller uses rule-based fallback
 
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-
-        prompt = f"""You are an expert HR screener for K. Girdharlal International, a 40+ year diamond manufacturing company in Surat, India.
+    prompt = f"""You are an expert HR screener for K. Girdharlal International, a 40+ year diamond manufacturing company in Surat, India.
 
 Evaluate this candidate for the job opening and return a JSON response.
 
@@ -74,24 +69,11 @@ RESPOND WITH ONLY VALID JSON:
   "personalized_opener": "<1-2 sentences referencing their specific background>"
 }}"""
 
-        msg = await client.messages.create(
-            model=settings.claude_model,
-            max_tokens=500,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
-        # Extract JSON from response
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        result = json.loads(text)
-        logger.info("AI score for %s: %.1f (%s)", candidate.name, result.get("score", 0), result.get("decision"))
-        return result
-
-    except Exception as exc:
-        logger.warning("AI scoring failed for %s: %s — using rule-based fallback", candidate.name, exc)
-        return {}
+    result = await llm_json(prompt, max_tokens=600)
+    if not result or "score" not in result:
+        return {}  # caller uses rule-based fallback
+    logger.info("AI score for %s: %.1f (%s)", candidate.name, result.get("score", 0), result.get("decision"))
+    return result
 
 
 async def ai_generate_outreach(
@@ -101,21 +83,14 @@ async def ai_generate_outreach(
 ) -> tuple[str, str]:
     """Generate a personalized outreach subject + body using Claude AI.
 
-    Returns (subject, body). Falls back to default template if API key not set.
+    Returns (subject, body). Falls back to default template if no AI provider is set.
     """
-    from app.config import get_settings
-    settings = get_settings()
-
-    if not settings.anthropic_api_key:
+    if llm_provider() == "none":
         return "", ""  # caller uses default template
 
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    channel_note = "email (professional tone)" if channel == "EMAIL" else "WhatsApp (conversational, concise, under 200 words)"
 
-        channel_note = "email (professional tone)" if channel == "EMAIL" else "WhatsApp (conversational, concise, under 200 words)"
-
-        prompt = f"""Write a personalized {channel_note} outreach to this candidate for a job opening.
+    prompt = f"""Write a personalized {channel_note} outreach to this candidate for a job opening.
 
 JOB: {job.title} at {job.company or 'K. Girdharlal International'}, {job.location or 'Surat'}
 Salary: No bar for right candidate | Experience: {job.experience_min or 1}–{job.experience_max or 3} yrs
@@ -136,22 +111,10 @@ Rules:
 Return JSON only:
 {{"subject": "<email subject or empty for WhatsApp>", "body": "<full message>"}}"""
 
-        msg = await client.messages.create(
-            model=settings.claude_model,
-            max_tokens=700,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        result = json.loads(text)
-        return result.get("subject", ""), result.get("body", "")
-
-    except Exception as exc:
-        logger.warning("AI outreach generation failed for %s: %s", candidate.name, exc)
+    result = await llm_json(prompt, max_tokens=700)
+    if not result:
         return "", ""
+    return result.get("subject", ""), result.get("body", "")
 
 
 async def ai_classify_reply(
@@ -170,12 +133,9 @@ async def ai_classify_reply(
       confidence: 0.0–1.0
       auto_response: ready-to-send WhatsApp reply (plain language, under 120 words)
       needs_human: True if Kirti should review manually
-    Falls back to keyword-based classification if API key not set.
+    Falls back to keyword-based classification if no AI provider is set.
     """
-    from app.config import get_settings
-    settings = get_settings()
-
-    # Fast keyword fallback (no API key needed)
+    # Fast keyword fallback (no provider needed)
     text_lower = reply_text.lower().strip()
 
     # Explicit negatives — checked FIRST so "not interested" beats the "interested" token
@@ -212,16 +172,12 @@ async def ai_classify_reply(
     elif _kw(schedule_words):
         keyword_intent = "SCHEDULE_QUERY"
 
-    if not settings.anthropic_api_key:
+    if llm_provider() == "none":
         # Return keyword-based result
         intent = keyword_intent or "GENERAL"
         return _build_auto_response(intent, candidate_name, job_title, job_company, job_location, job_salary_info)
 
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-
-        prompt = f"""You are classifying a WhatsApp reply from a job candidate.
+    prompt = f"""You are classifying a WhatsApp reply from a job candidate.
 
 CONTEXT:
 Candidate: {candidate_name}
@@ -247,51 +203,32 @@ Intent guide:
 - WITHDRAWAL: explicitly withdrawing application
 - GENERAL: anything else (greeting, thanks, unclear, mixed signals)"""
 
-        msg = await client.messages.create(
-            model=settings.claude_model,
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        result = json.loads(text)
-        intent = result.get("intent", keyword_intent or "GENERAL")
-        confidence = result.get("confidence", 0.8)
-        needs_human = result.get("needs_human", False)
-
-        logger.info("AI classified reply from %s as %s (%.0f%%)", candidate_name, intent, confidence * 100)
-
-        response_data = _build_auto_response(intent, candidate_name, job_title, job_company, job_location, job_salary_info)
-        response_data["confidence"] = confidence
-        response_data["needs_human"] = needs_human
-        return response_data
-
-    except Exception as exc:
-        logger.warning("AI reply classification failed: %s — using keyword fallback", exc)
+    result = await llm_json(prompt, max_tokens=200)
+    if not result:
         intent = keyword_intent or "GENERAL"
         return _build_auto_response(intent, candidate_name, job_title, job_company, job_location, job_salary_info)
+
+    intent = result.get("intent", keyword_intent or "GENERAL")
+    confidence = result.get("confidence", 0.8)
+    needs_human = result.get("needs_human", False)
+    logger.info("AI classified reply from %s as %s (%.0f%%)", candidate_name, intent, confidence * 100)
+
+    response_data = _build_auto_response(intent, candidate_name, job_title, job_company, job_location, job_salary_info)
+    response_data["confidence"] = confidence
+    response_data["needs_human"] = needs_human
+    return response_data
 
 
 async def ai_plan_day(situation: dict) -> dict:
     """Reason over today's recruitment state and return a prioritised plan.
 
     Returns dict: {manager_note: str, priorities: [{title, why, action}]}
-    Returns {} when no API key or on failure — caller uses a rule-based fallback.
+    Returns {} when no provider or on failure — caller uses a rule-based fallback.
     """
-    from app.config import get_settings
-    settings = get_settings()
-
-    if not settings.anthropic_api_key:
+    if llm_provider() == "none":
         return {}
 
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-
-        prompt = f"""You are the recruitment manager for K. Girdharlal International, a diamond \
+    prompt = f"""You are the recruitment manager for K. Girdharlal International, a diamond \
 manufacturing company in Surat. Every morning you review the state of hiring and tell the \
 owner, Kirti, what matters most today.
 
@@ -313,24 +250,11 @@ Return ONLY valid JSON:
 }}
 List at most 5 priorities, most important first. If things are quiet, say so kindly."""
 
-        msg = await client.messages.create(
-            model=settings.claude_model,
-            max_tokens=900,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
-        if "```" in text:
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        result = json.loads(text)
-        if "priorities" in result:
-            logger.info("AI day-plan generated with %d priorities", len(result.get("priorities", [])))
-            return result
-        return {}
-    except Exception as exc:
-        logger.warning("AI day-plan failed: %s — using rule-based fallback", exc)
-        return {}
+    result = await llm_json(prompt, max_tokens=900)
+    if result and "priorities" in result:
+        logger.info("AI day-plan generated with %d priorities", len(result.get("priorities", [])))
+        return result
+    return {}
 
 
 def _build_auto_response(

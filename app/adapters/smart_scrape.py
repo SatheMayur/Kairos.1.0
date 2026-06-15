@@ -23,6 +23,7 @@ import httpx
 
 from app.adapters.base import BasePortalAdapter, RawCandidate
 from app.models.candidate import CandidateSource
+from app.utils.phone import to_local_10_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -148,12 +149,7 @@ async def fetch_and_extract(url: str, source: CandidateSource = CandidateSource.
 
 
 def _clean_phone(phone) -> Optional[str]:
-    if not phone:
-        return None
-    digits = re.sub(r"\D", "", str(phone))
-    if len(digits) >= 10:
-        return digits[-10:]
-    return None
+    return to_local_10_or_none(phone)
 
 
 def _safe_float(val) -> Optional[float]:

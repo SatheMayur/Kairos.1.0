@@ -137,34 +137,18 @@ async def _send_email(to: str, subject: str, body: str, candidate_name: str = ""
 
 
 @with_retry(max_attempts=2, exceptions=(Exception,))
-async def _send_whatsapp(to: str, body: str) -> str:
-    """Send via OpenClaw/WAHA (primary) or Twilio (fallback)."""
-    # Primary: OpenClaw / WAHA
-    if settings.openclaw_api_url:
-        from app.services.whatsapp_openclaw import send_whatsapp as _oc_send
-        msg_id = await _oc_send(to, body)
-        if msg_id:
-            return msg_id
-
-    # Fallback: Twilio
-    if settings.app_env == "development" or not settings.twilio_account_sid:
+async def _send_whatsapp(to: str, body: str, db=None) -> str:
+    """Send WhatsApp through the ONE unified sender (whatsapp_openclaw.send_whatsapp):
+    DB queue (the Baileys bridge polls it) → direct WAHA. Passing the db session is
+    what lets outreach actually queue to the bridge instead of silently mocking."""
+    from app.services.whatsapp_openclaw import send_whatsapp as _wa_send
+    msg_id = await _wa_send(to, body, db=db)
+    if msg_id:
+        return msg_id
+    if settings.app_env == "development":
         logger.warning("MOCK WhatsApp to %s: %s", to, body[:60])
         return f"mock-wa-{hash(to)}"
-    import httpx
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Messages.json"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            url,
-            data={
-                "From": settings.twilio_whatsapp_from,
-                "To": f"whatsapp:{to}",
-                "Body": body,
-            },
-            auth=(settings.twilio_account_sid, settings.twilio_auth_token),
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return resp.json().get("sid", "unknown")
+    raise RuntimeError("WhatsApp not sent — bridge offline and WAHA not configured")
 
 
 @with_retry(max_attempts=2, exceptions=(Exception,))
@@ -283,7 +267,7 @@ async def send_outreach(
                 role=candidate.current_role or "",
             )
         elif effective_channel == OutreachChannel.WHATSAPP:
-            msg_id = await _send_whatsapp(recipient, body)
+            msg_id = await _send_whatsapp(recipient, body, db=db)
         elif effective_channel == OutreachChannel.SMS:
             msg_id = await _send_sms(recipient, body)
         else:

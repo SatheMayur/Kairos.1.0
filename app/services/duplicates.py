@@ -18,6 +18,7 @@ import re
 from collections import defaultdict
 
 from app.models.candidate import Candidate
+from app.utils.phone import norm_phone
 
 _WS = re.compile(r"\s+")
 _NON = re.compile(r"[^a-z0-9 ]+")
@@ -49,10 +50,7 @@ def _resume_signal(c: Candidate) -> str:
 
 
 def _norm_phone(phone: str | None) -> str:
-    if not phone:
-        return ""
-    digits = re.sub(r"\D", "", phone)
-    return digits[-10:] if len(digits) >= 10 else ""
+    return norm_phone(phone)
 
 
 def _norm_email(email: str | None) -> str:

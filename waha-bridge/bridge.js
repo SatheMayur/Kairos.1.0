@@ -106,8 +106,16 @@ async function pollAndSend() {
     const results = [];
     for (const msg of messages) {
       try {
-        const phone = msg.phone.replace(/\D/g, '');
-        const jid = phone.length === 10 ? `91${phone}@s.whatsapp.net` : `${phone}@s.whatsapp.net`;
+        // If the server gives us a full JID (e.g. a privacy "<id>@lid" from an
+        // inbound reply), send to it AS-IS so the message actually reaches the
+        // person. Otherwise build the JID from the phone digits.
+        let jid;
+        if ((msg.phone || '').includes('@')) {
+          jid = msg.phone;
+        } else {
+          const phone = (msg.phone || '').replace(/\D/g, '');
+          jid = phone.length === 10 ? `91${phone}@s.whatsapp.net` : `${phone}@s.whatsapp.net`;
+        }
         const sent = await sock.sendMessage(jid, { text: msg.message });
         messagesSentToday++;
         console.log(`[SEND] → ${jid}: ${msg.message.substring(0, 50)}`);

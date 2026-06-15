@@ -114,7 +114,8 @@ async def _trace(db, status: str, detail: str):
         logger.warning("inbound trace failed: %s", exc)
 
 
-async def _front_desk(db, phone_10: str, body_text: str, push_name: str | None):
+async def _front_desk(db, phone_10: str, body_text: str, push_name: str | None,
+                      raw_jid: str | None = None):
     """HR front desk for people not yet in the system. Like a real employee, it
     answers anyone who messages — but only ENGAGES (and creates a lead) when the AI
     judges it's a genuine job inquiry, so it never auto-replies to spam, vendors,
@@ -166,7 +167,8 @@ Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>",
                      {"dir": "out", "text": r["reply"][:300]}],
         ))
 
-    await send_whatsapp(phone_10, r["reply"], db=db)
+    reply_to = raw_jid if (raw_jid and "@" in raw_jid) else phone_10
+    await send_whatsapp(reply_to, r["reply"], db=db)
     await _trace(db, "LEAD_CREATED", f"new lead #{cand.id} ({name}) from {phone_10}")
     await db.commit()
 
@@ -205,7 +207,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
         candidate = result.scalars().first()
         if not candidate:
             # Unknown sender → HR front desk: greet & capture genuine job-seekers.
-            await _front_desk(db, phone_10, body_text, push_name)
+            await _front_desk(db, phone_10, body_text, push_name, raw_jid)
             return
 
         # Prefer an active entry, but fall back to the most recent entry of ANY
@@ -260,6 +262,10 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
             last_log.reply_text = body_text[:500]
 
         phone_wa = candidate.whatsapp or candidate.phone or ""
+        # Reply to the EXACT conversation the candidate messaged from. For WhatsApp
+        # privacy IDs (<id>@lid) the stored digits aren't a routable number, so a
+        # reply built from them never arrives — sending to the original JID does.
+        reply_to = raw_jid if (raw_jid and "@" in raw_jid) else phone_wa
         name_parts = (candidate.name or "").split()
         first_name = name_parts[0] if name_parts else "there"
         company = job.company or "K. Girdharlal International"
@@ -294,7 +300,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
                         entry.status = ShortlistStatus.INTERVIEW_SCHEDULED
                         slot_dt = interview.scheduled_at
                         await send_whatsapp(
-                            phone_wa,
+                            reply_to,
                             f"✅ Confirmed! Your interview is scheduled for:\n\n"
                             f"📅 *{slot_dt.strftime('%A, %d %b %Y at %I:%M %p IST')}*\n"
                             f"🔗 Google Meet link will be sent 1 hour before.\n"
@@ -354,7 +360,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
         # "schedule" once it has enough — so we never jump straight to slots.
         if action == "close":
             entry.status = ShortlistStatus.NOT_INTERESTED
-            await send_whatsapp(phone_wa, auto_response, db=db)
+            await send_whatsapp(reply_to, auto_response, db=db)
 
         elif action == "schedule":
             entry.status = ShortlistStatus.INTERESTED
@@ -370,7 +376,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
             )
             if existing.scalars().first():
                 await send_whatsapp(
-                    phone_wa,
+                    reply_to,
                     f"{auto_response}\n\nI've already shared a few interview slots — "
                     f"please reply with *1*, *2*, or *3* to confirm your preferred time.",
                     db=db,
@@ -382,7 +388,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
                     for i, s in enumerate(slots)
                 )
                 await send_whatsapp(
-                    phone_wa,
+                    reply_to,
                     f"{auto_response}\n\nHere are 3 available slots for your *{job.title}* "
                     f"interview at {company}:\n\n{slot_lines}\n\n"
                     f"Reply with *1*, *2*, or *3* to confirm your preferred slot.",
@@ -405,7 +411,7 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
             else:
                 if not needs_human and intent in ("INTERESTED", "SCHEDULE_QUERY", "SALARY_QUERY", "MORE_INFO"):
                     entry.status = ShortlistStatus.INTERESTED
-                await send_whatsapp(phone_wa, auto_response, db=db)
+                await send_whatsapp(reply_to, auto_response, db=db)
 
         # ── Persist conversation memory ──────────────────────────────────────
         from datetime import datetime as _dt

@@ -68,9 +68,11 @@ def _run_actor_sync(api_token: str, actor_id: str, run_input: dict) -> list[dict
     if not run:
         logger.error("Apify: actor %s returned no run object", actor_id)
         return []
-    dataset_id = run.get("defaultDatasetId")
+    # apify-client 3.x returns a typed Run model (not a dict).
+    dataset_id = run.default_dataset_id
     items = list(client.dataset(dataset_id).iterate_items())
-    logger.info("Apify: actor %s → %d items (run status=%s)", actor_id, len(items), run.get("status"))
+    logger.info("Apify: actor %s → %d items (status=%s)", actor_id, len(items),
+                getattr(run, "status", "?"))
     return items
 
 

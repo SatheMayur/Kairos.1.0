@@ -120,7 +120,26 @@ class ApifyLinkedInAdapter(BasePortalAdapter):
             )
         except Exception as exc:
             logger.error("ApifyLinkedIn error: %s", exc)
+            try:
+                from app.utils.error_log import log_error
+                await log_error(
+                    message=f"LinkedIn sourcing failed for '{query}': {exc}",
+                    source="sourcing:apify_linkedin", exc=exc,
+                )
+            except Exception:
+                pass
             return []
+
+        if not items:
+            try:
+                from app.utils.error_log import log_error
+                await log_error(
+                    message=f"LinkedIn sourcing returned 0 profiles for '{query}' in "
+                            f"{run_input['location']}",
+                    source="sourcing:apify_linkedin", level="WARNING",
+                )
+            except Exception:
+                pass
 
         return [self._to_raw(item) for item in items if item.get("name")]
 

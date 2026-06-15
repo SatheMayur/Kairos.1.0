@@ -147,9 +147,18 @@ async def wa_dashboard_stats(db: AsyncSession = Depends(get_db)):
         select(OutreachLog).where(OutreachLog.channel == OutreachChannel.WHATSAPP)
     )
     wa_logs = ol_res.scalars().all()
-    replied   = sum(1 for l in wa_logs if l.status == OutreachStatus.REPLIED)
     interested = sum(1 for l in wa_logs if l.reply_text and any(
         kw in (l.reply_text or "").lower() for kw in ["yes","haan","interested","ok","sure"]))
+
+    # "Candidates replied" = anyone who has sent us an inbound message. Count
+    # distinct candidates with an inbound in a conversation (covers people who
+    # messaged in first), plus outreach logs marked REPLIED.
+    from app.models.conversation import Conversation
+    convs = (await db.execute(select(Conversation))).scalars().all()
+    repliers = {cv.candidate_id for cv in convs
+                if any(h.get("dir") == "in" for h in (cv.history or []))}
+    repliers |= {l.candidate_id for l in wa_logs if l.status == OutreachStatus.REPLIED}
+    replied = len(repliers)
 
     return {
         "queue_pending": q_pending,
@@ -214,6 +223,48 @@ async def wa_conversations(db: AsyncSession = Depends(get_db)):
             "replied_at": log.replied_at.isoformat() if log.replied_at else None,
             "created_at": log.created_at.isoformat() if log.created_at else None,
         })
+
+    # Also include inbound-initiated conversations — candidates who messaged US
+    # first (most real candidates). They have no outreach log, so they were
+    # invisible in this table before.
+    from app.models.conversation import Conversation
+    conv_res = await db.execute(
+        select(Conversation).order_by(Conversation.updated_at.desc()).limit(200)
+    )
+    convs = conv_res.scalars().all()
+    if convs:
+        miss_c = [cv.candidate_id for cv in convs if cv.candidate_id not in cands]
+        if miss_c:
+            for c in (await db.execute(select(Candidate).where(Candidate.id.in_(miss_c)))).scalars().all():
+                cands[c.id] = c
+        miss_j = [cv.job_id for cv in convs if cv.job_id not in jobs]
+        if miss_j:
+            for j in (await db.execute(select(Job).where(Job.id.in_(miss_j)))).scalars().all():
+                jobs[j.id] = j
+        for cv in convs:
+            c = cands.get(cv.candidate_id)
+            j = jobs.get(cv.job_id)
+            hist = cv.history or []
+            last_in = next((h.get("text") for h in reversed(hist) if h.get("dir") == "in"), None)
+            last_out = next((h.get("text") for h in reversed(hist) if h.get("dir") == "out"), None)
+            result.append({
+                "id": f"conv-{cv.id}",
+                "candidate_id": cv.candidate_id,
+                "candidate_name": c.name if c else f"#{cv.candidate_id}",
+                "candidate_phone": (c.whatsapp or c.phone) if c else "",
+                "job_id": cv.job_id,
+                "job_title": j.title if j else f"Job #{cv.job_id}",
+                "type": "REPLY",
+                "status": "REPLIED" if last_in else "SENT",
+                "message": last_out or "",
+                "reply": last_in,
+                "pipeline_status": cv.status,
+                "sent_at": cv.updated_at.isoformat() if cv.updated_at else None,
+                "replied_at": cv.updated_at.isoformat() if cv.updated_at else None,
+                "created_at": cv.created_at.isoformat() if cv.created_at else None,
+            })
+
+    result.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     return result
 
 

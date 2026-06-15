@@ -173,10 +173,11 @@
             <th>Status</th>
             <th>Their Reply</th>
             <th>Sent At</th>
+            <th class="tr-action">Actions</th>
           </tr>
         </thead>
         <tbody id="wa-conv-body">
-          <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">
+          <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">
             <div class="spinner" style="margin:0 auto 8px"></div>Loading conversations…
           </td></tr>
         </tbody>
@@ -374,7 +375,7 @@ async function waLoadConversations() {
     waConversations = await r.json();
     waFilter();
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--red)">Could not load conversations</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red)">Could not load conversations</td></tr>';
   }
 }
 
@@ -393,30 +394,76 @@ function waFilter() {
 
 const WA_STATUS_LABELS = { SENT:'Sent', REPLIED:'Replied', FAILED:'Not Sent', PENDING:'Waiting' };
 const WA_STATUS_BADGE  = { SENT:'badge-green', REPLIED:'badge-blue', FAILED:'badge-red', PENDING:'badge-yellow' };
-const WA_TYPE_LABELS   = { OUTREACH:'Outreach', FOLLOWUP:'Follow-up', INTERVIEW_INVITE:'Interview invite', REJECTION:'Rejection' };
+const WA_TYPE_LABELS   = {
+  INITIAL_CONTACT:'First contact', OUTREACH:'First contact', FOLLOWUP:'Follow-up', FOLLOW_UP:'Follow-up',
+  SLOT_PROPOSAL:'Interview slots', INTERVIEW_INVITE:'Interview invite', REMINDER:'Reminder',
+  CONFIRMATION:'Confirmed', REJECTION:'Rejection', REPLY:'Their reply',
+};
+// Conversation stage (from pipeline_status) — what the recruiter should notice.
+const WA_STAGE = {
+  NEEDS_HUMAN:        {label:'⚠ Needs you',   cls:'badge-red'},
+  SCHEDULING:         {label:'Scheduling',    cls:'badge-purple'},
+  INTERESTED:         {label:'Interested',    cls:'badge-green'},
+  INTERVIEW_SCHEDULED:{label:'Interview set', cls:'badge-green'},
+  CONTACTED:          {label:'Contacted',     cls:'badge-yellow'},
+  NOT_INTERESTED:     {label:'Not interested',cls:'badge-grey'},
+  HIRED:              {label:'Hired ✓',       cls:'badge-green'},
+  PENDING:            {label:'New',           cls:'badge-blue'},
+  ACTIVE:             {label:'In chat',       cls:'badge-blue'},
+};
+
+function waDisplayName(c) {
+  const n = (c.candidate_name || '').trim();
+  if (!n || n.charAt(0) === '#' || n.toLowerCase() === 'unknown' || n.toLowerCase() === 'whatsapp lead')
+    return c.candidate_phone ? ('📱 ' + c.candidate_phone) : 'New WhatsApp lead';
+  return n;
+}
 
 function waRenderTable(rows) {
   const tbody = document.getElementById('wa-conv-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">💬</div><p>No conversations found.</p></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="empty-state-icon">💬</div><p>No conversations found.</p></div></td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(c => {
-    const statusLabel = WA_STATUS_LABELS[c.status] || c.status;
-    const statusClass = WA_STATUS_BADGE[c.status]  || 'badge-grey';
-    const typeLabel   = WA_TYPE_LABELS[c.type]     || c.type;
+    const stage       = WA_STAGE[(c.pipeline_status || '').toUpperCase()];
+    const statusLabel = stage ? stage.label : (WA_STATUS_LABELS[c.status] || c.status);
+    const statusClass = stage ? stage.cls   : (WA_STATUS_BADGE[c.status]  || 'badge-grey');
+    const typeLabel   = WA_TYPE_LABELS[c.type] || c.type;
     const sentAt      = c.sent_at ? new Date(c.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
-    const reply       = c.reply ? ('<span title="' + esc(c.reply) + '">' + esc(c.reply.substring(0,30)) + (c.reply.length > 30 ? '…' : '') + '</span>') : '<span style="color:var(--text-dim)">—</span>';
-    return `<tr>
-      <td style="font-weight:500">${esc(c.candidate_name)}</td>
+    const reply       = c.reply ? ('<span title="' + esc(c.reply) + '">' + esc(c.reply.substring(0,40)) + (c.reply.length > 40 ? '…' : '') + '</span>') : '<span style="color:var(--text-dim)">—</span>';
+    const needsYou    = (c.pipeline_status || '').toUpperCase() === 'NEEDS_HUMAN';
+    const phone       = (c.candidate_phone || '').replace(/\D/g, '');
+    const dispName    = waDisplayName(c);
+    return `<tr style="cursor:pointer${needsYou ? ';background:rgba(239,68,68,.06)' : ''}"
+        onclick="location.href='/ui/candidate/${c.candidate_id}'" title="Open the full conversation">
+      <td style="font-weight:500">${esc(dispName)}</td>
       <td style="font-family:monospace;font-size:11.5px">${esc(c.candidate_phone || '—')}</td>
       <td>${esc(c.job_title)}</td>
       <td>${esc(typeLabel)}</td>
       <td><span class="badge ${statusClass}">${statusLabel}</span></td>
       <td class="text-sm">${reply}</td>
       <td class="text-sm text-muted">${sentAt}</td>
+      <td class="tr-action">
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-sm" title="Reply to this candidate"
+            onclick="event.stopPropagation();waReplyTo('${phone}','${esc(dispName).replace(/'/g,'')}')">↩ Reply</button>
+          <a class="btn btn-ghost btn-sm" href="/ui/candidate/${c.candidate_id}"
+            onclick="event.stopPropagation()" title="Open full conversation">Open</a>
+        </div>
+      </td>
     </tr>`;
   }).join('');
+}
+
+// Pre-fill the send panel with this candidate's number and focus the message box.
+function waReplyTo(phone, name) {
+  const p = document.getElementById('wa-send-phone');
+  const m = document.getElementById('wa-send-message');
+  if (p) p.value = phone || '';
+  if (m) { m.placeholder = 'Reply to ' + (name || '') + '…'; m.focus(); }
+  if (p) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  showToast('Replying to ' + (name || phone) + ' — type your message →', 'info');
 }
 
 // ─── Manual send ───────────────────────────────────────────────────────────

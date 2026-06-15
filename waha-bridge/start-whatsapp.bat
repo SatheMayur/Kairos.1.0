@@ -39,9 +39,13 @@ if not exist "node_modules" (
 echo.
 echo  Starting WhatsApp bridge...
 echo  Once connected, KEEP THIS WINDOW OPEN.
-echo  To stop: close this window or press Ctrl+C
+echo  To STOP completely: close this window.
 echo.
+
+:run
 node bridge.js
 echo.
-echo  Bridge stopped. Close this window or restart.
-pause
+echo  WhatsApp stopped or is updating - restarting in 3 seconds...
+echo  (To stop completely, close this window now.)
+timeout /t 3 /nobreak >nul
+goto run

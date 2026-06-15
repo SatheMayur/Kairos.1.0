@@ -30,6 +30,29 @@ const VERCEL = (process.env.VERCEL_URL || 'https://kgirdharlal-recruitment.verce
 const BRIDGE_KEY = process.env.BRIDGE_API_KEY || 'kgirdharlal-bridge-secret';
 const POLL_INTERVAL_MS = 3000;
 
+// Self-update: pull the latest bridge from GitHub on every start, so fixes
+// apply automatically and this file never has to be replaced by hand again.
+const SELF_UPDATE_URL = 'https://raw.githubusercontent.com/Web-Portfolio1/Kairos.1.0/master/waha-bridge/bridge.js';
+async function selfUpdate() {
+  try {
+    const res = await axios.get(SELF_UPDATE_URL, { timeout: 10000, responseType: 'text' });
+    const remote = typeof res.data === 'string' ? res.data : String(res.data);
+    // Safety: only accept a clearly valid, self-updating build.
+    if (remote.length < 3000 || !remote.includes('makeWASocket') || !remote.includes('selfUpdate')) {
+      console.log('[UPDATE] downloaded file failed safety check — keeping current.');
+      return;
+    }
+    const current = fs.readFileSync(__filename, 'utf8');
+    if (remote === current) { console.log('[UPDATE] already up to date.'); return; }
+    fs.writeFileSync(__filename + '.bak', current);   // backup for recovery
+    fs.writeFileSync(__filename, remote);
+    console.log('[UPDATE] ✅ New version installed — restarting to apply…');
+    process.exit(0);   // start-whatsapp.bat loops and relaunches with the new code
+  } catch (e) {
+    console.error('[UPDATE] check failed (continuing with current version):', e.message);
+  }
+}
+
 const headers = { 'x-bridge-key': BRIDGE_KEY, 'Content-Type': 'application/json' };
 
 let sock = null;
@@ -224,7 +247,9 @@ async function connectToWhatsApp() {
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────
-connectToWhatsApp().catch(console.error);
+// Check for updates first, then connect. (selfUpdate exits if it installed a
+// new version; start-whatsapp.bat relaunches with the new code.)
+selfUpdate().then(() => connectToWhatsApp().catch(console.error));
 
 process.on('unhandledRejection', err => console.error('[UNHANDLED]', err?.message));
 process.on('uncaughtException', err => {

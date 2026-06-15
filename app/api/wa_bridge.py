@@ -19,6 +19,7 @@ from app.models.outreach import OutreachLog, OutreachChannel, OutreachStatus
 from app.models.shortlist import ShortlistEntry, ShortlistStatus
 from app.models.wa_queue import WAQueue, WAQueueStatus
 from app.utils.logging import get_logger
+from app.utils.phone import norm_phone
 
 router = APIRouter(prefix="/wa", tags=["whatsapp-bridge"])
 logger = get_logger(__name__)
@@ -170,6 +171,46 @@ async def wa_dashboard_stats(db: AsyncSession = Depends(get_db)):
     }
 
 
+# Stage ordering for picking the "furthest reached" status within one thread.
+# NEEDS_HUMAN is handled separately (attention flag wins the badge), so it is
+# deliberately not ranked here.
+_STAGE_RANK = {
+    "PENDING": 1, "NEW": 1, "NOT_INTERESTED": 1, "CONTACTED": 2, "ACTIVE": 3,
+    "INTERESTED": 4, "SCHEDULING": 5, "INTERVIEW_SCHEDULED": 6, "HIRED": 7,
+}
+
+
+def _collapse_threads(rows: list[dict]) -> list[dict]:
+    """Collapse a flat list of outreach-message / conversation rows into ONE row
+    per WhatsApp contact — an inbox shows threads, not individual messages.
+
+    Grouping key is the normalized phone (collapses @lid + country-code variants);
+    falls back to candidate id when no phone is known. For each thread we keep the
+    newest activity as the preview, surface the furthest stage reached, and let a
+    'needs you' flag win the badge (so a SCHEDULING thread that also needs a human
+    shows as 'Needs you' instead of silently hiding the attention signal).
+    """
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        key = norm_phone(row.get("candidate_phone")) or f"cand-{row.get('candidate_id')}"
+        groups.setdefault(key, []).append(row)
+
+    collapsed: list[dict] = []
+    for thread in groups.values():
+        thread.sort(key=lambda r: r.get("created_at") or "")          # oldest → newest
+        rep = dict(thread[-1])                                          # newest = representative
+        best = max(thread, key=lambda r: _STAGE_RANK.get((r.get("pipeline_status") or "").upper(), 0))
+        rep["pipeline_status"] = best.get("pipeline_status") or rep.get("pipeline_status") or ""
+        if any((r.get("pipeline_status") or "").upper() == "NEEDS_HUMAN" for r in thread):
+            rep["pipeline_status"] = "NEEDS_HUMAN"                      # attention wins the badge
+        rep["reply"] = next((r.get("reply") for r in reversed(thread) if r.get("reply")), rep.get("reply"))
+        rep["message_count"] = len(thread)
+        collapsed.append(rep)
+
+    collapsed.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    return collapsed
+
+
 @router.get("/dashboard/conversations")
 async def wa_conversations(db: AsyncSession = Depends(get_db)):
     """Return all WhatsApp outreach logs enriched with candidate + job info."""
@@ -264,8 +305,9 @@ async def wa_conversations(db: AsyncSession = Depends(get_db)):
                 "created_at": cv.created_at.isoformat() if cv.created_at else None,
             })
 
-    result.sort(key=lambda r: r.get("created_at") or "", reverse=True)
-    return result
+    # Collapse to one row per contact so the inbox shows threads, not every
+    # individual outreach message + conversation record for the same person.
+    return _collapse_threads(result)
 
 
 @router.get("/dashboard/queue")

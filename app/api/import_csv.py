@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adapters.base import RawCandidate
 from app.adapters.naukri import NaukriCSVAdapter
 from app.adapters.workindia import WorkIndiaCSVAdapter
+from app.adapters.apna import ApnaCSVAdapter
 from app.api.deps import get_db
 from app.config import get_settings
 from app.models.candidate import CandidateSource
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/import", tags=["import"])
 
 _NAUKRI_ADAPTER = NaukriCSVAdapter()
 _WORKINDIA_ADAPTER = WorkIndiaCSVAdapter()
+_APNA_ADAPTER = ApnaCSVAdapter()
 
 
 class BatchCandidate(BaseModel):
@@ -191,8 +193,8 @@ async def import_csv(
     5. Optionally queue outreach emails for auto-shortlisted candidates immediately
     """
     src = source.upper().strip()
-    if src not in ("NAUKRI", "WORKINDIA"):
-        raise HTTPException(status_code=400, detail="source must be NAUKRI or WORKINDIA")
+    if src not in ("NAUKRI", "WORKINDIA", "APNA"):
+        raise HTTPException(status_code=400, detail="source must be NAUKRI, WORKINDIA or APNA")
 
     content = await file.read()
     try:
@@ -202,6 +204,8 @@ async def import_csv(
 
     if src == "NAUKRI":
         raw_candidates = _NAUKRI_ADAPTER.parse_csv(csv_text)
+    elif src == "APNA":
+        raw_candidates = _APNA_ADAPTER.parse_csv(csv_text)
     else:
         raw_candidates = _WORKINDIA_ADAPTER.parse_csv(csv_text)
 

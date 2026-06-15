@@ -38,6 +38,23 @@ _WORKINDIA_ADAPTER = WorkIndiaCSVAdapter()
 _APNA_ADAPTER = ApnaCSVAdapter()
 
 
+def _xlsx_to_csv(content: bytes) -> str:
+    """Convert an uploaded Excel (.xlsx) file into CSV text so the existing
+    CSV adapters can parse it. Reads the first/active sheet."""
+    import csv as _csv
+    import io as _io
+    from openpyxl import load_workbook
+
+    wb = load_workbook(_io.BytesIO(content), read_only=True, data_only=True)
+    ws = wb.active
+    out = _io.StringIO()
+    writer = _csv.writer(out)
+    for row in ws.iter_rows(values_only=True):
+        writer.writerow(["" if cell is None else str(cell) for cell in row])
+    wb.close()
+    return out.getvalue()
+
+
 class BatchCandidate(BaseModel):
     name: str
     email: Optional[str] = None
@@ -177,7 +194,7 @@ async def _run_import_pipeline(
 
 @router.post("/csv", response_model=ImportResult)
 async def import_csv(
-    file: UploadFile = File(..., description="CSV file downloaded from Naukri or WorkIndia"),
+    file: UploadFile = File(..., description="CSV or Excel (.xlsx) export from Naukri, Apna, or WorkIndia"),
     job_id: int = Form(..., description="Job ID to score candidates against"),
     source: str = Form("NAUKRI", description="Portal source: NAUKRI or WORKINDIA"),
     auto_outreach: bool = Form(True, description="Queue outreach for AUTO_SHORTLIST candidates"),
@@ -197,10 +214,22 @@ async def import_csv(
         raise HTTPException(status_code=400, detail="source must be NAUKRI, WORKINDIA or APNA")
 
     content = await file.read()
-    try:
-        csv_text = content.decode("utf-8-sig")  # handle BOM from Windows Excel exports
-    except UnicodeDecodeError:
-        csv_text = content.decode("latin-1")
+    # Excel (.xlsx) exports — e.g. Apna gives Excel — are read directly.
+    fname = (file.filename or "").lower()
+    if fname.endswith(".xlsx") or content[:2] == b"PK":
+        try:
+            csv_text = _xlsx_to_csv(content)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=("Could not read this Excel file. If it's an old .xls, open it and "
+                        f"'Save As' .xlsx or .csv, then upload again. ({str(exc)[:100]})"),
+            )
+    else:
+        try:
+            csv_text = content.decode("utf-8-sig")  # handle BOM from Windows Excel exports
+        except UnicodeDecodeError:
+            csv_text = content.decode("latin-1")
 
     if src == "NAUKRI":
         raw_candidates = _NAUKRI_ADAPTER.parse_csv(csv_text)
@@ -210,7 +239,7 @@ async def import_csv(
         raw_candidates = _WORKINDIA_ADAPTER.parse_csv(csv_text)
 
     if not raw_candidates:
-        raise HTTPException(status_code=400, detail="No candidates found in CSV — check format")
+        raise HTTPException(status_code=400, detail="No candidates found in the file — check the format")
 
     logger.info("CSV import: source=%s job=%d candidates=%d", src, job_id, len(raw_candidates))
     return await _run_import_pipeline(raw_candidates, job_id, auto_outreach, db)

@@ -139,16 +139,8 @@ class ApifyLinkedInAdapter(BasePortalAdapter):
                 pass
             return []
 
-        try:
-            from app.utils.error_log import log_error
-            await log_error(
-                message=f"LinkedIn sourcing: actor returned {len(items)} profile(s) for "
-                        f"'{query}' in {run_input['location']}",
-                source="sourcing:apify_linkedin", level="WARNING",
-            )
-        except Exception:
-            pass
-
+        logger.info("ApifyLinkedIn: %d profile(s) for '%s' in %s",
+                    len(items), query, run_input["location"])
         return [self._to_raw(item) for item in items if item.get("name")]
 
     def _to_raw(self, item: dict) -> RawCandidate:

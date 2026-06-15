@@ -277,6 +277,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     </div>
 
     <div class="nav-label">Main</div>
+    <a href="/ui/start" class="nav-item {% if active=='start' %}active{% endif %}">
+      <span class="nav-icon">✦</span> Start Here
+    </a>
     <a href="/ui/" class="nav-item {% if active=='dashboard' %}active{% endif %}" data-key="d">
       <span class="nav-icon">◈</span> Dashboard <span class="nav-kbd">G D</span>
     </a>
@@ -461,6 +464,7 @@ document.addEventListener('keydown',e=>{
 
 // ── Command palette ───────────────────────────────────────────────────────
 const CMD_PAGES=[
+  {icon:'✦',label:'Start Here',sub:'How it works — in 3 simple steps',url:'/ui/start'},
   {icon:'◈',label:'Dashboard',sub:'Overview & priorities',url:'/ui/',kbd:'G D'},
   {icon:'◫',label:'Jobs',sub:'Open requisitions',url:'/ui/jobs',kbd:'G J'},
   {icon:'◎',label:'Candidates',sub:'All sourced candidates',url:'/ui/candidates',kbd:'G C'},

@@ -29,6 +29,10 @@ def _render(request: Request, template: str, active: str) -> HTMLResponse:
 async def dashboard(request: Request):
     return _render(request, "dashboard.html", "dashboard")
 
+@router.get("/start", response_class=HTMLResponse)
+async def start_here(request: Request):
+    return _render(request, "start.html", "start")
+
 @router.get("/jobs", response_class=HTMLResponse)
 async def jobs(request: Request):
     return _render(request, "jobs.html", "jobs")

@@ -54,16 +54,23 @@ def _linkedin_location(job_location: Optional[str]) -> str:
 
 def _run_actor_sync(api_token: str, actor_id: str, run_input: dict) -> list[dict]:
     """Blocking call — always run via asyncio.to_thread()."""
+    from datetime import timedelta
     from apify_client import ApifyClient
     client = ApifyClient(api_token)
     logger.info("Apify: starting actor %s", actor_id)
-    run = client.actor(actor_id).call(run_input=run_input, timeout_secs=120)
+    # Bound the wait well under Vercel's 60s function limit. apify-client 3.x uses
+    # run_timeout/wait_duration (timedeltas), NOT timeout_secs.
+    run = client.actor(actor_id).call(
+        run_input=run_input,
+        run_timeout=timedelta(seconds=110),
+        wait_duration=timedelta(seconds=50),
+    )
     if not run:
         logger.error("Apify: actor %s returned no run object", actor_id)
         return []
     dataset_id = run.get("defaultDatasetId")
     items = list(client.dataset(dataset_id).iterate_items())
-    logger.info("Apify: actor %s → %d items", actor_id, len(items))
+    logger.info("Apify: actor %s → %d items (run status=%s)", actor_id, len(items), run.get("status"))
     return items
 
 

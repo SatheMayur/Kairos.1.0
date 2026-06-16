@@ -21,22 +21,55 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     sl_res = await db.execute(select(ShortlistEntry))
     entries = sl_res.scalars().all()
 
-    # ── Pipeline funnel ──────────────────────────────────────────────────────
-    funnel_stages = [
-        ("Shortlisted",          [ShortlistStatus.SHORTLISTED]),
-        ("Contacted",            [ShortlistStatus.CONTACTED]),
-        ("Interested",           [ShortlistStatus.INTERESTED]),
-        ("Interview Scheduled",  [ShortlistStatus.INTERVIEW_SCHEDULED]),
-        ("Hired",                [ShortlistStatus.HIRED]),
-    ]
-    funnel = []
-    for label, statuses in funnel_stages:
-        count = sum(1 for e in entries if e.status in statuses)
-        funnel.append({"stage": label, "count": count})
+    # ── Pipeline funnel (CUMULATIVE: "ever reached this stage") ───────────────
+    # Current status alone is misleading — a candidate shortlisted→contacted no
+    # longer has SHORTLISTED status, so Shortlisted would read lower than
+    # Contacted. We rank by current status and recover stages lost to status
+    # overwrites/resets using durable evidence: an OutreachLog that was actually
+    # SENT/REPLIED ⇒ reached Contacted; an Interview row ⇒ reached Interview.
+    _ol = (await db.execute(
+        select(OutreachLog.candidate_id, OutreachLog.job_id, OutreachLog.status)
+    )).all()
+    contacted_keys = {
+        (cid, jid) for cid, jid, st in _ol
+        if st in (OutreachStatus.SENT, OutreachStatus.REPLIED)
+    }
+    _iv = (await db.execute(select(Interview.candidate_id, Interview.job_id))).all()
+    interview_keys = {(cid, jid) for cid, jid in _iv}
 
-    total_in_pipeline = sum(f["count"] for f in funnel)
+    STATUS_RANK = {
+        ShortlistStatus.PENDING: 0, ShortlistStatus.REJECTED: 0,
+        ShortlistStatus.SHORTLISTED: 1, ShortlistStatus.CONTACTED: 2,
+        ShortlistStatus.INTERESTED: 3, ShortlistStatus.INTERVIEW_SCHEDULED: 4,
+        ShortlistStatus.HIRED: 5,
+    }
+    # DROPPED means they were contacted then dropped → still reached Contacted.
+    if hasattr(ShortlistStatus, "DROPPED"):
+        STATUS_RANK[ShortlistStatus.DROPPED] = 2
+
+    def reached_rank(e) -> int:
+        r = STATUS_RANK.get(e.status, 0)
+        key = (e.candidate_id, e.job_id)
+        if key in contacted_keys:
+            r = max(r, 2)
+        if key in interview_keys:
+            r = max(r, 4)
+        return r
+
+    ranks = [reached_rank(e) for e in entries]
+    funnel = [
+        {"stage": "Shortlisted",         "count": sum(1 for r in ranks if r >= 1)},
+        {"stage": "Contacted",           "count": sum(1 for r in ranks if r >= 2)},
+        {"stage": "Interested",          "count": sum(1 for r in ranks if r >= 3)},
+        {"stage": "Interview Scheduled", "count": sum(1 for r in ranks if r >= 4)},
+        {"stage": "Hired",               "count": sum(1 for r in ranks if r >= 5)},
+    ]
+    # Percentages are relative to the TOP of the funnel (Shortlisted) — proper
+    # funnel conversion, not a share-of-sum.
+    top = funnel[0]["count"]
     for f in funnel:
-        f["pct"] = round(f["count"] / total_in_pipeline * 100, 1) if total_in_pipeline else 0
+        f["pct"] = round(f["count"] / top * 100, 1) if top else 0
+    total_in_pipeline = top
 
     # ── Source quality ───────────────────────────────────────────────────────
     cand_res = await db.execute(select(Candidate))

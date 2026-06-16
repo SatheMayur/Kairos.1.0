@@ -136,8 +136,16 @@ async def cron_outreach():
                     db=db,
                     delay_seconds=settings.outreach_delay_seconds,
                 )
+                # Only mark CONTACTED the candidates whose message was actually
+                # SENT. Failed / UNREACHABLE / manual-platform sends stay
+                # SHORTLISTED so they're retried or surfaced — never falsely
+                # counted as contacted (which used to create a black hole where
+                # unreachable candidates were neither chased nor fixed).
+                log_by_cand = {lg.candidate_id: lg for lg in logs}
                 for entry in job_entries:
-                    entry.status = ShortlistStatus.CONTACTED
+                    lg = log_by_cand.get(entry.candidate_id)
+                    if lg and lg.status.value == "SENT":
+                        entry.status = ShortlistStatus.CONTACTED
                 await db.commit()
 
                 sent = sum(1 for lg in logs if lg.status.value == "SENT")
@@ -169,6 +177,71 @@ async def cron_outreach():
         "channel": primary_channel.value,
         "whatsapp_live": wa_live,
         "jobs": job_results,
+    }
+
+
+@router.post("/schedule", dependencies=[Depends(_verify_secret)])
+async def cron_schedule():
+    """Advance INTERESTED candidates into interview scheduling.
+
+    Closes the stall where someone who replied 'yes' (via email, manual review,
+    or the front desk) had no automated next step and sat in INTERESTED forever.
+    Proposes slots to anyone INTERESTED with no open interview yet.
+    """
+    if not settings.auto_outreach_enabled:
+        return {"skipped": True, "reason": "AUTO_OUTREACH_ENABLED=false"}
+
+    from datetime import timedelta
+    from app.models.wa_connection import WaConnection
+    from app.models.interview import Interview, InterviewStatus
+    from app.services.scheduling import propose_interview_slots
+
+    proposed = 0
+    already = 0
+    errors: dict = {}
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(WaConnection, 1)
+        wa_live = bool(
+            conn and conn.status == "CONNECTED" and conn.last_poll_at
+            and (datetime.utcnow() - conn.last_poll_at) < timedelta(minutes=3)
+        )
+        channel = OutreachChannel.WHATSAPP if wa_live else OutreachChannel.EMAIL
+
+        entries = (await db.execute(
+            select(ShortlistEntry).where(ShortlistEntry.status == ShortlistStatus.INTERESTED)
+        )).scalars().all()
+
+        for entry in entries:
+            existing = (await db.execute(
+                select(Interview).where(
+                    Interview.candidate_id == entry.candidate_id,
+                    Interview.job_id == entry.job_id,
+                    Interview.status.in_([InterviewStatus.PROPOSED, InterviewStatus.CONFIRMED]),
+                )
+            )).scalars().first()
+            if existing:
+                entry.status = ShortlistStatus.INTERVIEW_SCHEDULED
+                already += 1
+                continue
+
+            cand = await db.get(Candidate, entry.candidate_id)
+            job = await db.get(Job, entry.job_id)
+            if not cand or not job:
+                continue
+            try:
+                await propose_interview_slots(candidate=cand, job=job, channel=channel, db=db)
+                entry.status = ShortlistStatus.INTERVIEW_SCHEDULED
+                proposed += 1
+            except Exception as exc:
+                errors[str(entry.candidate_id)] = str(exc)[:150]
+                logger.error("[CRON/schedule] candidate=%d failed: %s", entry.candidate_id, exc)
+        await db.commit()
+
+    return {
+        "ran_at": datetime.utcnow().isoformat() + "Z",
+        "slots_proposed": proposed,
+        "already_scheduled": already,
+        "errors": errors,
     }
 
 
@@ -302,6 +375,7 @@ async def cron_daily():
     await _step("source", cron_source())
     await _step("outreach", cron_outreach())
     await _step("followup", cron_followup())
+    await _step("schedule", cron_schedule())
     await _step("post_interview", cron_post_interview())
     await _step("reminders", cron_reminders())
 

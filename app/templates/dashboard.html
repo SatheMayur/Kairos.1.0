@@ -185,12 +185,24 @@ function setKPI(id,val){
   _prevKPIs[id]=val;
 }
 
-function renderFunnel(shortlistAll, totalCandidates){
-  const counts={ALL:totalCandidates};
-  shortlistAll.forEach(s=>{counts[s.status]=(counts[s.status]||0)+1});
+function renderFunnel(shortlistAll, totalCandidates, interviews){
+  // A funnel must be CUMULATIVE ("ever reached this stage"), not current-status
+  // counts — otherwise a shortlisted→contacted person stops counting as
+  // shortlisted and later stages look bigger than earlier ones. We rank by the
+  // current status and recover stages lost to status overwrites/resets using
+  // interview evidence (an interview row means they reached the interview stage).
+  const RANK={PENDING:0,REJECTED:0,SHORTLISTED:1,CONTACTED:2,DROPPED:2,INTERESTED:3,INTERVIEW_SCHEDULED:4,HIRED:5};
+  const ivCand=new Set((interviews||[]).map(i=>i.candidate_id));
+  let n1=0,n2=0,n3=0,n4=0,n5=0;
+  shortlistAll.forEach(s=>{
+    let r=RANK[s.status]??0;
+    if(ivCand.has(s.candidate_id)) r=Math.max(r,4);
+    if(r>=1)n1++; if(r>=2)n2++; if(r>=3)n3++; if(r>=4)n4++; if(r>=5)n5++;
+  });
+  const stageN={ALL:totalCandidates,SHORTLISTED:n1,CONTACTED:n2,INTERESTED:n3,INTERVIEW_SCHEDULED:n4,HIRED:n5};
 
   const bars=FUNNEL_STAGES.map(stage=>{
-    const n=stage.key==='ALL'?totalCandidates:(counts[stage.key]||0);
+    const n=stageN[stage.key]!==undefined?stageN[stage.key]:0;
     return{...stage,n};
   });
 
@@ -246,7 +258,7 @@ async function loadDashboard(){
     document.getElementById('last-updated').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
 
     // Funnel
-    renderFunnel(shortlistAll,candidates.length);
+    renderFunnel(shortlistAll,candidates.length,interviews);
 
     // ── Priorities ───────────────────────────────────────────
     const now=Date.now();

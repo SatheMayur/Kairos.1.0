@@ -60,8 +60,11 @@ async def process_completed_interviews(db: AsyncSession) -> dict:
             )
         )
         entry = sl_res.scalar_one_or_none()
-        if entry and entry.status == ShortlistStatus.INTERVIEW_SCHEDULED:
-            entry.status = ShortlistStatus.PENDING
+        # Keep the candidate at INTERVIEW_SCHEDULED — do NOT reset to PENDING.
+        # Resetting erased that they ever reached the interview stage (breaking
+        # the funnel) and dumped interviewed people back into the "fresh review"
+        # pile. The pending outcome is tracked off the Interview record
+        # (interviews_awaiting_outcome), not by downgrading the pipeline status.
 
         # Fetch names for the notification
         c_res = await db.execute(

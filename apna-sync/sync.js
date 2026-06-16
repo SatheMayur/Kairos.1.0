@@ -32,6 +32,62 @@ function loadConfig() {
 
 const log = (msg) => console.log(`[${new Date().toLocaleString()}] ${msg}`);
 
+// ── Capture the portal's own candidate API (for the JSON integration) ──────
+// Arms a network listener, lets you click into a candidate list, and saves the
+// matching request+response to api-capture.json — with secret header VALUES
+// redacted, so the file is safe to share. The assistant uses it to build the
+// real API mapping; your token stays on this PC.
+async function captureApi(cfg) {
+  const { chromium } = require("playwright");
+  const ctx = await chromium.launchPersistentContext(SESSION_DIR, { headless: false, acceptDownloads: true });
+  const page = ctx.pages()[0] || (await ctx.newPage());
+
+  const SECRET_HEADERS = ["authorization", "raven-token", "x-csrf-token", "cookie"];
+  const redact = (headers) => {
+    const out = {};
+    for (const [k, v] of Object.entries(headers || {})) {
+      out[k] = SECRET_HEADERS.includes(k.toLowerCase()) ? "<redacted>" : v;
+    }
+    return out;
+  };
+
+  const captured = [];
+  page.on("response", async (resp) => {
+    const url = resp.url();
+    if (!/cerebro\/api|white-collar-search|applicant|candidate/i.test(url)) return;
+    try {
+      const req = resp.request();
+      let body = null;
+      try { body = await resp.json(); } catch { /* non-JSON */ }
+      captured.push({
+        url,
+        method: req.method(),
+        request_headers: redact(req.headers()),
+        request_payload: req.postData() || null,
+        status: resp.status(),
+        response_sample: body, // saved for schema mapping
+      });
+      log(`captured: ${req.method()} ${url.split("?")[0]} (${resp.status()})`);
+    } catch { /* ignore */ }
+  });
+
+  await page.goto(cfg.jobsUrl, { waitUntil: "domcontentloaded" });
+  console.log("\n  → Click 'Database', or open a job's applicants, so a candidate list loads.");
+  console.log("    When you see candidates on screen, come back here and press ENTER.\n");
+  await new Promise((resolve) => process.stdin.once("data", resolve));
+
+  // Trim large responses to the first 2 candidates so the file stays small/shareable.
+  for (const c of captured) {
+    const r = c.response_sample;
+    if (r && Array.isArray(r.results)) r.results = r.results.slice(0, 2);
+    else if (r && Array.isArray(r.data)) r.data = r.data.slice(0, 2);
+    else if (Array.isArray(r)) c.response_sample = r.slice(0, 2);
+  }
+  fs.writeFileSync(path.join(__dirname, "api-capture.json"), JSON.stringify(captured, null, 2));
+  await ctx.close();
+  log(`Saved ${captured.length} call(s) to api-capture.json — secrets redacted. Send me that file.`);
+}
+
 // ── One-time manual login ──────────────────────────────────────────────────
 async function doLogin(cfg) {
   const { chromium } = require("playwright");
@@ -138,6 +194,7 @@ async function runOnce(cfg) {
 async function main() {
   const cfg = loadConfig();
   if (process.argv.includes("--login")) { await doLogin(cfg); process.exit(0); }
+  if (process.argv.includes("--capture")) { await captureApi(cfg); process.exit(0); }
   if (!fs.existsSync(SESSION_DIR) || fs.readdirSync(SESSION_DIR).length === 0) {
     console.error("\n  Not signed in yet. Run first:  node sync.js --login\n");
     process.exit(1);

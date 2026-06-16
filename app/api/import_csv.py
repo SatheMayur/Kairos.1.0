@@ -333,6 +333,59 @@ async def import_batch(
     return await _run_import_pipeline(raw, job_id, auto_outreach, db)
 
 
+class ApnaSourceRequest(BaseModel):
+    job_title: str
+    candidates: list[BatchCandidate]
+    company: str = "Bookends Hospitality"
+    auto_outreach: bool = True
+
+
+@router.post("/apna-candidates", response_model=ImportResult)
+async def import_apna_candidates(payload: ApnaSourceRequest, db: AsyncSession = Depends(get_db)):
+    """Receive candidates sourced from Apna's Database search by the local helper.
+
+    Finds (or creates) a role matching the search/job title, then scores,
+    shortlists, de-dups and (optionally) starts outreach — the sourcing engine."""
+    from sqlalchemy import select, func
+    from app.models.job import Job, JobStatus
+
+    title = (payload.job_title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="job_title is required")
+    if not payload.candidates:
+        raise HTTPException(status_code=400, detail="no candidates provided")
+
+    res = await db.execute(select(Job).where(func.lower(Job.title) == title.lower()))
+    job = res.scalars().first()
+    if not job:
+        job = Job(title=title, company=payload.company or None, status=JobStatus.ACTIVE)
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        logger.info("import_apna_candidates: auto-created job '%s' (#%d)", title, job.id)
+
+    raw: list[RawCandidate] = []
+    for c in payload.candidates:
+        raw.append(RawCandidate(
+            name=c.name,
+            source=CandidateSource.APNA,
+            email=c.email,
+            phone=c.phone,
+            skills=c.skills,
+            experience_years=c.experience_years,
+            current_salary=c.current_salary,
+            expected_salary=c.expected_salary,
+            location=c.location,
+            notice_period_days=c.notice_period_days,
+            current_employer=c.current_employer,
+            current_role=c.current_role,
+            source_ref=f"apna:{c.phone or c.email or c.name}",
+        ))
+
+    logger.info("Apna sourcing: job='%s'(#%d) candidates=%d", title, job.id, len(raw))
+    return await _run_import_pipeline(raw, job.id, payload.auto_outreach, db)
+
+
 # ── Smart URL import (ScrapeGraph-style) ──────────────────────────────────────
 
 class URLImportRequest(BaseModel):

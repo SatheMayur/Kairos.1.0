@@ -115,6 +115,90 @@ async function uploadFile(cfg, filePath, jobTitle) {
   return JSON.parse(text);
 }
 
+// ── Sourcing: scrape candidate cards from an Apna results page ──────────────
+// Parses the visible card text (built from the applicants/Database card layout):
+//   "Name … M, 60 yr  15yrs 5mos  ₹ 17,500 / mos  Udhna, Surat, GJ
+//    Current / Latest: <role> at <employer> …  Skills: …  Education: …"
+function parseCard(text) {
+  const lines = text.split("\n").map((s) => s.trim()).filter(Boolean);
+  const cand = { name: (lines[0] || "").replace(/view full profile.*/i, "").trim(), source: "APNA", skills: [] };
+  for (const ln of lines) {
+    // Experience uses the plural "Xyrs" form so we never mistake the age ("60 yr").
+    const exp = ln.match(/(\d+)\s*yrs(?:\s*(\d+)\s*mos)?/i);
+    if (exp && cand.experience_years === undefined) cand.experience_years = Number(exp[1]) + (exp[2] ? Number(exp[2]) / 12 : 0);
+    const sal = ln.match(/₹\s*([\d,]+)\s*\/\s*mos/i);
+    if (sal) cand.current_salary = Number(sal[1].replace(/,/g, "")) * 12; // monthly → annual
+    const loc = ln.match(/\/\s*mos\s*\|?\s*([A-Za-z][A-Za-z .,'’-]+)$/);
+    if (loc) cand.location = loc[1].trim();
+    // Labelled rows: match only lines that START with the label (skips the
+    // "Matching: … Skills Education …" badge row, which starts with "Matching").
+    if (/^Current\b/i.test(ln) && !cand.current_role) {
+      const m = ln.replace(/^Current\s*\/?\s*Latest[:\s]*/i, "").match(/^(.+?)\s+at\s+(.+?)(?:\s+[A-Z][a-z]{2,}\s*\d{4}|\s*\||$)/i);
+      if (m) { cand.current_role = m[1].trim(); cand.current_employer = m[2].trim(); }
+    }
+    if (/^Skills\b/i.test(ln)) {
+      cand.skills = ln.replace(/^Skills[:\s]*/i, "").split(/[,•]/).map((s) => s.trim()).filter(Boolean).slice(0, 15);
+    }
+  }
+  // Fallback for location when it's on its own line (e.g. "Surat, GJ").
+  if (!cand.location) {
+    const loc = lines.find((l) =>
+      l.length < 40 &&
+      /^[A-Za-z][\w .'’-]*(,\s*[A-Za-z .'’-]+){1,3}$/.test(l) &&
+      !/^(skills|current|education|language|previous|matching)/i.test(l)
+    );
+    if (loc) cand.location = loc.trim();
+  }
+  return cand;
+}
+
+async function scrapeCandidates(page) {
+  const blocks = await page.evaluate(() => {
+    const leaves = [...document.querySelectorAll("*")].filter(
+      (e) => /view full profile/i.test(e.textContent || "") && e.querySelectorAll("*").length <= 4
+    );
+    const seen = new Set(), out = [];
+    for (const n of leaves) {
+      let card = n;
+      for (let i = 0; i < 10 && card; i++) {
+        card = card.parentElement;
+        if (card && /yr/i.test(card.innerText || "") && /(skills|education)/i.test(card.innerText || "")) break;
+      }
+      if (card && !seen.has(card)) { seen.add(card); out.push(card.innerText); }
+    }
+    return out;
+  });
+  return blocks.map(parseCard).filter((c) => c.name);
+}
+
+async function postCandidates(cfg, jobTitle, candidates) {
+  const res = await fetch(`${cfg.backendUrl.replace(/\/$/, "")}/api/v1/import/apna-candidates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_title: jobTitle, candidates }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`source import failed HTTP ${res.status}: ${text.slice(0, 200)}`);
+  return JSON.parse(text);
+}
+
+async function sourceFromApna(page, cfg) {
+  for (const search of cfg.databaseSearches || []) {
+    try {
+      log(`Sourcing "${search.jobTitle}" — opening search…`);
+      await page.goto(search.url, { waitUntil: "domcontentloaded" });
+      if (/login|signin/i.test(page.url())) throw new Error("Session expired — run:  node sync.js --login");
+      await page.waitForTimeout(3000); // let results render
+      const cands = await scrapeCandidates(page);
+      if (!cands.length) { log(`"${search.jobTitle}": no candidate cards found on this page (I'll tune the scraper on the first real run).`); continue; }
+      const r = await postCandidates(cfg, search.jobTitle, cands);
+      log(`"${search.jobTitle}": scraped ${cands.length} → ${r.inserted} new, ${r.duplicates_skipped} already had, ${r.auto_shortlisted} shortlisted.`);
+    } catch (e) {
+      log(`ERROR sourcing "${search.jobTitle}": ${e.message}`);
+    }
+  }
+}
+
 // ── Find every job that has applicants, with its title ─────────────────────
 // Best-effort discovery: follow links that point at an applicants/candidates
 // page and grab the nearest heading as the job title. Confirmed/tuned on the
@@ -176,15 +260,19 @@ async function runOnce(cfg) {
   const ctx = await chromium.launchPersistentContext(SESSION_DIR, { headless: true, acceptDownloads: true });
   const page = ctx.pages()[0] || (await ctx.newPage());
   try {
+    // 1) Source candidates from Apna's Database search (the main engine).
+    if ((cfg.databaseSearches || []).length) await sourceFromApna(page, cfg);
+
+    // 2) Also pull anyone who applied to existing job posts (free, no credits).
     const jobs = await discoverJobs(page, cfg);
     if (!jobs.length) {
-      log("No applicant links found on the jobs page. (First run? Tell me what the page shows and I'll adjust.)");
-      return;
-    }
-    log(`Found ${jobs.length} job(s) with an applicant list. Importing…`);
-    for (const job of jobs) {
-      try { await importJob(page, cfg, job); }
-      catch (e) { log(`ERROR on "${job.title || job.url}": ${e.message}`); }
+      log("No applicant links found on the jobs page (that's fine if you only source from the Database).");
+    } else {
+      log(`Found ${jobs.length} job(s) with an applicant list. Importing…`);
+      for (const job of jobs) {
+        try { await importJob(page, cfg, job); }
+        catch (e) { log(`ERROR on "${job.title || job.url}": ${e.message}`); }
+      }
     }
   } finally {
     await ctx.close();

@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy this file to config.json. It stays only on your PC (git-ignored). I (the assistant) will fill these in for you — they are not homework.",
+  "_comment": "Copy this file to config.json. It stays only on your PC (git-ignored). I (the assistant) fill these in — not homework.",
 
   "backendUrl": "https://kgirdharlal-recruitment.vercel.app",
 
@@ -7,8 +7,14 @@
   "_loginUrl_note": "The Apna employer sign-in page. You log in here ONCE, by hand. The session is then reused.",
 
   "jobsUrl": "https://employer.apna.co/jobs",
-  "_jobsUrl_note": "Your Apna 'Jobs' page (the list of all jobs). The helper reads this to find every job that has applicants — no per-job setup needed.",
+  "_jobsUrl_note": "Your Apna 'Jobs' page. The helper also pulls anyone who applied to existing posts (free, no credits).",
+
+  "databaseSearches": [
+    { "jobTitle": "Design Engineer (CAD)", "url": "PASTE_APNA_DATABASE_SEARCH_URL_FOR_THIS_ROLE" },
+    { "jobTitle": "HR Executive",          "url": "PASTE_APNA_DATABASE_SEARCH_URL_FOR_THIS_ROLE" }
+  ],
+  "_databaseSearches_note": "The sourcing engine. Each entry is a saved Apna Database search (open Database, search a role + Surat, copy the address bar). The helper opens it, reads the candidate cards, and feeds them in. Confirmed/tuned together on the first real run.",
 
   "intervalHours": 6,
-  "_intervalHours_note": "How often to pull new applicants. 6 = four times a day. Set 0 to run once and exit."
+  "_intervalHours_note": "How often to source. 6 = four times a day. Set 0 to run once and exit."
 }

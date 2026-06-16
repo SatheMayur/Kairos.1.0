@@ -1,0 +1,13 @@
+{
+  "name": "apna-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local bot that logs into the Apna employer portal (once, manually), then auto-downloads applicant Excel exports and uploads them to the recruitment system.",
+  "scripts": {
+    "login": "node sync.js --login",
+    "start": "node sync.js"
+  },
+  "dependencies": {
+    "playwright": "^1.45.0"
+  }
+}

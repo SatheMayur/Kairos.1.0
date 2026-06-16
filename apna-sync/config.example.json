@@ -1,0 +1,28 @@
+{
+  "_comment": "Copy this file to config.json and fill it in. config.json is git-ignored and stays only on your PC.",
+
+  "backendUrl": "https://kgirdharlal-recruitment.vercel.app",
+
+  "loginUrl": "https://employer.apna.co/login",
+  "_loginUrl_note": "The page where you normally sign in to Apna as an employer. You log in here ONCE, by hand (password + OTP). After that the bot reuses the saved session.",
+
+  "intervalHours": 6,
+  "_intervalHours_note": "How often to pull new applicants. 6 = four times a day. Set 0 to run once and exit.",
+
+  "jobs": [
+    {
+      "label": "Design Engineer (CAD)",
+      "ourJobId": 2,
+      "applicantsUrl": "https://employer.apna.co/jobs/REPLACE_WITH_APNA_JOB_ID/applicants",
+      "exportButtonSelector": "REPLACE_WITH_EXPORT_BUTTON"
+    },
+    {
+      "label": "HR Executive",
+      "ourJobId": 3,
+      "applicantsUrl": "https://employer.apna.co/jobs/REPLACE_WITH_APNA_JOB_ID/applicants",
+      "exportButtonSelector": "REPLACE_WITH_EXPORT_BUTTON"
+    }
+  ],
+
+  "_jobs_note": "One entry per Apna job you want synced. 'ourJobId' is the job's ID in this recruitment system. 'applicantsUrl' is the page you see when you click a job and view its applicants. 'exportButtonSelector' is how the bot finds the Download/Export button — leave the placeholder and send me a screenshot of the applicants page and I'll fill it in."
+}

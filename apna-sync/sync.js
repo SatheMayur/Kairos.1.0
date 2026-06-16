@@ -88,6 +88,18 @@ async function syncJob(page, cfg, job) {
     throw new Error("Session expired — run:  node sync.js --login");
   }
 
+  // Apna's export downloads only the currently-shown tab (e.g. "Action Pending"),
+  // so switch to "All candidates" first to capture everyone. Best-effort — if the
+  // tab isn't found we still export whatever is shown.
+  if (cfg.selectAllTabSelector) {
+    try {
+      await page.click(cfg.selectAllTabSelector, { timeout: 8000 });
+      await page.waitForTimeout(1500); // let the list re-render
+    } catch {
+      log(`"${job.label}": could not find the 'All candidates' tab — exporting the default view.`);
+    }
+  }
+
   const downloadPath = path.join(DOWNLOAD_DIR, `apna-${job.ourJobId}-${Date.now()}.xlsx`);
   const [download] = await Promise.all([
     page.waitForEvent("download", { timeout: 60000 }),

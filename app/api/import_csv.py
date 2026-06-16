@@ -245,6 +245,55 @@ async def import_csv(
     return await _run_import_pipeline(raw_candidates, job_id, auto_outreach, db)
 
 
+@router.post("/apna", response_model=ImportResult)
+async def import_apna(
+    file: UploadFile = File(..., description="Apna 'Download Excel' export"),
+    job_title: str = Form(..., description="The Apna job's title — matched to (or used to create) a role here"),
+    company: str = Form("Bookends Hospitality", description="Company the Apna account hires for"),
+    auto_outreach: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+):
+    """Used by the local Apna Sync helper. Finds (or creates) a job matching the
+    Apna job title, then imports the uploaded Excel against it — so the helper
+    needs no hand-configured job IDs."""
+    from sqlalchemy import select, func
+    from app.models.job import Job, JobStatus
+
+    title = (job_title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="job_title is required")
+
+    # Match an existing job by case-insensitive title; otherwise create a light one.
+    res = await db.execute(select(Job).where(func.lower(Job.title) == title.lower()))
+    job = res.scalars().first()
+    if not job:
+        job = Job(title=title, company=company or None, status=JobStatus.ACTIVE)
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        logger.info("import_apna: auto-created job '%s' (#%d)", title, job.id)
+
+    content = await file.read()
+    fname = (file.filename or "").lower()
+    if fname.endswith(".xlsx") or content[:2] == b"PK":
+        try:
+            csv_text = _xlsx_to_csv(content)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not read this Excel file. ({str(exc)[:100]})")
+    else:
+        try:
+            csv_text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            csv_text = content.decode("latin-1")
+
+    raw_candidates = _APNA_ADAPTER.parse_csv(csv_text)
+    if not raw_candidates:
+        raise HTTPException(status_code=400, detail="No candidates found in the file — check the format")
+
+    logger.info("Apna import: job='%s'(#%d) candidates=%d", title, job.id, len(raw_candidates))
+    return await _run_import_pipeline(raw_candidates, job.id, auto_outreach, db)
+
+
 @router.post("/batch", response_model=ImportResult)
 async def import_batch(
     candidates: list[BatchCandidate],

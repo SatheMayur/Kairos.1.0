@@ -1,27 +1,14 @@
 {
-  "_comment": "Copy this file to config.json and fill it in. config.json is git-ignored and stays only on your PC.",
+  "_comment": "Copy this file to config.json. It stays only on your PC (git-ignored). I (the assistant) will fill these in for you — they are not homework.",
 
   "backendUrl": "https://kgirdharlal-recruitment.vercel.app",
 
   "loginUrl": "https://employer.apna.co/login",
-  "_loginUrl_note": "The page where you normally sign in to Apna as an employer. You log in here ONCE, by hand (password + OTP). After that the bot reuses the saved session. >>> CONFIRM THIS URL from your address bar. <<<",
+  "_loginUrl_note": "The Apna employer sign-in page. You log in here ONCE, by hand. The session is then reused.",
+
+  "jobsUrl": "https://employer.apna.co/jobs",
+  "_jobsUrl_note": "Your Apna 'Jobs' page (the list of all jobs). The helper reads this to find every job that has applicants — no per-job setup needed.",
 
   "intervalHours": 6,
-  "_intervalHours_note": "How often to pull new applicants. 6 = four times a day. Set 0 to run once and exit.",
-
-  "selectAllTabSelector": "text=All candidates",
-  "_selectAllTabSelector_note": "Clicked before exporting so we download EVERY applicant, not just the 'Action Pending' subset. Leave as-is unless the tab is named differently.",
-
-  "exportButtonSelector": "text=Download Excel",
-  "_exportButtonSelector_note": "Confirmed from the applicants page screenshot — the 'Download Excel' button.",
-
-  "jobs": [
-    {
-      "label": "PUT THE APNA JOB NAME HERE",
-      "ourJobId": 0,
-      "applicantsUrl": "PASTE_THE_APPLICANTS_PAGE_URL_FROM_YOUR_ADDRESS_BAR"
-    }
-  ],
-
-  "_jobs_note": "One entry per Apna job to sync. 'ourJobId' = the job's ID in this recruitment system. 'applicantsUrl' = the web address shown in your browser when you are on that job's applicant list (the page with the Download Excel button)."
+  "_intervalHours_note": "How often to pull new applicants. 6 = four times a day. Set 0 to run once and exit."
 }

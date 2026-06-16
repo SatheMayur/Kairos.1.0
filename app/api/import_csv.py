@@ -386,6 +386,35 @@ async def import_apna_candidates(payload: ApnaSourceRequest, db: AsyncSession = 
     return await _run_import_pipeline(raw, job.id, payload.auto_outreach, db)
 
 
+@router.get("/apna/status")
+async def apna_status(db: AsyncSession = Depends(get_db)):
+    """Live status of the Apna sourcing engine, for the dashboard panel."""
+    from sqlalchemy import select, func
+    from app.models.candidate import Candidate
+
+    total = await db.scalar(
+        select(func.count()).select_from(Candidate).where(Candidate.source == CandidateSource.APNA)
+    )
+    last = await db.scalar(
+        select(func.max(Candidate.created_at)).where(Candidate.source == CandidateSource.APNA)
+    )
+    # Recent 5 Apna-sourced candidates for a quick visible proof it's working.
+    rows = (await db.execute(
+        select(Candidate).where(Candidate.source == CandidateSource.APNA)
+        .order_by(Candidate.created_at.desc()).limit(5)
+    )).scalars().all()
+    return {
+        "apna_candidates": total or 0,
+        "last_sourced_at": last.isoformat() if last else None,
+        "started": bool(total),
+        "recent": [
+            {"name": c.name, "role": c.current_role or "", "location": c.location or "",
+             "at": c.created_at.isoformat() if c.created_at else None}
+            for c in rows
+        ],
+    }
+
+
 # ── Smart URL import (ScrapeGraph-style) ──────────────────────────────────────
 
 class URLImportRequest(BaseModel):

@@ -2,10 +2,29 @@
 {% block title %}Import Candidates{% endblock %}
 {% block content %}
 <div class="topbar">
-  <div class="topbar-left"><h1>Import Candidates</h1><p>Bulk upload from Naukri, WorkIndia CSV or paste manually</p></div>
+  <div class="topbar-left"><h1>Import / Source</h1><p>Apna sources candidates automatically. You can also upload Naukri / WorkIndia files or paste manually.</p></div>
 </div>
 
 <div id="alert-area"></div>
+
+<!-- Apna automatic sourcing status -->
+<div class="card" style="margin-bottom:18px">
+  <div class="card-header">
+    <span class="card-title">🔗 Apna — Automatic Candidate Sourcing</span>
+    <span id="apna-status-pill" class="badge badge-grey">Checking…</span>
+  </div>
+  <div class="card-body">
+    <div class="grid-2" style="align-items:center">
+      <div>
+        <div style="font-size:34px;font-weight:700;color:var(--accent)" id="apna-count">—</div>
+        <div class="text-muted text-sm">candidates sourced from Apna so far</div>
+        <div class="text-muted text-sm" id="apna-last" style="margin-top:6px"></div>
+      </div>
+      <div class="text-sm" id="apna-explain" style="color:var(--text-dim)"></div>
+    </div>
+    <div id="apna-recent" style="margin-top:14px"></div>
+  </div>
+</div>
 
 <div class="grid-2">
   <!-- CSV Upload -->
@@ -159,7 +178,42 @@
 
 {% block scripts %}
 <script>
+function timeAgo(iso) {
+  if (!iso) return '';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.round(hrs / 24) + 'd ago';
+}
+
+async function loadApnaStatus() {
+  try {
+    const s = await api('/api/v1/import/apna/status');
+    document.getElementById('apna-count').textContent = s.apna_candidates;
+    const pill = document.getElementById('apna-status-pill');
+    const last = document.getElementById('apna-last');
+    const explain = document.getElementById('apna-explain');
+    if (s.started) {
+      pill.className = 'badge badge-green'; pill.textContent = '● Working';
+      last.textContent = 'Last brought in candidates ' + timeAgo(s.last_sourced_at);
+      explain.innerHTML = 'New Apna candidates appear in your <b>Candidates</b> list and the dashboard totals automatically.';
+    } else {
+      pill.className = 'badge badge-yellow'; pill.textContent = 'Not started yet';
+      last.textContent = '';
+      explain.innerHTML = "The Apna sourcing helper hasn't run on your computer yet. Once it runs its first search, candidates will appear here on their own.";
+    }
+    const recent = document.getElementById('apna-recent');
+    recent.innerHTML = (s.recent && s.recent.length)
+      ? '<div class="text-muted text-sm" style="margin-bottom:6px">Most recent from Apna:</div>' +
+        s.recent.map(c => `<div class="text-sm">• ${esc(c.name)}${c.role?' — '+esc(c.role):''}${c.location?' · '+esc(c.location):''}</div>`).join('')
+      : '';
+  } catch (e) { /* leave defaults */ }
+}
+
 async function init() {
+  loadApnaStatus();
   const jobs = await api('/api/v1/jobs?limit=100');
   ['csv-job','m-job','url-job','bulk-job'].forEach(id => {
     const sel = document.getElementById(id);

@@ -2,29 +2,10 @@
 {% block title %}Import Candidates{% endblock %}
 {% block content %}
 <div class="topbar">
-  <div class="topbar-left"><h1>Import / Source</h1><p>Apna sources candidates automatically. You can also upload Naukri / WorkIndia files or paste manually.</p></div>
+  <div class="topbar-left"><h1>Import Candidates</h1><p>Bulk upload from Naukri, WorkIndia CSV or paste manually</p></div>
 </div>
 
 <div id="alert-area"></div>
-
-<!-- Apna automatic sourcing status -->
-<div class="card" style="margin-bottom:18px">
-  <div class="card-header">
-    <span class="card-title">🔗 Apna — Automatic Candidate Sourcing</span>
-    <span id="apna-status-pill" class="badge badge-grey">Checking…</span>
-  </div>
-  <div class="card-body">
-    <div class="grid-2" style="align-items:center">
-      <div>
-        <div style="font-size:34px;font-weight:700;color:var(--accent)" id="apna-count">—</div>
-        <div class="text-muted text-sm">candidates sourced from Apna so far</div>
-        <div class="text-muted text-sm" id="apna-last" style="margin-top:6px"></div>
-      </div>
-      <div class="text-sm" id="apna-explain" style="color:var(--text-dim)"></div>
-    </div>
-    <div id="apna-recent" style="margin-top:14px"></div>
-  </div>
-</div>
 
 <div class="grid-2">
   <!-- CSV Upload -->
@@ -144,6 +125,60 @@
   </div>
 </div>
 
+
+<!-- ── Apna Hire Live Search ──────────────────────────────────────────────── -->
+<div class="card" style="margin-top:0">
+  <div class="card-header">
+    <span class="card-title">🔍 Apna Hire Live Search</span>
+    <span style="font-size:12px;color:var(--text-muted)">Search Apna's white-collar database and import directly</span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:flex-end;margin-bottom:14px">
+      <div class="form-group" style="margin:0">
+        <label>Apna JWT Token <span style="font-size:11px;font-weight:400;color:var(--text-muted)">— from employer.apna.co localStorage → <code>__token__</code></span></label>
+        <input type="password" id="apna-token" placeholder="eyJhbGci…" style="width:100%;font-family:monospace;font-size:12px">
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="apnaSaveToken()" style="white-space:nowrap">💾 Save token</button>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr 100px 100px;gap:10px;align-items:flex-end;margin-bottom:10px">
+      <div class="form-group" style="margin:0">
+        <label>Keywords (comma-separated)</label>
+        <input type="text" id="apna-keywords" placeholder="HR Executive, Payroll, Recruitment" style="width:100%">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>City / Region</label>
+        <input type="text" id="apna-location" placeholder="Surat, Mumbai" style="width:100%">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Exp min (yrs)</label>
+        <input type="number" id="apna-exp-min" placeholder="0" min="0" max="30" step="0.5" style="width:100%">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Exp max (yrs)</label>
+        <input type="number" id="apna-exp-max" placeholder="10" min="0" max="30" step="0.5" style="width:100%">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+      <div class="form-group" style="margin:0;flex:1;min-width:180px">
+        <label>Job to score against</label>
+        <select id="apna-job" style="width:100%"><option value="">Loading jobs…</option></select>
+      </div>
+      <div class="form-group" style="margin:0;width:90px">
+        <label>Results</label>
+        <select id="apna-size" style="width:100%">
+          <option value="10">10</option><option value="20" selected>20</option><option value="40">40</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;align-self:flex-end">
+        <input type="checkbox" id="apna-outreach" checked style="width:auto">
+        <label style="margin:0;font-size:13px">Auto-outreach if shortlisted</label>
+      </div>
+      <button class="btn btn-primary" onclick="apnaSearch(1)" id="apna-btn" style="align-self:flex-end">🔍 Search Apna</button>
+    </div>
+    <div id="apna-results"></div>
+  </div>
+</div>
+
 <!-- Import results -->
 <div id="import-result"></div>
 
@@ -178,44 +213,9 @@
 
 {% block scripts %}
 <script>
-function timeAgo(iso) {
-  if (!iso) return '';
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + ' min ago';
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  return Math.round(hrs / 24) + 'd ago';
-}
-
-async function loadApnaStatus() {
-  try {
-    const s = await api('/api/v1/import/apna/status');
-    document.getElementById('apna-count').textContent = s.apna_candidates;
-    const pill = document.getElementById('apna-status-pill');
-    const last = document.getElementById('apna-last');
-    const explain = document.getElementById('apna-explain');
-    if (s.started) {
-      pill.className = 'badge badge-green'; pill.textContent = '● Working';
-      last.textContent = 'Last brought in candidates ' + timeAgo(s.last_sourced_at);
-      explain.innerHTML = 'New Apna candidates appear in your <b>Candidates</b> list and the dashboard totals automatically.';
-    } else {
-      pill.className = 'badge badge-yellow'; pill.textContent = 'Not started yet';
-      last.textContent = '';
-      explain.innerHTML = "The Apna sourcing helper hasn't run on your computer yet. Once it runs its first search, candidates will appear here on their own.";
-    }
-    const recent = document.getElementById('apna-recent');
-    recent.innerHTML = (s.recent && s.recent.length)
-      ? '<div class="text-muted text-sm" style="margin-bottom:6px">Most recent from Apna:</div>' +
-        s.recent.map(c => `<div class="text-sm">• ${esc(c.name)}${c.role?' — '+esc(c.role):''}${c.location?' · '+esc(c.location):''}</div>`).join('')
-      : '';
-  } catch (e) { /* leave defaults */ }
-}
-
 async function init() {
-  loadApnaStatus();
   const jobs = await api('/api/v1/jobs?limit=100');
-  ['csv-job','m-job','url-job','bulk-job'].forEach(id => {
+  ['csv-job','m-job','url-job','bulk-job','apna-job'].forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
     sel.innerHTML = '<option value="">Select job…</option>' +
@@ -397,6 +397,114 @@ async function addManual() {
   } catch(e) { showToast(e.message, 'error'); }
   btn.disabled = false;
 }
+
+// ── Apna Hire Live Search ─────────────────────────────────────────────────────
+const APNA_TOKEN_KEY = 'apna_token';
+
+function apnaSaveToken() {
+  const t = document.getElementById('apna-token').value.trim();
+  if (!t) { showToast('Paste your Apna JWT token first', 'error'); return; }
+  localStorage.setItem(APNA_TOKEN_KEY, t);
+  showToast('Token saved', 'success');
+}
+
+function apnaGetToken() {
+  const saved = localStorage.getItem(APNA_TOKEN_KEY);
+  if (saved) document.getElementById('apna-token').value = saved;
+  return saved || document.getElementById('apna-token').value.trim();
+}
+
+let _apnaLastPage = 1;
+
+async function apnaSearch(page = 1) {
+  const token = apnaGetToken();
+  if (!token) { showToast('Enter or save your Apna token first', 'error'); return; }
+  const kwRaw = document.getElementById('apna-keywords').value.trim();
+  if (!kwRaw) { showToast('Enter at least one keyword', 'error'); return; }
+  const keywords = kwRaw.split(',').map(k => k.trim()).filter(Boolean);
+  const location  = document.getElementById('apna-location').value.trim() || null;
+  const expMin    = parseFloat(document.getElementById('apna-exp-min').value) || null;
+  const expMax    = parseFloat(document.getElementById('apna-exp-max').value) || null;
+  const size      = parseInt(document.getElementById('apna-size').value) || 20;
+  const btn = document.getElementById('apna-btn');
+  btn.disabled = true; btn.textContent = 'Searching…';
+  document.getElementById('apna-results').innerHTML = '<div class="text-muted text-sm">Searching Apna Hire database…</div>';
+  try {
+    const r = await api('/api/v1/import/apna-search', { method: 'POST',
+      body: { keywords, location, experience_min: expMin, experience_max: expMax, page, size, apna_token: token } });
+    _apnaLastPage = page;
+    apnaRenderResults(r, page, size);
+  } catch(e) {
+    document.getElementById('apna-results').innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '🔍 Search Apna';
+}
+
+function apnaRenderResults(r, page, size) {
+  const cands = r.candidates || [];
+  const total = r.total || cands.length;
+  const totalPages = Math.ceil(total / size);
+  if (!cands.length) {
+    document.getElementById('apna-results').innerHTML = '<div class="text-muted text-sm" style="margin-top:8px">No candidates found. Try broader keywords.</div>';
+    return;
+  }
+  window._apnaCandidates = cands;
+  const rows = cands.map((c, i) => `<tr>
+    <td style="width:32px;text-align:center"><input type="checkbox" class="apna-chk" data-idx="${i}" style="width:auto"></td>
+    <td><div style="font-weight:600">${esc(c.name)}</div>${c.education?`<div style="font-size:11px;color:var(--text-muted)">${esc(c.education)}</div>`:''} ${c.active_label?`<div style="font-size:10px;color:#34d399">Active ${esc(c.active_label)}</div>`:''}</td>
+    <td><div>${esc(c.current_role||'—')}</div><div style="font-size:11px;color:var(--text-muted)">${esc(c.current_employer||'')}</div></td>
+    <td>${c.experience_years!=null?c.experience_years+' yrs':'—'}</td>
+    <td>${esc(c.location||'—')}</td>
+    <td>${c.salary_lpa!=null?'₹'+c.salary_lpa+' LPA':'—'}</td>
+    <td style="max-width:160px"><div style="font-size:11px;color:var(--text-muted)">${(c.skills||[]).slice(0,5).map(s=>`<span style="background:var(--bg-surface);border-radius:4px;padding:1px 5px;margin:1px;display:inline-block">${esc(s)}</span>`).join('')}</div></td>
+  </tr>`).join('');
+  const pagination = totalPages > 1 ? `<div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+    <button class="btn btn-secondary btn-sm" onclick="apnaSearch(${page-1})" ${page<=1?'disabled':''}>← Prev</button>
+    <span style="font-size:13px;color:var(--text-muted)">Page ${page} / ${totalPages} (${total} total)</span>
+    <button class="btn btn-secondary btn-sm" onclick="apnaSearch(${page+1})" ${page>=totalPages?'disabled':''}>Next →</button>
+  </div>` : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px">${total} candidate${total!==1?'s':''} found</div>`;
+  document.getElementById('apna-results').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="apnaSelectAll(true)">Select All</button>
+        <button class="btn btn-secondary btn-sm" onclick="apnaSelectAll(false)">Deselect All</button>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="apnaImportSelected()" id="apna-import-btn">⬇ Import Selected</button>
+    </div>
+    <div class="table-wrap"><table>
+      <tr><th></th><th>Candidate</th><th>Role / Employer</th><th>Exp</th><th>Location</th><th>Salary</th><th>Skills</th></tr>
+      ${rows}
+    </table></div>${pagination}`;
+}
+
+function apnaSelectAll(checked) {
+  document.querySelectorAll('.apna-chk').forEach(cb => cb.checked = checked);
+}
+
+async function apnaImportSelected() {
+  const jobId = document.getElementById('apna-job').value;
+  if (!jobId) { showToast('Select a job to score against', 'error'); return; }
+  const checked = [...document.querySelectorAll('.apna-chk:checked')];
+  if (!checked.length) { showToast('Select at least one candidate', 'error'); return; }
+  const candidates = checked.map(cb => window._apnaCandidates[parseInt(cb.dataset.idx)].raw);
+  const autoOutreach = document.getElementById('apna-outreach').checked;
+  const btn = document.getElementById('apna-import-btn');
+  btn.disabled = true; btn.textContent = `Importing ${candidates.length}…`;
+  try {
+    const r = await api('/api/v1/import/apna-import', { method: 'POST',
+      body: { candidates, job_id: parseInt(jobId), auto_outreach: autoOutreach } });
+    showImportResult(r, parseInt(jobId));
+    showToast(`Imported ${r.inserted} — ${r.auto_shortlisted} shortlisted`, 'success');
+    document.getElementById('apna-results').innerHTML = '<div class="alert alert-success">Import complete — see Screening Results below.</div>';
+  } catch(e) { showToast('Import failed: '+e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '⬇ Import Selected';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem(APNA_TOKEN_KEY);
+  if (saved) document.getElementById('apna-token').value = saved;
+});
+
 
 init();
 </script>

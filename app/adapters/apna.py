@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 
 from app.adapters.base import BasePortalAdapter, RawCandidate
 from app.adapters.naukri import _find_col, _parse_salary, _parse_experience, _parse_notice
@@ -18,16 +19,31 @@ from app.models.candidate import CandidateSource
 
 logger = logging.getLogger(__name__)
 
+# Apna uses the literal string "Not Available" as a null placeholder in many columns.
+_NA = {"not available", "na", "n/a", ""}
+
+
+def _apna_experience(value: str):
+    """Apna writes experience like '6yrs 7mos' / '5yrs ' / '11yrs 1mos'."""
+    if not value:
+        return None
+    m = re.search(r"(\d+)\s*yrs?(?:\s*(\d+)\s*mos)?", value, re.I)
+    if m:
+        years = int(m.group(1)) + (int(m.group(2)) / 12 if m.group(2) else 0)
+        return round(years, 1)
+    return _parse_experience(value)
+
 _NAME   = {"candidate name", "name", "full name", "applicant name", "candidate"}
 _EMAIL  = {"email", "email id", "email address", "e-mail"}
 _PHONE  = {"mobile number", "mobile", "phone", "phone number", "contact number",
            "contact", "whatsapp number", "whatsapp", "mobile no", "mobile no."}
 _EXP    = {"experience", "total experience", "work experience",
            "years of experience", "exp", "experience (years)"}
-_LOC    = {"location", "city", "current location", "preferred location", "candidate location"}
-_SKILLS = {"skills", "key skills", "skill set"}
+_LOC    = {"location", "city", "current location", "preferred location",
+           "candidate location", "candidate city", "candidate area"}
+_SKILLS = {"skills", "key skills", "skill set", "sub department"}
 _ROLE   = {"job title", "designation", "current designation", "current job title",
-           "applied for", "role", "current role", "job role"}
+           "applied for", "role", "current role", "job role", "current job role"}
 _EMP    = {"company", "current company", "current employer", "employer"}
 _CURSAL = {"current salary", "current ctc", "current ctc (monthly)"}
 _EXPSAL = {"expected salary", "expected ctc", "expected salary (monthly)", "expected salary (per month)"}
@@ -70,7 +86,10 @@ class ApnaCSVAdapter(BasePortalAdapter):
 
         def get(row: list[str], key: str) -> str:
             i = col[key]
-            return row[i].strip() if (i is not None and i < len(row)) else ""
+            if i is None or i >= len(row):
+                return ""
+            val = row[i].strip()
+            return "" if val.lower() in _NA else val  # treat "Not Available" as empty
 
         out: list[RawCandidate] = []
         for row in rows[1:]:
@@ -89,7 +108,7 @@ class ApnaCSVAdapter(BasePortalAdapter):
                     phone=phone,
                     whatsapp=phone,
                     skills=skills,
-                    experience_years=_parse_experience(get(row, "exp")),
+                    experience_years=_apna_experience(get(row, "exp")),
                     current_salary=_parse_salary(get(row, "cursal")),
                     expected_salary=_parse_salary(get(row, "expsal")),
                     notice_period_days=_parse_notice(get(row, "notice")),

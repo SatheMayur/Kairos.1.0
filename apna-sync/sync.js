@@ -24,13 +24,55 @@ const ALL_CANDIDATES_TAB = "text=All candidates";
 
 function loadConfig() {
   if (!fs.existsSync(CONFIG_PATH)) {
-    console.error("\n  config.json not found. Copy config.example.json to config.json first.\n");
+    console.error("\n  Your settings file is missing.");
+    console.error("  Fix: copy 'config.example.json' to 'config.json' in this folder, then run again.");
+    console.error("  (The launcher start-apna-sync.bat does this for you automatically.)\n");
     process.exit(1);
   }
-  return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+  } catch (e) {
+    console.error("\n  Your settings file 'config.json' could not be read — it looks damaged.");
+    console.error("  Fix: delete config.json, copy config.example.json to config.json again, and re-run.");
+    console.error("  (Technical detail for your developer: " + e.message + ")\n");
+    process.exit(1);
+  }
 }
 
 const log = (msg) => console.log(`[${new Date().toLocaleString()}] ${msg}`);
+
+// Load Playwright, but if Chromium/Playwright isn't installed give a plain-English
+// message instead of a raw stack trace. Returns the chromium handle.
+function loadChromium() {
+  try {
+    return require("playwright").chromium;
+  } catch (e) {
+    console.error("\n  The browser engine this helper needs isn't installed yet.");
+    console.error("  Fix: close this window and double-click 'start-apna-sync.bat' — it installs it for you the first time.");
+    console.error("  (If you are running by hand, run:  npm install  then  npx playwright install chromium )\n");
+    process.exit(1);
+  }
+}
+
+// Turn common low-level errors into a plain-English explanation for the owner.
+// `where` is a short phrase like "while talking to the HR system".
+function explainError(e, cfg) {
+  const msg = (e && e.message) || String(e);
+  // Browser/Chromium not installed or won't launch.
+  if (/Executable doesn't exist|playwright install|browserType\.launch|Failed to launch/i.test(msg)) {
+    return "The browser engine could not start. Close this window and double-click 'start-apna-sync.bat' so it can install it for you (or run: npx playwright install chromium).";
+  }
+  // Session expired / not logged in.
+  if (/Session expired|not signed in|login|signin/i.test(msg)) {
+    return "Your Apna sign-in has expired. Run the sign-in step again:  node sync.js --login";
+  }
+  // Backend unreachable (fetch failed / DNS / connection refused).
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network|getaddrinfo|ETIMEDOUT/i.test(msg)) {
+    const url = cfg ? cfg.backendUrl : "(the HR system address in config.json)";
+    return "Could not reach the HR system at " + url + ". Check that the address in config.json is correct and that this PC has internet, then try again.";
+  }
+  return msg;
+}
 
 // ── Capture the portal's own candidate API (for the JSON integration) ──────
 // Arms a network listener, lets you click into a candidate list, and saves the
@@ -38,7 +80,7 @@ const log = (msg) => console.log(`[${new Date().toLocaleString()}] ${msg}`);
 // redacted, so the file is safe to share. The assistant uses it to build the
 // real API mapping; your token stays on this PC.
 async function captureApi(cfg) {
-  const { chromium } = require("playwright");
+  const chromium = loadChromium();
   const ctx = await chromium.launchPersistentContext(SESSION_DIR, { headless: false, acceptDownloads: true });
   const page = ctx.pages()[0] || (await ctx.newPage());
 
@@ -90,7 +132,7 @@ async function captureApi(cfg) {
 
 // ── One-time manual login ──────────────────────────────────────────────────
 async function doLogin(cfg) {
-  const { chromium } = require("playwright");
+  const chromium = loadChromium();
   log("Opening Apna login. Sign in by hand (password + OTP if asked).");
   const ctx = await chromium.launchPersistentContext(SESSION_DIR, { headless: false, acceptDownloads: true });
   const page = ctx.pages()[0] || (await ctx.newPage());
@@ -109,7 +151,14 @@ async function uploadFile(cfg, filePath, jobTitle) {
   form.append("job_title", jobTitle || "Apna applicants");
   form.append("source", "APNA");
   form.append("auto_outreach", "true");
-  const res = await fetch(`${cfg.backendUrl.replace(/\/$/, "")}/api/v1/import/apna`, { method: "POST", body: form });
+  const url = `${cfg.backendUrl.replace(/\/$/, "")}/api/v1/import/apna`;
+  let res;
+  try {
+    res = await fetch(url, { method: "POST", body: form });
+  } catch (e) {
+    // Network-level failure (no internet / wrong address / site down).
+    throw new Error(`Could not reach the HR system at ${url} — check the address in config.json and this PC's internet. (${e.message})`);
+  }
   const text = await res.text();
   if (!res.ok) throw new Error(`import failed HTTP ${res.status}: ${text.slice(0, 200)}`);
   return JSON.parse(text);
@@ -172,11 +221,18 @@ async function scrapeCandidates(page) {
 }
 
 async function postCandidates(cfg, jobTitle, candidates) {
-  const res = await fetch(`${cfg.backendUrl.replace(/\/$/, "")}/api/v1/import/apna-candidates`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ job_title: jobTitle, candidates }),
-  });
+  const url = `${cfg.backendUrl.replace(/\/$/, "")}/api/v1/import/apna-candidates`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_title: jobTitle, candidates }),
+    });
+  } catch (e) {
+    // Network-level failure (no internet / wrong address / site down).
+    throw new Error(`Could not reach the HR system at ${url} — check the address in config.json and this PC's internet. (${e.message})`);
+  }
   const text = await res.text();
   if (!res.ok) throw new Error(`source import failed HTTP ${res.status}: ${text.slice(0, 200)}`);
   return JSON.parse(text);
@@ -190,11 +246,15 @@ async function sourceFromApna(page, cfg) {
       if (/login|signin/i.test(page.url())) throw new Error("Session expired — run:  node sync.js --login");
       await page.waitForTimeout(3000); // let results render
       const cands = await scrapeCandidates(page);
-      if (!cands.length) { log(`"${search.jobTitle}": no candidate cards found on this page (I'll tune the scraper on the first real run).`); continue; }
+      if (!cands.length) {
+        log(`"${search.jobTitle}": no candidate cards found on this page. Apna may have changed how the page looks. Please take a screenshot of the search results and send it to me so I can fix it.`);
+        continue;
+      }
       const r = await postCandidates(cfg, search.jobTitle, cands);
       log(`"${search.jobTitle}": scraped ${cands.length} → ${r.inserted} new, ${r.duplicates_skipped} already had, ${r.auto_shortlisted} shortlisted.`);
     } catch (e) {
-      log(`ERROR sourcing "${search.jobTitle}": ${e.message}`);
+      // One bad search must never stop the others.
+      log(`Could not source "${search.jobTitle}": ${explainError(e, cfg)}`);
     }
   }
 }
@@ -256,26 +316,40 @@ async function importJob(page, cfg, job) {
 }
 
 async function runOnce(cfg) {
-  const { chromium } = require("playwright");
-  const ctx = await chromium.launchPersistentContext(SESSION_DIR, { headless: true, acceptDownloads: true });
+  const chromium = loadChromium();
+  let ctx;
+  try {
+    ctx = await chromium.launchPersistentContext(SESSION_DIR, { headless: true, acceptDownloads: true });
+  } catch (e) {
+    log("Could not start the browser: " + explainError(e, cfg));
+    return;
+  }
   const page = ctx.pages()[0] || (await ctx.newPage());
   try {
     // 1) Source candidates from Apna's Database search (the main engine).
+    // sourceFromApna already guards each search on its own.
     if ((cfg.databaseSearches || []).length) await sourceFromApna(page, cfg);
 
     // 2) Also pull anyone who applied to existing job posts (free, no credits).
-    const jobs = await discoverJobs(page, cfg);
+    // Guard this whole step so a problem here never stops the run or skips cleanup.
+    let jobs = [];
+    try {
+      jobs = await discoverJobs(page, cfg);
+    } catch (e) {
+      log("Could not read your Apna jobs page: " + explainError(e, cfg));
+    }
     if (!jobs.length) {
       log("No applicant links found on the jobs page (that's fine if you only source from the Database).");
     } else {
       log(`Found ${jobs.length} job(s) with an applicant list. Importing…`);
       for (const job of jobs) {
+        // One failing job must never stop the rest.
         try { await importJob(page, cfg, job); }
-        catch (e) { log(`ERROR on "${job.title || job.url}": ${e.message}`); }
+        catch (e) { log(`Could not import "${job.title || job.url}": ${explainError(e, cfg)}`); }
       }
     }
   } finally {
-    await ctx.close();
+    try { await ctx.close(); } catch { /* already closed */ }
   }
 }
 
@@ -284,20 +358,29 @@ async function main() {
   if (process.argv.includes("--login")) { await doLogin(cfg); process.exit(0); }
   if (process.argv.includes("--capture")) { await captureApi(cfg); process.exit(0); }
   if (!fs.existsSync(SESSION_DIR) || fs.readdirSync(SESSION_DIR).length === 0) {
-    console.error("\n  Not signed in yet. Run first:  node sync.js --login\n");
+    console.error("\n  You are not signed in to Apna yet.");
+    console.error("  Fix: run the one-time sign-in step first:  node sync.js --login");
+    console.error("  (The launcher start-apna-sync.bat does this for you automatically.)\n");
     process.exit(1);
   }
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 
-  await runOnce(cfg);
+  // Never let a single run crash the whole process — explain and carry on.
+  await runOnce(cfg).catch((e) => log("This sync had a problem: " + explainError(e, cfg)));
   const hours = Number(cfg.intervalHours || 0);
   if (hours > 0) {
     log(`Next sync in ${hours}h. Leave this window open.`);
-    setInterval(() => runOnce(cfg).catch((e) => log("Run error: " + e.message)), hours * 3600 * 1000);
+    setInterval(() => runOnce(cfg).catch((e) => log("This sync had a problem: " + explainError(e, cfg))), hours * 3600 * 1000);
   } else {
-    log("Done (intervalHours=0, single run).");
+    log("Done (one-time run because the schedule is set to 0). You can close this window.");
     process.exit(0);
   }
 }
 
-main().catch((e) => { console.error("Fatal:", e); process.exit(1); });
+main().catch((e) => {
+  // Last-resort safety net: still plain English, no raw stack trace.
+  console.error("\n  Sorry — the helper hit a problem it could not recover from:");
+  console.error("  " + explainError(e));
+  console.error("  If this keeps happening, send me a screenshot of this window.\n");
+  process.exit(1);
+});

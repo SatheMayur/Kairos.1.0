@@ -20,16 +20,20 @@ HR system on its own, so you never export and upload Excel files by hand.
   it yourself in step 1; only the resulting session is saved, on this PC.
 
 ## One-time setup
+The short version is in **SETUP.txt** (hand that to whoever sets up the PC). In brief:
+
 1. Install Node.js from https://nodejs.org (the big green button).
-2. Copy `config.example.json` to `config.json`.
-3. Fill in `config.json`:
-   - `loginUrl` — the Apna employer sign-in page.
-   - For each job: `ourJobId` (its number in the HR system) and `applicantsUrl`
-     (the page showing that job's applicants).
-   - `exportButtonSelector` — leave the placeholder and **send me a screenshot of the
-     applicants page**; I'll fill this in for you.
-4. Double-click `start-apna-sync.bat`. A browser opens — sign in to Apna (password +
-   OTP). Press ENTER in the black window when done.
+2. Double-click `start-apna-sync.bat`. On the first run it installs everything it
+   needs, makes your settings file (`config.json`) from the example automatically,
+   and opens a browser so you can sign in to Apna once (password + OTP). Press ENTER
+   in the black window when you're signed in.
+3. That's it — it runs on its own from then on.
+
+### About the settings file (`config.json`)
+The launcher creates this for you. It already points at the right addresses (the
+HR system and the Apna sign-in/jobs pages). The one thing I (the assistant) set up
+with you is **`databaseSearches`** — your saved Apna Database searches per role. We
+confirm those together on the first real run. You don't need to edit this file by hand.
 
 ## Daily use
 Just leave `start-apna-sync.bat` running. To start it automatically when the PC

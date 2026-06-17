@@ -1,0 +1,56 @@
+==============================================================
+ APNA SYNC - 2 MINUTE SETUP
+ (Hand this to whoever sets up the office PC. Plain steps, no tech knowledge needed.)
+==============================================================
+
+WHAT THIS DOES
+  It signs in to Apna once, then keeps bringing new applicants into the
+  HR system on its own. You set it up once and leave it running.
+
+WHAT YOU NEED FIRST
+  - The office PC that stays switched on.
+  - Node.js installed. If it is not installed, get it free from:
+        https://nodejs.org
+    and click the big green button to install it. (Just click Next, Next, Finish.)
+
+
+STEPS
+
+  1. Download the project.
+     Go to:  https://github.com/SatheMayur/Kairos.1.0
+     Click the green "Code" button, then "Download ZIP".
+     Unzip it anywhere on the PC (for example, the Desktop).
+
+  2. Put the "apna-sync" folder next to the "waha-bridge" folder.
+     Inside the project you will see a folder called "waha-bridge"
+     (the WhatsApp helper). Make sure the "apna-sync" folder sits
+     right beside it, in the same place.
+
+  3. Start it.
+     Open the "apna-sync" folder and DOUBLE-CLICK the file:
+        start-apna-sync.bat
+     A black window opens. The first time, it installs everything it needs.
+     This can take a few minutes - just leave the window open and wait.
+
+  4. Sign in to Apna once.
+     A web browser will pop open by itself on the Apna sign-in page.
+     Type the Apna email/phone and password (and the OTP code if Apna asks).
+     Once you can see the Apna dashboard, click back on the black window
+     and press ENTER.
+
+  That's it. From now on it runs by itself and re-checks Apna a few times a day.
+  Leave the black window open. To stop it, just close that window.
+
+
+IF SOMETHING LOOKS WRONG
+  - The black window will tell you in plain English what happened and what to do.
+  - "Not signed in" -> double-click start-apna-sync.bat again; it will reopen
+    the Apna sign-in for you.
+  - If it says it found no candidates, Apna may have changed their website.
+    Take a screenshot of the Apna page and send it to Kirti's assistant to fix.
+
+
+WANT IT TO START AUTOMATICALLY WHEN THE PC TURNS ON?
+  Use the same Windows Task Scheduler steps as the WhatsApp helper.
+  See the file:  ..\waha-bridge\RUN-24-7.md
+==============================================================

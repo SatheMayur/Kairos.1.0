@@ -40,33 +40,18 @@ _APNA_ADAPTER = ApnaCSVAdapter()
 
 def _xlsx_to_csv(content: bytes) -> str:
     """Convert an uploaded Excel (.xlsx) file into CSV text so the existing
-    CSV adapters can parse it. Reads the first/active sheet.
-
-    Some exporters (e.g. Apna) write a wrong/missing sheet 'dimension', which
-    makes openpyxl's fast read-only mode stop after one row. So we read in
-    read-only mode first and, if that yields no data rows, fall back to the
-    full (non-read-only) reader which scans every row regardless of dimension.
-    """
+    CSV adapters can parse it. Reads the first/active sheet."""
     import csv as _csv
     import io as _io
     from openpyxl import load_workbook
 
-    def _read(read_only: bool) -> list[list[str]]:
-        wb = load_workbook(_io.BytesIO(content), read_only=read_only, data_only=True)
-        ws = wb.active
-        rows = [["" if c is None else str(c) for c in row]
-                for row in ws.iter_rows(values_only=True)]
-        wb.close()
-        return rows
-
-    rows = _read(True)
-    if len(rows) < 2:                 # truncated by a bad dimension tag → full read
-        rows = _read(False)
-
+    wb = load_workbook(_io.BytesIO(content), read_only=True, data_only=True)
+    ws = wb.active
     out = _io.StringIO()
     writer = _csv.writer(out)
-    for row in rows:
-        writer.writerow(row)
+    for row in ws.iter_rows(values_only=True):
+        writer.writerow(["" if cell is None else str(cell) for cell in row])
+    wb.close()
     return out.getvalue()
 
 
@@ -120,7 +105,6 @@ async def _run_import_pipeline(
     details = []
 
     for raw in raw_candidates:
-        # Upsert candidate (skip exact duplicates by email/source_ref)
         existing_before = True
         try:
             from sqlalchemy import select as sa_select
@@ -163,7 +147,6 @@ async def _run_import_pipeline(
             rejected += 1
             result_label = "REJECTED"
 
-        # Queue outreach for auto-shortlisted candidates
         if auto_outreach and entry.status == ShortlistStatus.SHORTLISTED:
             from app.models.shortlist import ShortlistEntry
             try:
@@ -215,21 +198,12 @@ async def import_csv(
     auto_outreach: bool = Form(True, description="Queue outreach for AUTO_SHORTLIST candidates"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload a Naukri or WorkIndia CSV export.
-
-    The system will:
-    1. Parse every row using the correct column mapping
-    2. Deduplicate against existing candidates (by email / source_ref)
-    3. Score each new candidate against the specified job
-    4. Auto-shortlist (score ≥ 65) or flag for manual review (40–64)
-    5. Optionally queue outreach emails for auto-shortlisted candidates immediately
-    """
+    """Upload a Naukri or WorkIndia CSV export."""
     src = source.upper().strip()
     if src not in ("NAUKRI", "WORKINDIA", "APNA"):
         raise HTTPException(status_code=400, detail="source must be NAUKRI, WORKINDIA or APNA")
 
     content = await file.read()
-    # Excel (.xlsx) exports — e.g. Apna gives Excel — are read directly.
     fname = (file.filename or "").lower()
     if fname.endswith(".xlsx") or content[:2] == b"PK":
         try:
@@ -242,7 +216,7 @@ async def import_csv(
             )
     else:
         try:
-            csv_text = content.decode("utf-8-sig")  # handle BOM from Windows Excel exports
+            csv_text = content.decode("utf-8-sig")
         except UnicodeDecodeError:
             csv_text = content.decode("latin-1")
 
@@ -268,9 +242,7 @@ async def import_apna(
     auto_outreach: bool = Form(True),
     db: AsyncSession = Depends(get_db),
 ):
-    """Used by the local Apna Sync helper. Finds (or creates) a job matching the
-    Apna job title, then imports the uploaded Excel against it — so the helper
-    needs no hand-configured job IDs."""
+    """Used by the local Apna Sync helper."""
     from sqlalchemy import select, func
     from app.models.job import Job, JobStatus
 
@@ -278,7 +250,6 @@ async def import_apna(
     if not title:
         raise HTTPException(status_code=400, detail="job_title is required")
 
-    # Match an existing job by case-insensitive title; otherwise create a light one.
     res = await db.execute(select(Job).where(func.lower(Job.title) == title.lower()))
     job = res.scalars().first()
     if not job:
@@ -316,10 +287,7 @@ async def import_batch(
     auto_outreach: bool = True,
     db: AsyncSession = Depends(get_db),
 ):
-    """Submit candidates as a JSON array (manual entry or scripted copy-paste).
-
-    Useful for WorkIndia's 3 handpicked candidates or any portal without CSV export.
-    """
+    """Submit candidates as a JSON array."""
     raw: list[RawCandidate] = []
     for c in candidates:
         try:
@@ -348,88 +316,6 @@ async def import_batch(
     return await _run_import_pipeline(raw, job_id, auto_outreach, db)
 
 
-class ApnaSourceRequest(BaseModel):
-    job_title: str
-    candidates: list[BatchCandidate]
-    company: str = "Bookends Hospitality"
-    auto_outreach: bool = True
-
-
-@router.post("/apna-candidates", response_model=ImportResult)
-async def import_apna_candidates(payload: ApnaSourceRequest, db: AsyncSession = Depends(get_db)):
-    """Receive candidates sourced from Apna's Database search by the local helper.
-
-    Finds (or creates) a role matching the search/job title, then scores,
-    shortlists, de-dups and (optionally) starts outreach — the sourcing engine."""
-    from sqlalchemy import select, func
-    from app.models.job import Job, JobStatus
-
-    title = (payload.job_title or "").strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="job_title is required")
-    if not payload.candidates:
-        raise HTTPException(status_code=400, detail="no candidates provided")
-
-    res = await db.execute(select(Job).where(func.lower(Job.title) == title.lower()))
-    job = res.scalars().first()
-    if not job:
-        job = Job(title=title, company=payload.company or None, status=JobStatus.ACTIVE)
-        db.add(job)
-        await db.commit()
-        await db.refresh(job)
-        logger.info("import_apna_candidates: auto-created job '%s' (#%d)", title, job.id)
-
-    raw: list[RawCandidate] = []
-    for c in payload.candidates:
-        raw.append(RawCandidate(
-            name=c.name,
-            source=CandidateSource.APNA,
-            email=c.email,
-            phone=c.phone,
-            skills=c.skills,
-            experience_years=c.experience_years,
-            current_salary=c.current_salary,
-            expected_salary=c.expected_salary,
-            location=c.location,
-            notice_period_days=c.notice_period_days,
-            current_employer=c.current_employer,
-            current_role=c.current_role,
-            source_ref=f"apna:{c.phone or c.email or c.name}",
-        ))
-
-    logger.info("Apna sourcing: job='%s'(#%d) candidates=%d", title, job.id, len(raw))
-    return await _run_import_pipeline(raw, job.id, payload.auto_outreach, db)
-
-
-@router.get("/apna/status")
-async def apna_status(db: AsyncSession = Depends(get_db)):
-    """Live status of the Apna sourcing engine, for the dashboard panel."""
-    from sqlalchemy import select, func
-    from app.models.candidate import Candidate
-
-    total = await db.scalar(
-        select(func.count()).select_from(Candidate).where(Candidate.source == CandidateSource.APNA)
-    )
-    last = await db.scalar(
-        select(func.max(Candidate.created_at)).where(Candidate.source == CandidateSource.APNA)
-    )
-    # Recent 5 Apna-sourced candidates for a quick visible proof it's working.
-    rows = (await db.execute(
-        select(Candidate).where(Candidate.source == CandidateSource.APNA)
-        .order_by(Candidate.created_at.desc()).limit(5)
-    )).scalars().all()
-    return {
-        "apna_candidates": total or 0,
-        "last_sourced_at": last.isoformat() if last else None,
-        "started": bool(total),
-        "recent": [
-            {"name": c.name, "role": c.current_role or "", "location": c.location or "",
-             "at": c.created_at.isoformat() if c.created_at else None}
-            for c in rows
-        ],
-    }
-
-
 # ── Smart URL import (ScrapeGraph-style) ──────────────────────────────────────
 
 class URLImportRequest(BaseModel):
@@ -448,12 +334,7 @@ class BulkURLImportRequest(BaseModel):
 
 @router.post("/url")
 async def import_from_url(payload: URLImportRequest, db: AsyncSession = Depends(get_db)):
-    """Scrape any candidate profile URL and import into the pipeline.
-
-    Works for: CAD Crowd profiles, personal portfolios, Apna, Shine,
-    WorkIndia public profiles, or any page with candidate information.
-    Uses Claude to extract structured data — no hardcoded selectors.
-    """
+    """Scrape any candidate profile URL and import into the pipeline."""
     from app.adapters.smart_scrape import fetch_and_extract
     from app.models.candidate import CandidateSource as CS
 
@@ -481,11 +362,7 @@ async def import_from_url(payload: URLImportRequest, db: AsyncSession = Depends(
 
 @router.post("/url/bulk")
 async def import_from_urls(payload: BulkURLImportRequest, db: AsyncSession = Depends(get_db)):
-    """Scrape multiple profile URLs concurrently and import all into the pipeline.
-
-    Pass up to 20 URLs at once. Useful for enriching a batch of CAD Crowd
-    profiles or any list of public candidate pages.
-    """
+    """Scrape multiple profile URLs concurrently and import all into the pipeline."""
     import asyncio
     from app.adapters.smart_scrape import fetch_and_extract
     from app.models.candidate import CandidateSource as CS
@@ -498,7 +375,6 @@ async def import_from_urls(payload: BulkURLImportRequest, db: AsyncSession = Dep
     except ValueError:
         src = CS.MANUAL
 
-    # Fetch all URLs concurrently
     tasks = [fetch_and_extract(url, source=src) for url in payload.urls]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -533,11 +409,7 @@ async def enrich_existing_candidates(
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ):
-    """Re-scrape source_ref URLs for existing candidates to fill in missing skills/data.
-
-    Targets candidates for the given job that have a source_ref URL but
-    incomplete skills data (skills list empty or fewer than 3 items).
-    """
+    """Re-scrape source_ref URLs for existing candidates to fill in missing skills/data."""
     import asyncio
     from sqlalchemy import select
     from app.adapters.smart_scrape import fetch_and_extract
@@ -577,7 +449,6 @@ async def enrich_existing_candidates(
         if isinstance(raw, Exception) or raw is None:
             skipped += 1
             continue
-        # Update candidate with enriched data
         if raw.skills:
             candidate.skills = raw.skills
         if raw.experience_years and not candidate.experience_years:
@@ -595,16 +466,73 @@ async def enrich_existing_candidates(
     return {"enriched": enriched, "skipped": skipped, "total_candidates": len(candidates)}
 
 
+
+
+# ── Apna Hire live search endpoints ──────────────────────────────────────────
+
+class ApnaSearchRequest(BaseModel):
+    keywords: list[str]
+    location: Optional[str] = None
+    experience_min: Optional[float] = None
+    experience_max: Optional[float] = None
+    page: int = 1
+    size: int = 20
+    apna_token: str
+    org_id: str = "2012727"
+
+
+class ApnaImportRequest(BaseModel):
+    candidates: list[dict]
+    job_id: int
+    auto_outreach: bool = True
+
+
+@router.post("/apna-search")
+async def apna_search(payload: ApnaSearchRequest):
+    """Search Apna Hire's white-collar DB server-side (no CORS) and return preview list."""
+    import httpx
+    from app.adapters.apna import ApnaAdapter, _extract_live, _extract_total, to_preview
+
+    adapter = ApnaAdapter(token=payload.apna_token, org_id=payload.org_id)
+    try:
+        data = await adapter.search_raw(
+            keywords=payload.keywords, location=payload.location,
+            experience_min=payload.experience_min, experience_max=payload.experience_max,
+            page=payload.page, size=payload.size,
+        )
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code,
+                            detail=f"Apna API {exc.response.status_code}: {exc.response.text[:300]}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach Apna API: {str(exc)[:300]}")
+
+    raw_list = _extract_live(data)
+    total = _extract_total(data) or len(raw_list)
+    return {"total": total, "page": payload.page, "size": payload.size,
+            "candidates": [to_preview(c) for c in raw_list]}
+
+
+@router.post("/apna-import", response_model=ImportResult)
+async def apna_import(payload: ApnaImportRequest, db: AsyncSession = Depends(get_db)):
+    """Import selected Apna candidates (raw dicts from /apna-search) into the pipeline."""
+    from app.adapters.apna import _live_to_raw
+
+    if not payload.candidates:
+        raise HTTPException(status_code=400, detail="No candidates provided")
+
+    raw = [rc for rc in (_live_to_raw(c) for c in payload.candidates) if rc]
+    if not raw:
+        raise HTTPException(status_code=422, detail="Could not parse any candidate from the provided data")
+
+    logger.info("Apna live import: job=%d candidates=%d", payload.job_id, len(raw))
+    return await _run_import_pipeline(raw, payload.job_id, payload.auto_outreach, db)
+
 @router.post("/ai-screen/{job_id}")
 async def ai_screen_pending(
     job_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Re-run AI screening on all PENDING (manual review) candidates for a job.
-
-    Useful for running AI on candidates that were previously scored only with rule-based.
-    Returns updated scores and AI insights for each.
-    """
+    """Re-run AI screening on all PENDING (manual review) candidates for a job."""
     import asyncio
     from sqlalchemy import select
     from app.models.job import Job
@@ -634,7 +562,7 @@ async def ai_screen_pending(
 
     entry_map = {e.candidate_id: e for e in entries}
 
-    sem = asyncio.Semaphore(5)  # max 5 concurrent AI calls
+    sem = asyncio.Semaphore(5)
     results = []
 
     async def _screen_one(cid: int):
@@ -701,4 +629,4 @@ async def ai_screen_pending(
         "rejected": rejected,
         "stayed_pending": len(results) - promoted - rejected,
         "details": results,
-    }
+  }

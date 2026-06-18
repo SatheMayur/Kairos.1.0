@@ -136,7 +136,7 @@
     <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:flex-end;margin-bottom:14px">
       <div class="form-group" style="margin:0">
         <label>Apna JWT Token <span style="font-size:11px;font-weight:400;color:var(--text-muted)">— from employer.apna.co localStorage → <code>__token__</code></span></label>
-        <input type="password" id="apna-token" placeholder="eyJhbGci…" style="width:100%;font-family:monospace;font-size:12px">
+        <input type="text" id="apna-token" placeholder="Paste your Apna JWT token here…" style="width:100%;font-family:monospace;font-size:12px" oninput="apnaAutoSave(this.value)">
       </div>
       <button class="btn btn-secondary btn-sm" onclick="apnaSaveToken()" style="white-space:nowrap">💾 Save token</button>
     </div>

@@ -36,258 +36,6 @@ _EDU    = {"education", "qualification", "highest qualification", "degree"}
 
 
 class ApnaCSVAdapter(BasePortalAdapter):
-    @property
-    def source(self) -> CandidateSource:
-        return CandidateSource.APNA
-
-    async def search(self, keywords, location=None, experience_min=None, experience_max=None, limit=50):
-        return []
-
-    def parse_csv(self, csv_text: str) -> list[RawCandidate]:
-        reader = csv.reader(io.StringIO(csv_text.strip()))
-        rows = list(reader)
-        if not rows:
-            return []
-        headers = [h.strip() for h in rows[0]]
-        col = {
-            "name":   _find_col(headers, _NAME),
-            "email":  _find_col(headers, _EMAIL),
-            "phone":  _find_col(headers, _PHONE),
-            "exp":    _find_col(headers, _EXP),
-            "loc":    _find_col(headers, _LOC),
-            "skills": _find_col(headers, _SKILLS),
-            "role":   _find_col(headers, _ROLE),
-            "emp":    _find_col(headers, _EMP),
-            "cursal": _find_col(headers, _CURSAL),
-            "expsal": _find_col(headers, _EXPSAL),
-            "notice": _find_col(headers, _NOTICE),
-            "edu":    _find_col(headers, _EDU),
-        }
-        def get(row, key):
-            i = col[key]
-            return row[i].strip() if (i is not None and i < len(row)) else ""
-        out = []
-        for row in rows[1:]:
-            if not row or not any(row):
-                continue
-            name = get(row, "name")
-            if not name:
-                continue
-            skills = [s.strip() for s in get(row, "skills").replace(";", ",").split(",") if s.strip()]
-            phone = get(row, "phone") or None
-            out.append(RawCandidate(
-                name=name, source=CandidateSource.APNA,
-                email=get(row, "email") or None, phone=phone, whatsapp=phone, skills=skills,
-                experience_years=_parse_experience(get(row, "exp")),
-                current_salary=_parse_salary(get(row, "cursal")),
-                expected_salary=_parse_salary(get(row, "expsal")),
-                notice_period_days=_parse_notice(get(row, "notice")),
-                location=get(row, "loc") or None, current_employer=get(row, "emp") or None,
-                current_role=get(row, "role") or None, education=get(row, "edu") or None,
-                source_ref="apna:" + (get(row, "email") or phone or name),
-            ))
-        logger.info("ApnaCSVAdapter: parsed %d candidates", len(out))
-        return out
-
-
-import httpx
-from typing import Optional as _Opt
-
-APNA_SEARCH_URL = "https://production.apna.co/cerebro/api/v1/white-collar-search/ic"
-
-
-class ApnaAdapter(BasePortalAdapter):
-    def __init__(self, token: str, org_id: str = "2012727", workspace_id: str = ""):
-        self.token = token
-        self.org_id = org_id
-        self.workspace_id = workspace_id
-
-    @property
-    def source(self) -> CandidateSource:
-        return CandidateSource.APNA
-
-    def _headers(self) -> dict:
-        return {
-            "Authorization": "Token " + self.token,
-            "orgId": self.org_id,
-            "workspaceId": self.workspace_id,
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*",
-        }
-
-    def _body(self, keywords, location, experience_min, experience_max, page, size) -> dict:
-        kw_entities = [{"label": kw, "value": kw, "type": "Title", "selected": True, "keyword": True, "mustHave": False} for kw in keywords]
-        cities = [{"label": location, "value": location}] if location else []
-        exp = {}
-        if experience_min is not None: exp["minExperience"] = experience_min
-        if experience_max is not None: exp["maxExperience"] = experience_max
-        return {
-            "baseQuery": {"mustKeywordsEntity": [], "keywordsEntity": kw_entities, "currentClusterCitiesV2": [], "currentClusterCities": cities, "states": [], "preferredStates": [], "preferredClusterCities": [], "requestType": "any", "daysSinceLastActivity": 180, "disclosedSalary": True, "preferRelocation": False, "candidate_phone_numbers": []},
-            "keywordsEntity": kw_entities, "mustKeywordsEntity": [], "excludeKeywords": [],
-            "currentClusterCities": cities, "preferredClusterCities": [],
-            "daysSinceLastActivity": 180, "industries": [], "requestType": "any",
-            "page": page, "size": size, "disclosedSalary": True,
-            "sortOrder": "DESC", "sortKey": "relevance",
-            "customDepartments": None, "states": [], "preferredStates": [],
-            "preferRelocation": False, "degreeSpecializations": [],
-            "cityAreasFilter": {"cityAreas": [], "areaSphere": {"label": "5 km", "value": "5"}},
-            "unlockedSince": None, "englishLevel": [], **exp,
-        }
-
-    async def search_raw(self, keywords, location=None, experience_min=None, experience_max=None, page=1, size=20) -> dict:
-        body = self._body(keywords, location, experience_min, experience_max, page, size)
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(APNA_SEARCH_URL, json=body, headers=self._headers())
-            resp.raise_for_status()
-            return resp.json()
-
-    async def search(self, keywords, location=None, experience_min=None, experience_max=None, limit=20, page=1) -> list[RawCandidate]:
-        data = await self.search_raw(keywords, location, experience_min, experience_max, page, limit)
-        return [rc for rc in (_live_to_raw(c) for c in _extract_live(data)) if rc]
-
-
-def _extract_live(data):
-    for key in ("candidates", "data", "results", "items"):
-        if key in data and isinstance(data[key], list):
-            return data[key]
-    return data if isinstance(data, list) else []
-
-
-def _extract_total(data):
-    for key in ("totalCount", "total", "count", "totalResults"):
-        if key in data and isinstance(data[key], int):
-            return data[key]
-    return 0
-
-
-def _s(v):
-    if v is None: return None
-    s = str(v).strip(); return s if s else None
-
-
-def _exp_years(c):
-    raw = c.get("totalExperience") or c.get("workExperience") or c.get("experience")
-    if raw is None: return None
-    if isinstance(raw, (int, float)): return round(float(raw), 1)
-    if isinstance(raw, dict):
-        return round(float(raw.get("years") or 0) + float(raw.get("months") or 0) / 12, 1)
-    if isinstance(raw, str):
-        import re
-        m = re.search(r"(\d+)\s*yr", raw)
-        y = int(m.group(1)) if m else 0
-        m2 = re.search(r"(\d+)\s*mo", raw)
-        mo = int(m2.group(1)) if m2 else 0
-        return round(y + mo / 12, 1) if (y or mo) else None
-    return None
-
-
-def _sal_lpa(c):
-    raw = c.get("ctc") or c.get("currentSalary") or c.get("salaryExpectation")
-    return round(float(raw), 2) if isinstance(raw, (int, float)) else None
-
-
-def _live_skills(c):
-    raw = c.get("skills") or c.get("keySkills") or []
-    if isinstance(raw, list):
-        out = []
-        for s in raw:
-            out.append(s.get("name") or s.get("label") or "" if isinstance(s, dict) else str(s))
-        return [x.strip() for x in out if x.strip()]
-    return [x.strip() for x in str(raw).split(",") if x.strip()]
-
-
-def _live_location(c):
-    raw = c.get("currentCity") or c.get("location") or c.get("city")
-    return _s(raw.get("label") or raw.get("name") if isinstance(raw, dict) else raw)
-
-
-def _live_id(c):
-    for k in ("candidateId", "id", "userId", "profileId"):
-        if c.get(k): return str(c[k])
-    return None
-
-
-def _live_to_raw(c):
-    name = _s(c.get("name") or c.get("candidateName") or c.get("fullName"))
-    if not name: return None
-    cid = _live_id(c)
-    return RawCandidate(
-        name=name, source=CandidateSource.APNA,
-        phone=_s(c.get("phone") or c.get("phoneNumber") or c.get("mobile")),
-        skills=_live_skills(c), experience_years=_exp_years(c),
-        current_salary=_sal_lpa(c), location=_live_location(c),
-        current_role=_s(c.get("currentDesignation") or c.get("designation") or c.get("currentRole")),
-        current_employer=_s(c.get("currentCompany") or c.get("companyName") or c.get("currentEmployer")),
-        education=_s(c.get("highestQualification") or c.get("education") or c.get("degree")),
-        source_ref="apna:" + cid if cid else None, raw_profile=str(c),
-    )
-
-
-def to_preview(c):
-    return {
-        "apna_id": _live_id(c) or "",
-        "name": _s(c.get("name") or c.get("candidateName") or c.get("fullName")) or "Unknown",
-        "current_role": _s(c.get("currentDesignation") or c.get("designation") or c.get("currentRole")),
-        "current_employer": _s(c.get("currentCompany") or c.get("companyName") or c.get("currentEmployer")),
-        "experience_years": _exp_years(c), "location": _live_location(c), "salary_lpa": _sal_lpa(c),
-        "skills": _live_skills(c)[:8],
-        "education": _s(c.get("highestQualification") or c.get("education") or c.get("degree")),
-        "active_label": _s(c.get("lastActiveLabel") or c.get("activeLabel") or c.get("lastActive")),
-        "raw": c,
-                     }"""Apna (apnaHire) CSV adapter — parses an Apna employer applicant export.
-
-Apna export layouts vary, so columns are matched by header name with broad
-aliases. If Apna gives you an Excel file, open it and "Save As → CSV" first.
-
-Not a live API adapter (Apna has no public employer API) — feed the CSV via the
-import endpoint, exactly like Naukri/WorkIndia.
-"""
-from __future__ import annotations
-
-import csv
-import io
-import logging
-import re
-
-from app.adapters.base import BasePortalAdapter, RawCandidate
-from app.adapters.naukri import _find_col, _parse_salary, _parse_experience, _parse_notice
-from app.models.candidate import CandidateSource
-
-logger = logging.getLogger(__name__)
-
-# Apna uses the literal string "Not Available" as a null placeholder in many columns.
-_NA = {"not available", "na", "n/a", ""}
-
-
-def _apna_experience(value: str):
-    """Apna writes experience like '6yrs 7mos' / '5yrs ' / '11yrs 1mos'."""
-    if not value:
-        return None
-    m = re.search(r"(\d+)\s*yrs?(?:\s*(\d+)\s*mos)?", value, re.I)
-    if m:
-        years = int(m.group(1)) + (int(m.group(2)) / 12 if m.group(2) else 0)
-        return round(years, 1)
-    return _parse_experience(value)
-
-_NAME   = {"candidate name", "name", "full name", "applicant name", "candidate"}
-_EMAIL  = {"email", "email id", "email address", "e-mail"}
-_PHONE  = {"mobile number", "mobile", "phone", "phone number", "contact number",
-           "contact", "whatsapp number", "whatsapp", "mobile no", "mobile no."}
-_EXP    = {"experience", "total experience", "work experience",
-           "years of experience", "exp", "experience (years)"}
-_LOC    = {"location", "city", "current location", "preferred location",
-           "candidate location", "candidate city", "candidate area"}
-_SKILLS = {"skills", "key skills", "skill set", "sub department"}
-_ROLE   = {"job title", "designation", "current designation", "current job title",
-           "applied for", "role", "current role", "job role", "current job role"}
-_EMP    = {"company", "current company", "current employer", "employer"}
-_CURSAL = {"current salary", "current ctc", "current ctc (monthly)"}
-_EXPSAL = {"expected salary", "expected ctc", "expected salary (monthly)", "expected salary (per month)"}
-_NOTICE = {"notice period", "availability", "notice"}
-_EDU    = {"education", "qualification", "highest qualification", "degree"}
-
-
-class ApnaCSVAdapter(BasePortalAdapter):
     """Parses an Apna employer CSV export into RawCandidate records."""
 
     @property
@@ -322,5 +70,201 @@ class ApnaCSVAdapter(BasePortalAdapter):
 
         def get(row: list[str], key: str) -> str:
             i = col[key]
-            if i is None or i >= len(row):
-                return ""
+            return row[i].strip() if (i is not None and i < len(row)) else ""
+
+        out: list[RawCandidate] = []
+        for row in rows[1:]:
+            if not row or not any(row):
+                continue
+            name = get(row, "name")
+            if not name:
+                continue
+            skills = [s.strip() for s in get(row, "skills").replace(";", ",").split(",") if s.strip()]
+            phone = get(row, "phone") or None
+            out.append(
+                RawCandidate(
+                    name=name,
+                    source=CandidateSource.APNA,
+                    email=get(row, "email") or None,
+                    phone=phone,
+                    whatsapp=phone,
+                    skills=skills,
+                    experience_years=_parse_experience(get(row, "exp")),
+                    current_salary=_parse_salary(get(row, "cursal")),
+                    expected_salary=_parse_salary(get(row, "expsal")),
+                    notice_period_days=_parse_notice(get(row, "notice")),
+                    location=get(row, "loc") or None,
+                    current_employer=get(row, "emp") or None,
+                    current_role=get(row, "role") or None,
+                    education=get(row, "edu") or None,
+                    source_ref=f"apna:{get(row, 'email') or phone or name}",
+                )
+            )
+
+        logger.info("ApnaCSVAdapter: parsed %d candidates", len(out))
+        return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Live API adapter — searches Apna Hire's white-collar database in real time.
+# Proxied server-side to avoid CORS.  Token = JWT from employer.apna.co
+# localStorage.__token__
+# ─────────────────────────────────────────────────────────────────────────────
+import httpx
+from typing import Optional as _Opt
+
+APNA_SEARCH_URL = "https://production.apna.co/cerebro/api/v1/white-collar-search/ic"
+
+
+class ApnaAdapter(BasePortalAdapter):
+    """Searches Apna Hire's white-collar candidate database via live API."""
+
+    def __init__(self, token: str, org_id: str = "2012727", workspace_id: str = ""):
+        self.token = token
+        self.org_id = org_id
+        self.workspace_id = workspace_id
+
+    @property
+    def source(self) -> CandidateSource:
+        return CandidateSource.APNA
+
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Token {self.token}",
+            "orgId": self.org_id,
+            "workspaceId": self.workspace_id,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+        }
+
+    def _body(self, keywords, location, experience_min, experience_max, page, size) -> dict:
+        kw_entities = [
+            {"label": kw, "value": kw, "type": "Title", "selected": True, "keyword": True, "mustHave": False}
+            for kw in keywords
+        ]
+        cities = [{"label": location, "value": location}] if location else []
+        exp: dict = {}
+        if experience_min is not None:
+            exp["minExperience"] = experience_min
+        if experience_max is not None:
+            exp["maxExperience"] = experience_max
+        return {
+            "baseQuery": {
+                "mustKeywordsEntity": [], "keywordsEntity": kw_entities,
+                "currentClusterCitiesV2": [], "currentClusterCities": cities,
+                "states": [], "preferredStates": [], "preferredClusterCities": [],
+                "requestType": "any", "daysSinceLastActivity": 180,
+                "disclosedSalary": True, "preferRelocation": False, "candidate_phone_numbers": [],
+            },
+            "keywordsEntity": kw_entities, "mustKeywordsEntity": [], "excludeKeywords": [],
+            "currentClusterCities": cities, "preferredClusterCities": [],
+            "daysSinceLastActivity": 180, "industries": [], "requestType": "any",
+            "page": page, "size": size, "disclosedSalary": True,
+            "sortOrder": "DESC", "sortKey": "relevance",
+            "customDepartments": None, "states": [], "preferredStates": [],
+            "preferRelocation": False, "degreeSpecializations": [],
+            "cityAreasFilter": {"cityAreas": [], "areaSphere": {"label": "5 km", "value": "5"}},
+            "unlockedSince": None, "englishLevel": [], **exp,
+        }
+
+    async def search_raw(self, keywords, location=None, experience_min=None, experience_max=None, page=1, size=20) -> dict:
+        body = self._body(keywords, location, experience_min, experience_max, page, size)
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(APNA_SEARCH_URL, json=body, headers=self._headers())
+            resp.raise_for_status()
+            return resp.json()
+
+    async def search(self, keywords, location=None, experience_min=None, experience_max=None, limit=20, page=1) -> list[RawCandidate]:
+        data = await self.search_raw(keywords, location, experience_min, experience_max, page, limit)
+        return [rc for rc in (_live_to_raw(c) for c in _extract_live(data)) if rc]
+
+
+# ── Live search helpers ───────────────────────────────────────────────────────
+
+def _extract_live(data: dict) -> list[dict]:
+    for key in ("candidates", "data", "results", "items"):
+        if key in data and isinstance(data[key], list):
+            return data[key]
+    return data if isinstance(data, list) else []
+
+
+def _extract_total(data: dict) -> int:
+    for key in ("totalCount", "total", "count", "totalResults"):
+        if key in data and isinstance(data[key], int):
+            return data[key]
+    return 0
+
+
+def _s(v) -> _Opt[str]:
+    if v is None: return None
+    s = str(v).strip(); return s if s else None
+
+
+def _exp_years(c: dict) -> _Opt[float]:
+    raw = c.get("totalExperience") or c.get("workExperience") or c.get("experience")
+    if raw is None: return None
+    if isinstance(raw, (int, float)): return round(float(raw), 1)
+    if isinstance(raw, dict):
+        return round(float(raw.get("years") or 0) + float(raw.get("months") or 0) / 12, 1)
+    if isinstance(raw, str):
+        import re
+        y = int(m.group(1)) if (m := re.search(r"(\\d+)\\s*yr", raw)) else 0
+        mo = int(m.group(1)) if (m := re.search(r"(\\d+)\\s*mo", raw)) else 0
+        return round(y + mo / 12, 1) if (y or mo) else None
+    return None
+
+
+def _sal_lpa(c: dict) -> _Opt[float]:
+    raw = c.get("ctc") or c.get("currentSalary") or c.get("salaryExpectation")
+    return round(float(raw), 2) if isinstance(raw, (int, float)) else None
+
+
+def _live_skills(c: dict) -> list[str]:
+    raw = c.get("skills") or c.get("keySkills") or []
+    if isinstance(raw, list):
+        out = []
+        for s in raw:
+            out.append(s.get("name") or s.get("label") or "" if isinstance(s, dict) else str(s))
+        return [x.strip() for x in out if x.strip()]
+    return [x.strip() for x in str(raw).split(",") if x.strip()]
+
+
+def _live_location(c: dict) -> _Opt[str]:
+    raw = c.get("currentCity") or c.get("location") or c.get("city")
+    return _s(raw.get("label") or raw.get("name") if isinstance(raw, dict) else raw)
+
+
+def _live_id(c: dict) -> _Opt[str]:
+    for k in ("candidateId", "id", "userId", "profileId"):
+        if c.get(k): return str(c[k])
+    return None
+
+
+def _live_to_raw(c: dict) -> _Opt[RawCandidate]:
+    name = _s(c.get("name") or c.get("candidateName") or c.get("fullName"))
+    if not name: return None
+    cid = _live_id(c)
+    return RawCandidate(
+        name=name, source=CandidateSource.APNA,
+        phone=_s(c.get("phone") or c.get("phoneNumber") or c.get("mobile")),
+        skills=_live_skills(c), experience_years=_exp_years(c),
+        current_salary=_sal_lpa(c), location=_live_location(c),
+        current_role=_s(c.get("currentDesignation") or c.get("designation") or c.get("currentRole")),
+        current_employer=_s(c.get("currentCompany") or c.get("companyName") or c.get("currentEmployer")),
+        education=_s(c.get("highestQualification") or c.get("education") or c.get("degree")),
+        source_ref=f"apna:{cid}" if cid else None, raw_profile=str(c),
+    )
+
+
+def to_preview(c: dict) -> dict:
+    return {
+        "apna_id": _live_id(c) or "",
+        "name": _s(c.get("name") or c.get("candidateName") or c.get("fullName")) or "Unknown",
+        "current_role": _s(c.get("currentDesignation") or c.get("designation") or c.get("currentRole")),
+        "current_employer": _s(c.get("currentCompany") or c.get("companyName") or c.get("currentEmployer")),
+        "experience_years": _exp_years(c), "location": _live_location(c), "salary_lpa": _sal_lpa(c),
+        "skills": _live_skills(c)[:8],
+        "education": _s(c.get("highestQualification") or c.get("education") or c.get("degree")),
+        "active_label": _s(c.get("lastActiveLabel") or c.get("activeLabel") or c.get("lastActive")),
+        "raw": c,
+    }

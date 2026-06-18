@@ -201,17 +201,41 @@ class ApnaAdapter(BasePortalAdapter):
 # ── Live search helpers ───────────────────────────────────────────────────────
 
 def _extract_live(data: dict) -> list[dict]:
-    for key in ("candidates", "data", "results", "items"):
-        if key in data and isinstance(data[key], list):
-            return data[key]
+    # Real Apna response: {statusCode, data: {users: [...], count: N}, ...}
+    if isinstance(data, dict):
+        inner = data.get("data", data)
+        if isinstance(inner, dict):
+            for key in ("users", "candidates", "results", "items", "docs"):
+                if isinstance(inner.get(key), list):
+                    return inner[key]
+        if isinstance(inner, list):
+            return inner
+        for key in ("candidates", "results", "items"):
+            if isinstance(data.get(key), list):
+                return data[key]
     return data if isinstance(data, list) else []
 
 
 def _extract_total(data: dict) -> int:
-    for key in ("totalCount", "total", "count", "totalResults"):
-        if key in data and isinstance(data[key], int):
-            return data[key]
+    if isinstance(data, dict):
+        inner = data.get("data", data)
+        if isinstance(inner, dict):
+            for key in ("count", "totalCount", "total", "totalResults"):
+                if isinstance(inner.get(key), int):
+                    return inner[key]
+        for key in ("totalCount", "total", "count", "totalResults"):
+            if isinstance(data.get(key), int):
+                return data[key]
     return 0
+
+
+def _strip(v) -> _Opt[str]:
+    """Apna wraps matched text in <span> highlight tags — strip them."""
+    if v is None:
+        return None
+    import re as _re
+    s = _re.sub(r"<[^>]+>", "", str(v)).strip()
+    return s or None
 
 
 def _s(v) -> _Opt[str]:
@@ -220,7 +244,8 @@ def _s(v) -> _Opt[str]:
 
 
 def _exp_years(c: dict) -> _Opt[float]:
-    raw = c.get("totalExperience") or c.get("workExperience") or c.get("experience")
+    raw = (c.get("totalExperienceInYears") or c.get("totalExperience")
+           or c.get("workExperience") or c.get("experience"))
     if raw is None: return None
     if isinstance(raw, (int, float)): return round(float(raw), 1)
     if isinstance(raw, dict):
@@ -243,14 +268,38 @@ def _live_skills(c: dict) -> list[str]:
     if isinstance(raw, list):
         out = []
         for s in raw:
-            out.append(s.get("name") or s.get("label") or "" if isinstance(s, dict) else str(s))
-        return [x.strip() for x in out if x.strip()]
-    return [x.strip() for x in str(raw).split(",") if x.strip()]
+            val = (s.get("name") or s.get("label")) if isinstance(s, dict) else s
+            out.append(_strip(val))
+        return [x for x in out if x]
+    return [x.strip() for x in _strip(raw).split(",")] if _strip(raw) else []
 
 
 def _live_location(c: dict) -> _Opt[str]:
-    raw = c.get("currentCity") or c.get("location") or c.get("city")
-    return _s(raw.get("label") or raw.get("name") if isinstance(raw, dict) else raw)
+    raw = c.get("location") or c.get("currentCity") or c.get("city")
+    if isinstance(raw, dict):
+        return _s(raw.get("cityNameV2") or raw.get("cityName") or raw.get("label") or raw.get("name"))
+    return _s(raw)
+
+
+def _live_role(c: dict) -> _Opt[str]:
+    cur = c.get("currentExperience")
+    if isinstance(cur, dict):
+        return _strip(cur.get("jobTitle") or cur.get("designation"))
+    return _s(c.get("currentDesignation") or c.get("designation") or c.get("currentRole"))
+
+
+def _live_employer(c: dict) -> _Opt[str]:
+    cur = c.get("currentExperience")
+    if isinstance(cur, dict):
+        return _s(cur.get("companyName"))
+    return _s(c.get("currentCompany") or c.get("companyName") or c.get("currentEmployer"))
+
+
+def _live_education(c: dict) -> _Opt[str]:
+    edu = c.get("education")
+    if isinstance(edu, dict):
+        return _s(edu.get("title") or edu.get("degree"))
+    return _s(edu or c.get("highestQualification") or c.get("degree"))
 
 
 def _live_id(c: dict) -> _Opt[str]:
@@ -260,17 +309,18 @@ def _live_id(c: dict) -> _Opt[str]:
 
 
 def _live_to_raw(c: dict) -> _Opt[RawCandidate]:
-    name = _s(c.get("name") or c.get("candidateName") or c.get("fullName"))
+    name = _strip(c.get("fullName") or c.get("name") or c.get("candidateName"))
     if not name: return None
     cid = _live_id(c)
     return RawCandidate(
         name=name, source=CandidateSource.APNA,
+        # Phone is locked in search results until "unlocked" with Apna credits.
         phone=_s(c.get("phone") or c.get("phoneNumber") or c.get("mobile")),
         skills=_live_skills(c), experience_years=_exp_years(c),
         current_salary=_sal_lpa(c), location=_live_location(c),
-        current_role=_s(c.get("currentDesignation") or c.get("designation") or c.get("currentRole")),
-        current_employer=_s(c.get("currentCompany") or c.get("companyName") or c.get("currentEmployer")),
-        education=_s(c.get("highestQualification") or c.get("education") or c.get("degree")),
+        current_role=_live_role(c),
+        current_employer=_live_employer(c),
+        education=_live_education(c),
         source_ref=f"apna:{cid}" if cid else None, raw_profile=str(c),
     )
 
@@ -278,12 +328,12 @@ def _live_to_raw(c: dict) -> _Opt[RawCandidate]:
 def to_preview(c: dict) -> dict:
     return {
         "apna_id": _live_id(c) or "",
-        "name": _s(c.get("name") or c.get("candidateName") or c.get("fullName")) or "Unknown",
-        "current_role": _s(c.get("currentDesignation") or c.get("designation") or c.get("currentRole")),
-        "current_employer": _s(c.get("currentCompany") or c.get("companyName") or c.get("currentEmployer")),
+        "name": _strip(c.get("fullName") or c.get("name") or c.get("candidateName")) or "Unknown",
+        "current_role": _live_role(c),
+        "current_employer": _live_employer(c),
         "experience_years": _exp_years(c), "location": _live_location(c), "salary_lpa": _sal_lpa(c),
         "skills": _live_skills(c)[:8],
-        "education": _s(c.get("highestQualification") or c.get("education") or c.get("degree")),
-        "active_label": _s(c.get("lastActiveLabel") or c.get("activeLabel") or c.get("lastActive")),
+        "education": _live_education(c),
+        "active_label": _s(c.get("activeOn") or c.get("lastActiveLabel") or c.get("activeLabel")),
         "raw": c,
     }

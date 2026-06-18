@@ -40,18 +40,33 @@ _APNA_ADAPTER = ApnaCSVAdapter()
 
 def _xlsx_to_csv(content: bytes) -> str:
     """Convert an uploaded Excel (.xlsx) file into CSV text so the existing
-    CSV adapters can parse it. Reads the first/active sheet."""
+    CSV adapters can parse it. Reads the first/active sheet.
+
+    Some exporters (e.g. Apna) write a wrong/missing sheet 'dimension', which
+    makes openpyxl's fast read-only mode stop after one row. So we read in
+    read-only mode first and, if that yields no data rows, fall back to the
+    full (non-read-only) reader which scans every row regardless of dimension.
+    """
     import csv as _csv
     import io as _io
     from openpyxl import load_workbook
 
-    wb = load_workbook(_io.BytesIO(content), read_only=True, data_only=True)
-    ws = wb.active
+    def _read(read_only: bool) -> list[list[str]]:
+        wb = load_workbook(_io.BytesIO(content), read_only=read_only, data_only=True)
+        ws = wb.active
+        rows = [["" if c is None else str(c) for c in row]
+                for row in ws.iter_rows(values_only=True)]
+        wb.close()
+        return rows
+
+    rows = _read(True)
+    if len(rows) < 2:                 # truncated by a bad dimension tag → full read
+        rows = _read(False)
+
     out = _io.StringIO()
     writer = _csv.writer(out)
-    for row in ws.iter_rows(values_only=True):
-        writer.writerow(["" if cell is None else str(cell) for cell in row])
-    wb.close()
+    for row in rows:
+        writer.writerow(row)
     return out.getvalue()
 
 

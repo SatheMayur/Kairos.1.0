@@ -4,23 +4,73 @@
 <div class="topbar">
   <div class="topbar-left">
     <h1>Jobs</h1>
-    <p class="text-muted text-sm">Manage active requisitions</p>
+    <p class="text-muted text-sm">Manage active requisitions &amp; candidate pipeline</p>
   </div>
   <button class="btn btn-primary" onclick="showModal('create-modal')">＋ New Job</button>
 </div>
 
-<div class="card">
-  <div class="card-header">
-    <span class="card-title">All Requisitions</span>
-    <select id="status-filter" class="filter-select" onchange="loadJobs()">
-      <option value="">All statuses</option>
-      <option value="ACTIVE">Active</option>
-      <option value="PAUSED">Paused</option>
-      <option value="CLOSED">Closed</option>
-    </select>
+<!-- KPI strip -->
+<div class="kpi-grid" id="kpi-strip" style="grid-template-columns:repeat(4,1fr)">
+  <div class="kpi blue"><div class="kpi-label">Total Jobs</div><div class="kpi-value" id="kpi-total">–</div></div>
+  <div class="kpi green"><div class="kpi-label">Active</div><div class="kpi-value" id="kpi-active">–</div></div>
+  <div class="kpi yellow"><div class="kpi-label">Total Candidates</div><div class="kpi-value" id="kpi-cands">–</div></div>
+  <div class="kpi purple"><div class="kpi-label">Shortlisted</div><div class="kpi-value" id="kpi-shortlisted">–</div></div>
+</div>
+
+<div style="display:flex;gap:16px;align-items:flex-start">
+  <!-- Jobs list -->
+  <div style="flex:1;min-width:0">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">All Requisitions</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="status-filter" class="filter-select" onchange="loadJobs()">
+            <option value="">All statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="PAUSED">Paused</option>
+            <option value="CLOSED">Closed</option>
+          </select>
+        </div>
+      </div>
+      <div id="jobs-table-body">
+        <div style="padding:28px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+      </div>
+    </div>
   </div>
-  <div id="jobs-table-body">
-    <div style="padding:28px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+
+  <!-- Candidate detail panel (hidden until job selected) -->
+  <div id="detail-panel" style="width:480px;flex-shrink:0;display:none">
+    <div class="card" style="margin-bottom:0">
+      <div class="card-header">
+        <span class="card-title" id="panel-title">Candidates</span>
+        <button class="btn btn-ghost btn-sm" onclick="closePanel()" title="Close">✕</button>
+      </div>
+      <!-- Pipeline summary pills -->
+      <div id="panel-pipeline" style="padding:10px 16px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border-subtle)"></div>
+      <!-- Filter bar -->
+      <div style="padding:8px 16px;display:flex;gap:8px;border-bottom:1px solid var(--border-subtle)">
+        <select id="panel-status-filter" class="filter-select" onchange="renderPanelCandidates()" style="flex:1">
+          <option value="">All statuses</option>
+          <option value="PENDING">Pending</option>
+          <option value="SHORTLISTED">Shortlisted</option>
+          <option value="REJECTED">Rejected</option>
+          <option value="CONTACTED">Contacted</option>
+          <option value="INTERESTED">Interested</option>
+          <option value="NOT_INTERESTED">Not Interested</option>
+          <option value="INTERVIEW_SCHEDULED">Interview Scheduled</option>
+          <option value="HIRED">Hired</option>
+          <option value="DROPPED">Dropped</option>
+        </select>
+        <input type="text" id="panel-search" placeholder="Search name…" oninput="renderPanelCandidates()" style="flex:1;padding:5px 8px;font-size:12px">
+      </div>
+      <div id="panel-candidates" style="max-height:60vh;overflow-y:auto">
+        <div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid var(--border-subtle);display:flex;gap:8px">
+        <a id="panel-link-shortlist" href="#" class="btn btn-secondary btn-sm" style="font-size:11px">Open Shortlist ↗</a>
+        <a id="panel-link-triage" href="#" class="btn btn-primary btn-sm" style="font-size:11px">Quick Review ↗</a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -84,6 +134,24 @@
 
 {% block scripts %}
 <script>
+// ── state ──
+let _allJobs = [];
+let _panelJobId = null;
+let _panelEntries = [];   // raw shortlist entries for current panel job
+let _panelCands = {};     // candidate_id → candidate object (enriched)
+
+// ── status badge colours ──
+const STATUS_CLASS = {
+  PENDING:'badge-grey', SHORTLISTED:'badge-green', REJECTED:'badge-red',
+  CONTACTED:'badge-blue', INTERESTED:'badge-green', NOT_INTERESTED:'badge-red',
+  INTERVIEW_SCHEDULED:'badge-purple', HIRED:'badge-green', DROPPED:'badge-grey',
+};
+const STATUS_LABEL = {
+  PENDING:'Pending', SHORTLISTED:'Shortlisted', REJECTED:'Rejected',
+  CONTACTED:'Contacted', INTERESTED:'Interested', NOT_INTERESTED:'Not Interested',
+  INTERVIEW_SCHEDULED:'Interview', HIRED:'Hired', DROPPED:'Dropped',
+};
+
 function switchTab(tab){
   document.getElementById('pane-jd').style.display=tab==='jd'?'block':'none';
   document.getElementById('pane-manual').style.display=tab==='manual'?'block':'none';
@@ -91,90 +159,264 @@ function switchTab(tab){
   document.getElementById('tab-manual').className='tab'+(tab==='manual'?' active':'');
 }
 
+// ── helpers to aggregate candidate counts from shortlist ──
+async function fetchJobCounts(jobIds) {
+  // Fetch shortlist entries for ALL active jobs at once (limit 1000)
+  const allEntries = {};
+  jobIds.forEach(id => allEntries[id] = { total: 0, shortlisted: 0 });
+  try {
+    const data = await api('/api/v1/shortlist?limit=1000');
+    data.forEach(e => {
+      if (allEntries[e.job_id] !== undefined) {
+        allEntries[e.job_id].total++;
+        if (['SHORTLISTED','CONTACTED','INTERESTED','INTERVIEW_SCHEDULED','HIRED'].includes(e.status)) {
+          allEntries[e.job_id].shortlisted++;
+        }
+      }
+    });
+  } catch(err) { /* silently fail */ }
+  return allEntries;
+}
+
 async function loadJobs(){
-  const status=document.getElementById('status-filter').value;
-  const url='/api/v1/jobs?limit=100'+(status?'&status='+status:'');
-  const jobs=await api(url);
-  const body=document.getElementById('jobs-table-body');
-  if(!jobs.length){
-    body.innerHTML='<div class="empty-state"><div class="empty-state-icon">◫</div><p>No jobs found.</p><button class="btn btn-primary btn-sm" onclick="showModal(\'create-modal\')" style="margin-top:12px">Create First Job</button></div>';return;
+  const status = document.getElementById('status-filter').value;
+  const url = '/api/v1/jobs?limit=100' + (status ? '&status=' + status : '');
+  const jobs = await api(url);
+  _allJobs = jobs;
+
+  // Update KPIs
+  const active = jobs.filter(j => j.status === 'ACTIVE').length;
+  document.getElementById('kpi-total').textContent = jobs.length;
+  document.getElementById('kpi-active').textContent = active;
+
+  const body = document.getElementById('jobs-table-body');
+  if (!jobs.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-state-icon">◫</div><p>No jobs found.</p><button class="btn btn-primary btn-sm" onclick="showModal(\'create-modal\')" style="margin-top:12px">Create First Job</button></div>';
+    document.getElementById('kpi-cands').textContent = '0';
+    document.getElementById('kpi-shortlisted').textContent = '0';
+    return;
   }
-  body.innerHTML=`<div class="table-wrap"><table>
-    <thead><tr><th>Role</th><th>Skills</th><th>Exp</th><th>Salary</th><th>Status</th><th class="tr-action">Actions</th></tr></thead>
-    <tbody>${jobs.map(j=>`<tr>
-      <td>
-        <div style="font-weight:600;font-size:12.5px">${esc(j.title)}</div>
-        <div style="font-size:11px;color:var(--text-muted)">${esc(j.company||'')}${j.location?' · '+esc(j.location):''}</div>
-      </td>
-      <td>${(j.skills||[]).slice(0,4).map(s=>`<span class="badge badge-grey" style="margin:1px;font-size:10px">${esc(s)}</span>`).join('')}${(j.skills||[]).length>4?`<span style="font-size:10.5px;color:var(--text-muted)"> +${j.skills.length-4}</span>`:''}</td>
-      <td style="font-size:12px;color:var(--text-secondary)">${j.experience_min||'?'}–${j.experience_max||'?'} yrs</td>
-      <td style="font-size:12px;color:var(--text-secondary)">${j.salary_min?'₹'+(j.salary_min/100000).toFixed(1)+'–'+(j.salary_max/100000).toFixed(1)+'L':'–'}</td>
-      <td><span class="badge ${j.status==='ACTIVE'?'badge-green':j.status==='PAUSED'?'badge-yellow':'badge-grey'}">${j.status}</span></td>
-      <td class="tr-action">
-        <div class="flex gap-2">
-          <button class="btn btn-secondary btn-sm" onclick="triggerSourcing(${j.id},this)">⚡ Source</button>
-          <button class="btn ${j.status==='ACTIVE'?'btn-danger':'btn-primary'} btn-sm" onclick="updateStatus(${j.id},'${j.status==='ACTIVE'?'PAUSED':'ACTIVE'}',this)">${j.status==='ACTIVE'?'⏸':'▶'}</button>
-        </div>
-      </td>
-    </tr>`).join('')}</tbody>
+
+  // Render table immediately, then backfill counts
+  renderJobTable(jobs, {});
+
+  // Fetch candidate counts
+  const counts = await fetchJobCounts(jobs.map(j => j.id));
+  const totalCands = Object.values(counts).reduce((s,c) => s + c.total, 0);
+  const totalSl = Object.values(counts).reduce((s,c) => s + c.shortlisted, 0);
+  document.getElementById('kpi-cands').textContent = totalCands;
+  document.getElementById('kpi-shortlisted').textContent = totalSl;
+
+  renderJobTable(jobs, counts);
+}
+
+function renderJobTable(jobs, counts) {
+  const body = document.getElementById('jobs-table-body');
+  body.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>Role</th><th>Skills</th><th>Exp</th><th>Salary</th>
+      <th>Candidates</th><th>Shortlisted</th><th>Status</th><th class="tr-action">Actions</th>
+    </tr></thead>
+    <tbody>${jobs.map(j => {
+      const c = counts[j.id] || { total: '…', shortlisted: '…' };
+      const isSelected = _panelJobId === j.id;
+      return `<tr style="cursor:pointer${isSelected ? ';background:var(--bg-overlay)' : ''}" onclick="openPanel(${j.id})" data-job-id="${j.id}">
+        <td>
+          <div style="font-weight:600;font-size:12.5px">${esc(j.title)}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${esc(j.company||'')}${j.location?' · '+esc(j.location):''}</div>
+        </td>
+        <td>${(j.skills||[]).slice(0,4).map(s=>`<span class="badge badge-grey" style="margin:1px;font-size:10px">${esc(s)}</span>`).join('')}${(j.skills||[]).length>4?`<span style="font-size:10.5px;color:var(--text-muted)"> +${j.skills.length-4}</span>`:''}</td>
+        <td style="font-size:12px;color:var(--text-secondary)">${j.experience_min||'?'}–${j.experience_max||'?'} yrs</td>
+        <td style="font-size:12px;color:var(--text-secondary)">${j.salary_min?'₹'+(j.salary_min/100000).toFixed(1)+'–'+(j.salary_max/100000).toFixed(1)+'L':'–'}</td>
+        <td style="font-size:13px;font-weight:600;color:var(--blue)">${c.total}</td>
+        <td style="font-size:13px;font-weight:600;color:var(--accent)">${c.shortlisted}</td>
+        <td><span class="badge ${j.status==='ACTIVE'?'badge-green':j.status==='PAUSED'?'badge-yellow':'badge-grey'}">${j.status}</span></td>
+        <td class="tr-action" onclick="event.stopPropagation()">
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" onclick="triggerSourcing(${j.id},this)">⚡ Source</button>
+            <button class="btn ${j.status==='ACTIVE'?'btn-danger':'btn-primary'} btn-sm" onclick="updateStatus(${j.id},'${j.status==='ACTIVE'?'PAUSED':'ACTIVE'}',this)">${j.status==='ACTIVE'?'⏸':'▶'}</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>
   </table></div>`;
 }
 
-async function triggerSourcing(jobId,btn){
-  btn.disabled=true;btn.textContent='Sourcing…';
-  try{
-    const res=await api('/api/v1/jobs/'+jobId+'/source',{method:'POST'});
-    showToast(`Sourced ${res.sourced||0} candidates`,'success');
-  }catch(e){showToast('Sourcing failed: '+e.message,'error')}
-  btn.disabled=false;btn.textContent='⚡ Source';
+// ── Detail panel ──
+async function openPanel(jobId) {
+  _panelJobId = jobId;
+  const job = _allJobs.find(j => j.id === jobId) || { title: 'Job #' + jobId };
+
+  // Highlight selected row
+  document.querySelectorAll('[data-job-id]').forEach(r => {
+    r.style.background = r.dataset.jobId == jobId ? 'var(--bg-overlay)' : '';
+  });
+
+  const panel = document.getElementById('detail-panel');
+  panel.style.display = 'block';
+  document.getElementById('panel-title').textContent = esc(job.title);
+  document.getElementById('panel-link-shortlist').href = '/ui/shortlist?job_id=' + jobId;
+  document.getElementById('panel-link-triage').href = '/ui/triage?job_id=' + jobId;
+  document.getElementById('panel-pipeline').innerHTML = '';
+  document.getElementById('panel-candidates').innerHTML =
+    '<div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>';
+  document.getElementById('panel-status-filter').value = '';
+  document.getElementById('panel-search').value = '';
+
+  try {
+    // Fetch shortlist entries for this job
+    const entries = await api('/api/v1/shortlist?job_id=' + jobId + '&limit=200');
+    _panelEntries = entries;
+
+    // Collect unique candidate IDs
+    const candIds = [...new Set(entries.map(e => e.candidate_id))];
+
+    // Fetch candidate details in parallel (batches of 10 to avoid flooding)
+    _panelCands = {};
+    const BATCH = 20;
+    for (let i = 0; i < candIds.length; i += BATCH) {
+      const batch = candIds.slice(i, i + BATCH);
+      await Promise.all(batch.map(async id => {
+        try {
+          const c = await api('/api/v1/candidates/' + id);
+          _panelCands[id] = c;
+        } catch(e) { _panelCands[id] = { id, name: 'Candidate #' + id }; }
+      }));
+    }
+
+    renderPipelinePills(entries);
+    renderPanelCandidates();
+  } catch(err) {
+    document.getElementById('panel-candidates').innerHTML =
+      `<div class="empty-state"><p style="color:var(--red)">Failed to load candidates: ${esc(err.message)}</p></div>`;
+  }
+}
+
+function renderPipelinePills(entries) {
+  const counts = {};
+  entries.forEach(e => { counts[e.status] = (counts[e.status]||0) + 1; });
+  const order = ['PENDING','SHORTLISTED','CONTACTED','INTERESTED','INTERVIEW_SCHEDULED','HIRED','REJECTED','NOT_INTERESTED','DROPPED'];
+  const html = order.filter(s => counts[s]).map(s =>
+    `<span class="badge ${STATUS_CLASS[s]}" style="cursor:pointer" onclick="document.getElementById('panel-status-filter').value='${s}';renderPanelCandidates()">
+      ${STATUS_LABEL[s]} <strong>${counts[s]}</strong>
+    </span>`
+  ).join('');
+  document.getElementById('panel-pipeline').innerHTML = html || '<span style="font-size:11.5px;color:var(--text-muted)">No candidates yet</span>';
+}
+
+function renderPanelCandidates() {
+  const statusFilter = document.getElementById('panel-status-filter').value;
+  const search = (document.getElementById('panel-search').value || '').toLowerCase();
+
+  let filtered = _panelEntries;
+  if (statusFilter) filtered = filtered.filter(e => e.status === statusFilter);
+  if (search) {
+    filtered = filtered.filter(e => {
+      const c = _panelCands[e.candidate_id];
+      if (!c) return false;
+      return (c.name||'').toLowerCase().includes(search) ||
+             (c.current_role||'').toLowerCase().includes(search) ||
+             (c.location||'').toLowerCase().includes(search);
+    });
+  }
+
+  const container = document.getElementById('panel-candidates');
+  if (!filtered.length) {
+    container.innerHTML = '<div class="empty-state" style="padding:24px"><p>No candidates match.</p></div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(entry => {
+    const c = _panelCands[entry.candidate_id] || {};
+    const score = entry.score != null ? Math.round(entry.score) : '–';
+    const scoreColor = entry.score >= 70 ? 'var(--accent)' : entry.score >= 45 ? 'var(--yellow)' : 'var(--red)';
+    return `<div style="padding:10px 16px;border-bottom:1px solid var(--border-subtle);display:flex;gap:10px;align-items:flex-start;cursor:pointer;transition:background var(--transition)" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background=''" onclick="window.open('/ui/candidate/${c.id||entry.candidate_id}','_blank')">
+      <div style="width:36px;height:36px;background:var(--bg-overlay);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;font-weight:700;color:var(--text-secondary)">
+        ${esc((c.name||'?').charAt(0).toUpperCase())}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.name||'Unknown')}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${esc(c.current_role||'')}${c.current_employer?' @ '+esc(c.current_employer):''}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${c.location?esc(c.location):''}${c.experience_years?' · '+c.experience_years+'y exp':''}</div>
+        ${c.skills&&c.skills.length ? `<div style="margin-top:3px">${(c.skills||[]).slice(0,3).map(s=>`<span class="badge badge-grey" style="font-size:9.5px;margin:1px">${esc(s)}</span>`).join('')}</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+        <span class="badge ${STATUS_CLASS[entry.status]||'badge-grey'}" style="font-size:10px">${STATUS_LABEL[entry.status]||entry.status}</span>
+        ${entry.score != null ? `<span style="font-size:11px;font-weight:700;color:${scoreColor}">${score}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function closePanel() {
+  _panelJobId = null;
+  document.getElementById('detail-panel').style.display = 'none';
+  document.querySelectorAll('[data-job-id]').forEach(r => r.style.background = '');
+}
+
+async function triggerSourcing(jobId, btn){
+  btn.disabled=true; btn.textContent='Sourcing…';
+  try {
+    const res = await api('/api/v1/jobs/' + jobId + '/source', {method:'POST'});
+    showToast(`Sourced ${res.sourced||0} candidates`, 'success');
+  } catch(e) { showToast('Sourcing failed: ' + e.message, 'error'); }
+  btn.disabled=false; btn.textContent='⚡ Source';
   loadJobs();
 }
 
-async function updateStatus(jobId,newStatus,btn){
+async function updateStatus(jobId, newStatus, btn){
   btn.disabled=true;
-  try{await api('/api/v1/jobs/'+jobId,{method:'PATCH',body:{status:newStatus}});showToast('Status → '+newStatus,'success');loadJobs()}
-  catch(e){showToast('Update failed','error');btn.disabled=false}
+  try {
+    await api('/api/v1/jobs/' + jobId, {method:'PATCH', body:{status:newStatus}});
+    showToast('Status → ' + newStatus, 'success');
+    loadJobs();
+  } catch(e) { showToast('Update failed', 'error'); btn.disabled=false; }
 }
 
 async function analyzeAndCreate(){
-  const jd=document.getElementById('jd-text').value.trim();
-  if(!jd){showToast('Paste a JD first','error');return}
-  const btn=document.getElementById('btn-analyze');
-  const spinner=document.getElementById('analyze-spinner');
-  btn.disabled=true;spinner.style.display='inline-block';
-  document.getElementById('analyze-result').innerHTML='';
-  try{
-    const res=await fetch('/api/v1/jobs/from-jd?'+new URLSearchParams({raw_jd:jd}),{method:'POST'});
-    if(!res.ok)throw new Error(await res.text());
-    const job=await res.json();
-    document.getElementById('analyze-result').innerHTML=`<div class="alert alert-success">
+  const jd = document.getElementById('jd-text').value.trim();
+  if (!jd) { showToast('Paste a JD first', 'error'); return; }
+  const btn = document.getElementById('btn-analyze');
+  const spinner = document.getElementById('analyze-spinner');
+  btn.disabled=true; spinner.style.display='inline-block';
+  document.getElementById('analyze-result').innerHTML = '';
+  try {
+    const res = await fetch('/api/v1/jobs/from-jd?' + new URLSearchParams({raw_jd:jd}), {method:'POST'});
+    if (!res.ok) throw new Error(await res.text());
+    const job = await res.json();
+    document.getElementById('analyze-result').innerHTML = `<div class="alert alert-success">
       ✅ Created: <strong>${esc(job.title)}</strong> (ID #${job.id})<br>
       <span style="font-size:11.5px">Skills: ${(job.skills||[]).join(', ')||'–'} &nbsp;·&nbsp; ${job.location||'–'} &nbsp;·&nbsp; ${job.experience_min||'?'}–${job.experience_max||'?'} yrs</span>
     </div>`;
     loadJobs();
-  }catch(e){
-    document.getElementById('analyze-result').innerHTML=`<div class="alert alert-error">Error: ${esc(e.message)}</div>`;
+  } catch(e) {
+    document.getElementById('analyze-result').innerHTML = `<div class="alert alert-error">Error: ${esc(e.message)}</div>`;
   }
-  btn.disabled=false;spinner.style.display='none';
+  btn.disabled=false; spinner.style.display='none';
 }
 
 async function createManual(){
-  const title=document.getElementById('m-title').value.trim();
-  if(!title){showToast('Title is required','error');return}
-  const skills=document.getElementById('m-skills').value.split(',').map(s=>s.trim()).filter(Boolean);
-  const body={
-    title,company:document.getElementById('m-company').value||undefined,
-    location:document.getElementById('m-location').value||undefined,
-    job_type:document.getElementById('m-jobtype').value||undefined,
-    experience_min:parseFloat(document.getElementById('m-expmin').value)||undefined,
-    experience_max:parseFloat(document.getElementById('m-expmax').value)||undefined,
-    salary_min:parseFloat(document.getElementById('m-salmin').value)||undefined,
-    salary_max:parseFloat(document.getElementById('m-salmax').value)||undefined,
-    education:document.getElementById('m-education').value||undefined,
+  const title = document.getElementById('m-title').value.trim();
+  if (!title) { showToast('Title is required', 'error'); return; }
+  const skills = document.getElementById('m-skills').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const body = {
+    title,
+    company: document.getElementById('m-company').value || undefined,
+    location: document.getElementById('m-location').value || undefined,
+    job_type: document.getElementById('m-jobtype').value || undefined,
+    experience_min: parseFloat(document.getElementById('m-expmin').value) || undefined,
+    experience_max: parseFloat(document.getElementById('m-expmax').value) || undefined,
+    salary_min: parseFloat(document.getElementById('m-salmin').value) || undefined,
+    salary_max: parseFloat(document.getElementById('m-salmax').value) || undefined,
+    education: document.getElementById('m-education').value || undefined,
     skills,
   };
-  try{await api('/api/v1/jobs',{method:'POST',body});showToast('Job created','success');hideModal('create-modal');loadJobs()}
-  catch(e){showToast('Create failed: '+e.message,'error')}
+  try {
+    await api('/api/v1/jobs', {method:'POST', body});
+    showToast('Job created', 'success');
+    hideModal('create-modal');
+    loadJobs();
+  } catch(e) { showToast('Create failed: ' + e.message, 'error'); }
 }
 
 loadJobs();

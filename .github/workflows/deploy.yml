@@ -1,0 +1,24 @@
+name: Deploy to Vercel Production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Vercel via API
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          # Create deployment using Vercel CLI with project settings
+          npm install --global vercel@latest
+          
+          # Create .vercel/project.json to link to existing project
+          mkdir -p .vercel
+          echo '{"orgId":"team_3JGXuNe5IOFkdJKJwB9tH7g7","projectId":"prj_wsR5PtXcE4GU9zAq2pLYokjRd5c6"}' > .vercel/project.json
+          
+          # Deploy to production
+          vercel deploy --token=$VERCEL_TOKEN --prod --yes

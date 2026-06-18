@@ -135,11 +135,25 @@ from typing import Optional as _Opt
 APNA_SEARCH_URL = "https://production.apna.co/cerebro/api/v1/white-collar-search/ic"
 
 
+def _clean_token(token: str) -> str:
+    """Strip stray quotes/whitespace/prefixes from a pasted token.
+
+    People often copy the token with the surrounding quotes the console prints
+    (e.g.  'eyJ...'  or  "eyJ..."), or with a leading 'Token '/'Bearer '. Any of
+    those makes Apna reject it as invalid-token. Normalise to the bare JWT.
+    """
+    t = (token or "").strip().strip('"').strip("'").strip()
+    for prefix in ("token ", "bearer "):
+        if t.lower().startswith(prefix):
+            t = t[len(prefix):].strip()
+    return t
+
+
 class ApnaAdapter(BasePortalAdapter):
     """Searches Apna Hire's white-collar candidate database via live API."""
 
     def __init__(self, token: str, org_id: str = "2012727", workspace_id: str = ""):
-        self.token = token
+        self.token = _clean_token(token)
         self.org_id = org_id
         self.workspace_id = workspace_id
 

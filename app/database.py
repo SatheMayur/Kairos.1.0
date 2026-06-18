@@ -5,6 +5,7 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 from app.config import get_settings
 
 settings = get_settings()
@@ -35,7 +36,11 @@ engine = create_async_engine(
     echo=settings.app_env == "development",
     future=True,
     connect_args=_connect_args,
-    **({"pool_size": 5, "max_overflow": 10, "pool_pre_ping": True} if _is_postgres else {}),
+    # On Vercel serverless, holding a connection pool per function instance can
+    # exhaust Neon's connection limit across many instances and cause intermittent
+    # FUNCTION_INVOCATION_FAILED (500) errors. NullPool opens/closes a fresh
+    # connection per request — the documented best practice for serverless + Neon.
+    **({"poolclass": NullPool} if _is_postgres else {}),
 )
 
 AsyncSessionLocal = async_sessionmaker(

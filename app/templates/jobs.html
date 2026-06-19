@@ -230,18 +230,27 @@ async function analyzeUploadedJD(){
     clearInterval(tick);
     if(!r.ok){ let m; try{ m=(await r.json()).detail; }catch(_){ m=await r.text(); } throw new Error(m||('HTTP '+r.status)); }
     const a=await r.json();
-    document.getElementById('m-title').value=a.title||'';
-    document.getElementById('m-location').value=a.location||'';
-    document.getElementById('m-jobtype').value=a.job_type||'';
-    document.getElementById('m-expmin').value=(a.experience_min??'');
-    document.getElementById('m-expmax').value=(a.experience_max??'');
-    document.getElementById('m-salmin').value=(a.salary_min??'');
-    document.getElementById('m-salmax').value=(a.salary_max??'');
-    document.getElementById('m-skills').value=(a.skills||[]).join(', ');
-    document.getElementById('m-education').value=a.education||'';
-    document.getElementById('review-banner').style.display='block';
-    switchTab('manual');
-    document.getElementById('review-banner').style.display='block';
+    // Show an EDITABLE review form right here in the Upload tab — no switching to Manual Entry.
+    const jt=(v)=>['','full-time','part-time','contract','internship','remote']
+      .map(o=>`<option value="${o}"${o===(a.job_type||'')?' selected':''}>${o?o.replace(/(^|-)\w/g,m=>m.toUpperCase()):'Select…'}</option>`).join('');
+    res.innerHTML=`
+      <div class="alert alert-success" style="margin-bottom:12px">✅ Read from your file. Review &amp; edit below, then click <strong>Create Job</strong>.</div>
+      <div class="grid-2">
+        <div class="form-group"><label>Job Title *</label><input id="u-title" value="${esc(a.title||'')}"></div>
+        <div class="form-group"><label>Company</label><input id="u-company" placeholder="K. Girdharlal International"></div>
+        <div class="form-group"><label>Location</label><input id="u-location" value="${esc(a.location||'')}"></div>
+        <div class="form-group"><label>Job Type</label><select id="u-jobtype">${jt()}</select></div>
+        <div class="form-group"><label>Min Experience (yrs)</label><input id="u-expmin" type="number" value="${a.experience_min??''}"></div>
+        <div class="form-group"><label>Max Experience (yrs)</label><input id="u-expmax" type="number" value="${a.experience_max??''}"></div>
+        <div class="form-group"><label>Salary Min (₹/mo)</label><input id="u-salmin" type="number" value="${a.salary_min??''}"></div>
+        <div class="form-group"><label>Salary Max (₹/mo)</label><input id="u-salmax" type="number" value="${a.salary_max??''}"></div>
+      </div>
+      <div class="form-group"><label>Required Skills (comma-separated)</label><input id="u-skills" value="${esc((a.skills||[]).join(', '))}"></div>
+      <div class="form-group"><label>Education</label><input id="u-education" value="${esc(a.education||'')}"></div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="btn btn-primary" onclick="createFromUpload()">＋ Create Job</button>
+        <button class="btn btn-secondary" onclick="clearJdFile()">Start over</button>
+      </div>`;
     if(!(a.title||'').trim()) showToast('Read the file, but no clear job title found — please fill it in.','info');
     else showToast('Read the file — review the fields and click Create Job.','success');
   }catch(e){
@@ -250,6 +259,25 @@ async function analyzeUploadedJD(){
       <button class="btn btn-secondary btn-sm" onclick="analyzeUploadedJD()" style="margin-left:8px">↻ Retry</button></div>`;
   }
   btn.disabled=false; sp.style.display='none'; txt.textContent='⚡ Analyze JD';
+}
+
+// Create the job from the reviewed fields shown in the Upload tab.
+async function createFromUpload(){
+  const v=(id)=>{const e=document.getElementById(id);return e&&e.value.trim()?e.value.trim():undefined;};
+  const n=(id)=>{const x=parseFloat((document.getElementById(id)||{}).value);return isNaN(x)?undefined:x;};
+  const title=v('u-title');
+  if(!title){ showToast('Job title is required','error'); return; }
+  const body={
+    title, company:v('u-company'), location:v('u-location'), job_type:v('u-jobtype'),
+    experience_min:n('u-expmin'), experience_max:n('u-expmax'),
+    salary_min:n('u-salmin'), salary_max:n('u-salmax'), education:v('u-education'),
+    skills:(document.getElementById('u-skills').value||'').split(',').map(s=>s.trim()).filter(Boolean),
+  };
+  try{
+    await api('/api/v1/jobs',{method:'POST', body});
+    showToast('Job created ✓','success');
+    hideModal('create-modal'); clearJdFile(); loadJobs();
+  }catch(e){ showToast('Create failed: '+(e.message||e),'error'); }
 }
 
 // ── helpers to aggregate candidate counts from shortlist ──

@@ -249,3 +249,66 @@ def analyze_jd(raw_jd: str) -> JDAnalysisResult:
         job_type=_extract_job_type(raw_jd),
         description=raw_jd[:500],
     )
+
+
+def _num(v):
+    """Coerce an LLM value to float, else None."""
+    try:
+        if v is None or v == "":
+            return None
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+async def analyze_jd_smart(raw_jd: str) -> JDAnalysisResult:
+    """LLM-backed JD extraction (Gemini/Claude) with the regex analyzer as fallback.
+
+    Far more accurate than heuristics — correctly picks the real role title (not the
+    'JOB DESCRIPTION' heading) and pulls experience/salary even when phrased oddly.
+    """
+    from app.services.llm import llm_provider, llm_json
+
+    if llm_provider() == "none":
+        return analyze_jd(raw_jd)
+
+    prompt = (
+        "You are parsing a job description. Return ONLY a JSON object with these keys:\n"
+        '  "title": the actual ROLE title (e.g. "AI & Process Automation Engineer") — '
+        'NOT a heading like "Job Description"/"JD"/"Position Title".\n'
+        '  "skills": array of specific skills/tools (strings).\n'
+        '  "experience_min": number (years) or null.  "experience_max": number or null.\n'
+        '  "salary_min": MONTHLY salary in INR rupees or null.  "salary_max": monthly INR or null '
+        "(convert LPA/annual to monthly: annual÷12; e.g. 6 LPA → 50000).\n"
+        '  "location": city/region string or null.\n'
+        '  "education": required education string or null.\n'
+        '  "job_type": one of full-time/part-time/contract/internship/remote or null.\n'
+        '  "description": a 1-2 sentence plain summary of the role.\n\n'
+        "Job description:\n\n" + (raw_jd or "")[:6000]
+    )
+    try:
+        data = await llm_json(prompt, max_tokens=800)
+    except Exception:
+        data = None
+    if not isinstance(data, dict):
+        return analyze_jd(raw_jd)
+
+    try:
+        skills = data.get("skills") or []
+        if isinstance(skills, str):
+            skills = [s.strip() for s in skills.split(",") if s.strip()]
+        return JDAnalysisResult(
+            title=(data.get("title") or "").strip() or None,
+            skills=[str(s).strip() for s in skills if str(s).strip()][:20],
+            experience_min=_num(data.get("experience_min")),
+            experience_max=_num(data.get("experience_max")),
+            salary_min=_num(data.get("salary_min")),
+            salary_max=_num(data.get("salary_max")),
+            location=(data.get("location") or "").strip() or None,
+            notice_period_days=None,
+            education=(data.get("education") or "").strip() or None,
+            job_type=(data.get("job_type") or "").strip() or None,
+            description=(data.get("description") or "").strip() or (raw_jd or "")[:500],
+        )
+    except Exception:
+        return analyze_jd(raw_jd)

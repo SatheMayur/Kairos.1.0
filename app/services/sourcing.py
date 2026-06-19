@@ -44,6 +44,12 @@ async def source_candidates_for_job(job: Job, db: AsyncSession) -> list[Shortlis
         else:
             raw_candidates.extend(result)
 
+    # Apna live search — only available if a token has been saved server-side
+    # (via the Import page → "Save token"). The registry can't hold it because the
+    # token isn't an env var, so we look it up per-run from the DB and run Apna here.
+    apna_raw = await _source_from_apna(job, keywords, db)
+    raw_candidates.extend(apna_raw)
+
     # Location post-filter: drop candidates clearly from the wrong city.
     # Candidates with no location field are kept (scored lower, not discarded).
     if job.location:
@@ -71,6 +77,55 @@ async def source_candidates_for_job(job: Job, db: AsyncSession) -> list[Shortlis
 
     await db.flush()
     return entries
+
+
+async def _source_from_apna(job: Job, keywords: list[str], db: AsyncSession) -> list[RawCandidate]:
+    """Run an Apna live search if a token is saved on the server.
+
+    Defensive by design: any failure (no token, expired token, network error) is
+    logged and swallowed so it can never crash a sourcing run. Returns [] on any
+    problem.
+    """
+    from app.services.app_settings import get_setting
+
+    try:
+        token = await get_setting(db, "apna_token")
+    except Exception as exc:  # e.g. table missing on a very old DB
+        logger.warning("Could not read saved Apna token: %s", exc)
+        return []
+
+    if not token:
+        return []  # No token saved — skip Apna cleanly, no Apna results this run.
+
+    org_id = None
+    try:
+        org_id = await get_setting(db, "apna_org_id")
+    except Exception:
+        pass
+
+    from app.adapters.apna import ApnaAdapter
+
+    adapter = ApnaAdapter(token=token, org_id=org_id) if org_id else ApnaAdapter(token=token)
+    try:
+        results = await adapter.search(
+            keywords=keywords,
+            location=job.location,
+            experience_min=job.experience_min,
+            experience_max=job.experience_max,
+            limit=20,
+        )
+        logger.info("Apna live search returned %d candidates for job %d", len(results), job.id)
+        return results
+    except Exception as exc:
+        # 401/403 means the saved token has expired — tell the owner in plain words.
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if status_code in (401, 403):
+            logger.warning(
+                "Apna token expired — re-save it on the Import page. (job %d)", job.id
+            )
+        else:
+            logger.warning("Apna live search failed for job %d: %s", job.id, exc)
+        return []
 
 
 async def _upsert_candidate(raw: RawCandidate, db: AsyncSession) -> Candidate:

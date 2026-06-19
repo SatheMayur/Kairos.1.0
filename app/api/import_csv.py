@@ -526,6 +526,49 @@ class ApnaImportRequest(BaseModel):
     auto_outreach: bool = True
 
 
+class ApnaTokenRequest(BaseModel):
+    token: str
+    org_id: Optional[str] = None
+
+
+@router.post("/apna-token")
+async def save_apna_token(payload: ApnaTokenRequest, db: AsyncSession = Depends(get_db)):
+    """Save the Apna sign-in token on the server so automatic, behind-the-scenes
+    candidate finding can use Apna too (not just the manual search box).
+
+    The token itself is never sent back or logged.
+    """
+    from app.adapters.apna import _clean_token
+    from app.services.app_settings import set_setting
+
+    token = _clean_token(payload.token)
+    if not token:
+        raise HTTPException(status_code=400, detail="Please paste your Apna token first.")
+
+    await set_setting(db, "apna_token", token)
+    if payload.org_id and payload.org_id.strip():
+        await set_setting(db, "apna_org_id", payload.org_id.strip())
+    await db.commit()
+    logger.info("Apna token saved to server settings (org_id set=%s)", bool(payload.org_id))
+    return {"saved": True}
+
+
+@router.get("/apna-token")
+async def get_apna_token_status(db: AsyncSession = Depends(get_db)):
+    """Tell the page whether a server-side Apna token is saved — never the token itself."""
+    from app.models.app_setting import AppSetting
+    from app.services.app_settings import get_setting
+
+    token = await get_setting(db, "apna_token")
+    org_id = await get_setting(db, "apna_org_id")
+    row = await db.get(AppSetting, "apna_token")
+    return {
+        "has_token": bool(token),
+        "org_id": org_id,
+        "updated_at": row.updated_at.isoformat() + "Z" if row and row.updated_at else None,
+    }
+
+
 @router.post("/apna-search")
 async def apna_search(payload: ApnaSearchRequest):
     """Search Apna Hire's white-collar DB server-side (no CORS) and return preview list."""

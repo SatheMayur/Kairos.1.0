@@ -408,11 +408,27 @@ function apnaAutoSave(v) {
   if (t) localStorage.setItem(APNA_TOKEN_KEY, t);
 }
 
-function apnaSaveToken() {
+async function apnaSaveToken() {
   const t = document.getElementById('apna-token').value.trim().replace(/^['"]|['"]$/g, '').trim();
   if (!t) { showToast('Paste your Apna JWT token first', 'error'); return; }
   localStorage.setItem(APNA_TOKEN_KEY, t);
-  showToast('Token saved', 'success');
+  // Also save it on the server so the system can find Apna candidates on its own,
+  // even when this page isn't open.
+  try {
+    const orgId = (document.getElementById('apna-org-id')?.value || '').trim();
+    const r = await fetch('/api/v1/import/apna-token', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: t, org_id: orgId || undefined}),
+    });
+    if (r.ok) {
+      showToast('Token saved — the system can now find Apna candidates automatically', 'success');
+    } else {
+      showToast('Token saved on this page, but saving it on the server failed. Please try again.', 'error');
+    }
+  } catch (e) {
+    showToast('Token saved on this page, but could not reach the server to save it there.', 'error');
+  }
 }
 
 function apnaGetToken() {

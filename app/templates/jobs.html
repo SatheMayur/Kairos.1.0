@@ -84,6 +84,7 @@
 
     <div class="tabs" style="margin-bottom:20px">
       <button class="tab active" id="tab-jd" onclick="switchTab('jd')">Paste JD (auto-extract)</button>
+      <button class="tab" id="tab-upload" onclick="switchTab('upload')">📎 Upload JD</button>
       <button class="tab" id="tab-manual" onclick="switchTab('manual')">Manual Entry</button>
     </div>
 
@@ -100,8 +101,30 @@
       <div id="analyze-result" style="margin-top:14px"></div>
     </div>
 
+    <!-- Upload Pane -->
+    <div id="pane-upload" style="display:none">
+      <div class="form-group">
+        <label>Upload Job Description file</label>
+        <input type="file" id="jd-file" accept=".pdf,.doc,.docx,.txt" onchange="onJdFile(this)" style="width:100%">
+        <p class="text-muted text-sm" style="margin-top:6px">PDF, DOC, DOCX or TXT · up to 5 MB. We'll read it and fill in the job fields for you to review.</p>
+      </div>
+      <div id="jd-file-info" style="display:none;background:var(--bg-surface);border-radius:var(--radius-md);padding:10px 12px;margin-bottom:12px">
+        <span id="jd-file-name" style="font-weight:600;font-size:12.5px"></span>
+        <span id="jd-file-size" style="font-size:11.5px;color:var(--text-muted)"></span>
+        <button class="btn btn-ghost btn-sm" onclick="clearJdFile()" style="float:right">✕ Remove</button>
+      </div>
+      <button class="btn btn-primary" id="btn-upload-analyze" onclick="analyzeUploadedJD()" disabled>
+        <span id="upload-spinner" class="spinner" style="display:none"></span>
+        <span id="upload-btn-text">⚡ Analyze JD</span>
+      </button>
+      <div id="upload-result" style="margin-top:14px"></div>
+    </div>
+
     <!-- Manual Pane -->
     <div id="pane-manual" style="display:none">
+      <div id="review-banner" class="alert alert-info" style="display:none;margin-bottom:14px">
+        ✅ Read from your file. <strong>Review the fields below, edit anything that's off, then click Create Job.</strong>
+      </div>
       <div class="grid-2">
         <div class="form-group"><label>Job Title *</label><input type="text" id="m-title" placeholder="Sr. Graphic Designer"></div>
         <div class="form-group"><label>Company</label><input type="text" id="m-company" placeholder="K. Girdharlal International"></div>
@@ -153,10 +176,80 @@ const STATUS_LABEL = {
 };
 
 function switchTab(tab){
-  document.getElementById('pane-jd').style.display=tab==='jd'?'block':'none';
-  document.getElementById('pane-manual').style.display=tab==='manual'?'block':'none';
-  document.getElementById('tab-jd').className='tab'+(tab==='jd'?' active':'');
-  document.getElementById('tab-manual').className='tab'+(tab==='manual'?' active':'');
+  for (const t of ['jd','upload','manual']){
+    const pane=document.getElementById('pane-'+t);
+    const btn=document.getElementById('tab-'+t);
+    if(pane) pane.style.display=(t===tab)?'block':'none';
+    if(btn) btn.className='tab'+((t===tab)?' active':'');
+  }
+  // The review banner only makes sense right after an upload-extract.
+  if(tab!=='manual'){ const rb=document.getElementById('review-banner'); if(rb) rb.style.display='none'; }
+}
+
+// ── Upload JD: validate → extract → analyze → review → create ──
+let _jdFile = null;
+const _JD_MAX = 5 * 1024 * 1024;
+const _JD_OK = ['pdf','doc','docx','txt'];
+
+function onJdFile(input){
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const ext = (f.name.split('.').pop()||'').toLowerCase();
+  if (!_JD_OK.includes(ext)) { showToast('Unsupported file. Please use PDF, DOC, DOCX or TXT.','error'); input.value=''; return; }
+  if (f.size === 0) { showToast('That file is empty — pick a file with the JD in it.','error'); input.value=''; return; }
+  if (f.size > _JD_MAX) { showToast('That file is too large (max 5 MB).','error'); input.value=''; return; }
+  if (_jdFile && !confirm('Replace "'+_jdFile.name+'" with "'+f.name+'"?')) { input.value=''; return; }
+  _jdFile = f;
+  document.getElementById('jd-file-name').textContent = f.name + '  ';
+  document.getElementById('jd-file-size').textContent = '(' + (f.size/1024).toFixed(0) + ' KB)';
+  document.getElementById('jd-file-info').style.display = 'block';
+  document.getElementById('btn-upload-analyze').disabled = false;
+  document.getElementById('upload-result').innerHTML = '';
+}
+
+function clearJdFile(){
+  _jdFile = null;
+  document.getElementById('jd-file').value = '';
+  document.getElementById('jd-file-info').style.display = 'none';
+  document.getElementById('btn-upload-analyze').disabled = true;
+  document.getElementById('upload-result').innerHTML = '';
+}
+
+async function analyzeUploadedJD(){
+  if (!_jdFile){ showToast('Choose a file first','error'); return; }
+  const btn=document.getElementById('btn-upload-analyze');
+  const sp=document.getElementById('upload-spinner');
+  const txt=document.getElementById('upload-btn-text');
+  const res=document.getElementById('upload-result');
+  btn.disabled=true; sp.style.display='inline-block'; res.innerHTML='';
+  const steps=['Uploading file…','Extracting text…','Analyzing JD…']; let si=0; txt.textContent=steps[0];
+  const tick=setInterval(()=>{ si=Math.min(si+1,steps.length-1); txt.textContent=steps[si]; }, 1200);
+  try{
+    const fd=new FormData(); fd.append('file', _jdFile);
+    const r=await fetch('/api/v1/jobs/analyze-jd-file',{method:'POST', body:fd});
+    clearInterval(tick);
+    if(!r.ok){ let m; try{ m=(await r.json()).detail; }catch(_){ m=await r.text(); } throw new Error(m||('HTTP '+r.status)); }
+    const a=await r.json();
+    document.getElementById('m-title').value=a.title||'';
+    document.getElementById('m-location').value=a.location||'';
+    document.getElementById('m-jobtype').value=a.job_type||'';
+    document.getElementById('m-expmin').value=(a.experience_min??'');
+    document.getElementById('m-expmax').value=(a.experience_max??'');
+    document.getElementById('m-salmin').value=(a.salary_min??'');
+    document.getElementById('m-salmax').value=(a.salary_max??'');
+    document.getElementById('m-skills').value=(a.skills||[]).join(', ');
+    document.getElementById('m-education').value=a.education||'';
+    document.getElementById('review-banner').style.display='block';
+    switchTab('manual');
+    document.getElementById('review-banner').style.display='block';
+    if(!(a.title||'').trim()) showToast('Read the file, but no clear job title found — please fill it in.','info');
+    else showToast('Read the file — review the fields and click Create Job.','success');
+  }catch(e){
+    clearInterval(tick);
+    res.innerHTML=`<div class="alert alert-error">Couldn't process the file: ${esc(e.message)}
+      <button class="btn btn-secondary btn-sm" onclick="analyzeUploadedJD()" style="margin-left:8px">↻ Retry</button></div>`;
+  }
+  btn.disabled=false; sp.style.display='none'; txt.textContent='⚡ Analyze JD';
 }
 
 // ── helpers to aggregate candidate counts from shortlist ──

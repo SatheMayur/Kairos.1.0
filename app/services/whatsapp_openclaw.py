@@ -63,26 +63,38 @@ async def send_whatsapp(phone: str, message: str, db=None) -> str | None:
     2. Direct WAHA/OpenClaw REST call (legacy, if OPENCLAW_API_URL is set)
     Returns a pseudo-ID on queue success, real ID on direct send, or None on failure.
 
-    The number is normalized to a clean Indian mobile FIRST. Junk / invalid
-    numbers (landlines, "NA", <10 digits, Excel ".0" artifacts that don't
-    resolve) are never queued — we return None so the caller treats the
-    candidate as unreachable instead of sending garbage to the bridge.
-    """
-    mobile = normalize_indian_mobile(phone)
-    if not mobile:
-        logger.warning("WhatsApp skipped — %r is not a valid Indian mobile", phone)
-        return None
+    OUTBOUND outreach passes a phone string from a CSV/portal — it is normalized
+    to a clean Indian mobile FIRST, and junk / invalid numbers (landlines, "NA",
+    <10 digits, Excel ".0" artifacts) are never queued (we return None so the
+    caller treats the candidate as unreachable instead of sending garbage).
 
-    # Path 1: DB queue (bridge.js polls /api/v1/wa/poll). Store the canonical
-    # 91XXXXXXXXXX@c.us chat id so the bridge always gets a clean target.
+    REPLIES to inbound messages may pass a full WhatsApp JID (e.g. a privacy
+    '<id>@lid' or '...@c.us'); those are passed through to the bridge AS-IS so
+    the reply actually reaches the person who messaged us.
+    """
+    is_jid = "@" in (phone or "")
+    if is_jid:
+        # A full JID from an inbound reply — send to it verbatim.
+        queue_phone = phone
+    else:
+        mobile = normalize_indian_mobile(phone)
+        if not mobile:
+            logger.warning("WhatsApp skipped — %r is not a valid Indian mobile", phone)
+            return None
+        # Clean 91-prefixed digits — the Baileys bridge turns these into the
+        # correct '91XXXXXXXXXX@s.whatsapp.net' JID itself. We deliberately do
+        # NOT store an '@c.us' chat id here: the bridge sends to that domain
+        # as-is, which is wrong for Baileys.
+        queue_phone = f"91{mobile}"
+
+    # Path 1: DB queue (bridge.js polls /api/v1/wa/poll).
     if db is not None:
         try:
             from app.models.wa_queue import WAQueue
-            chat_id = f"91{mobile}@c.us"
-            row = WAQueue(phone=chat_id, message=message)
+            row = WAQueue(phone=queue_phone, message=message)
             db.add(row)
             await db.flush()
-            logger.info("WhatsApp queued to DB (id=%d) for %s", row.id, chat_id)
+            logger.info("WhatsApp queued to DB (id=%d) for %s", row.id, queue_phone)
             return f"queued:{row.id}"
         except Exception as exc:
             logger.warning("WA DB queue failed: %s — falling back to direct send", exc)
@@ -92,7 +104,8 @@ async def send_whatsapp(phone: str, message: str, db=None) -> str | None:
         logger.warning("WhatsApp not configured — no DB session and OPENCLAW_API_URL not set")
         return None
 
-    chat_id = _fmt_phone(phone)
+    # For a bare phone use the normalized chatId; for a JID, send it verbatim.
+    chat_id = queue_phone if is_jid else _fmt_phone(phone)
     if not chat_id:
         logger.warning("WhatsApp skipped — %r is not a valid Indian mobile", phone)
         return None

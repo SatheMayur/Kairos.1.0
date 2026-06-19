@@ -31,9 +31,47 @@ async def analyze_jd_text(raw_jd: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/analyze-jd-file", response_model=JDAnalysisResult)
 async def analyze_jd_file(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
-    """Upload a .txt JD file and return extracted fields."""
+    """Upload a JD file (PDF / DOC / DOCX / TXT), extract its text, and return the
+    parsed job fields for the recruiter to review (does NOT create the job)."""
+    import io
+
+    filename = (file.filename or "").lower()
+    ext = filename.rsplit(".", 1)[-1] if "." in filename else ""
+    if ext not in ("pdf", "doc", "docx", "txt"):
+        raise HTTPException(status_code=400,
+                            detail="Unsupported file type. Please upload a PDF, DOC, DOCX or TXT file.")
+
     content = await file.read()
-    text = content.decode("utf-8", errors="ignore")
+    if not content:
+        raise HTTPException(status_code=400, detail="That file is empty — please choose a file with the job description in it.")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="That file is too large (over 5 MB). Please upload a smaller file.")
+
+    text = ""
+    try:
+        if ext == "txt":
+            text = content.decode("utf-8", errors="ignore")
+        elif ext == "pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        elif ext == "docx":
+            import docx
+            doc = docx.Document(io.BytesIO(content))
+            text = "\n".join(p.text for p in doc.paragraphs)
+        elif ext == "doc":
+            # Old binary .doc — no reliable pure-Python parser; best-effort, else ask for PDF/DOCX.
+            text = "".join(ch for ch in content.decode("latin-1", errors="ignore") if ch.isprintable() or ch in "\n\r\t ")
+    except Exception as exc:
+        logger.warning("JD file extraction failed (%s): %s", ext, exc)
+        raise HTTPException(status_code=422,
+                            detail="Couldn't read text from this file — it may be corrupt or password-protected. Try re-saving it as a PDF or DOCX.")
+
+    if len((text or "").strip()) < 20:
+        raise HTTPException(status_code=422,
+                            detail=("Couldn't find readable text in this file."
+                                    + (" Old .doc files often don't read well — please save it as PDF or DOCX and try again." if ext == "doc" else "")))
+
     return analyze_jd(text)
 
 

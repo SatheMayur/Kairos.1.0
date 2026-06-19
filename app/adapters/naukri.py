@@ -16,6 +16,7 @@ from typing import Optional
 
 from app.adapters.base import BasePortalAdapter, RawCandidate
 from app.models.candidate import CandidateSource
+from app.utils.phone import normalize_indian_mobile
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ class NaukriCSVAdapter(BasePortalAdapter):
                     name=name,
                     source=CandidateSource.NAUKRI,
                     email=get(row, "email") or None,
-                    phone=get(row, "phone") or None,
+                    phone=normalize_indian_mobile(get(row, "phone")),
                     skills=skills,
                     experience_years=_parse_experience(get(row, "exp")),
                     current_salary=_parse_salary(get(row, "cur_sal")),

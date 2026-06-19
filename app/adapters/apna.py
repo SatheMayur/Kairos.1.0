@@ -16,6 +16,7 @@ import re
 from app.adapters.base import BasePortalAdapter, RawCandidate
 from app.adapters.naukri import _find_col, _parse_salary, _parse_experience, _parse_notice
 from app.models.candidate import CandidateSource
+from app.utils.phone import normalize_indian_mobile
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class ApnaCSVAdapter(BasePortalAdapter):
             if not name:
                 continue
             skills = [s.strip() for s in get(row, "skills").replace(";", ",").split(",") if s.strip()]
-            phone = get(row, "phone") or None
+            phone = normalize_indian_mobile(get(row, "phone"))
             out.append(
                 RawCandidate(
                     name=name,

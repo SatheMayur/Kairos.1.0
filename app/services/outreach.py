@@ -302,22 +302,32 @@ def _resolve_channel(
     """Return (channel, recipient) choosing the best available contact method.
 
     Priority: requested channel → email → phone (WhatsApp/SMS) → platform profile → unreachable
+
+    A phone is only usable for WhatsApp/SMS/Call when it normalizes to a valid
+    Indian mobile — junk numbers ("NA", landlines, <10 digits) are treated as
+    NO phone, so the candidate falls back to email/platform or is reported
+    UNREACHABLE (surfaced in Needs Fixing) rather than messaged with garbage.
     """
+    from app.utils.phone import normalize_indian_mobile
+
+    raw_mobile = candidate.whatsapp or candidate.phone
+    valid_mobile = normalize_indian_mobile(raw_mobile)
+
     # Try the explicitly requested channel first
     if requested == OutreachChannel.EMAIL and candidate.email:
         return OutreachChannel.EMAIL, candidate.email
-    if requested == OutreachChannel.WHATSAPP and (candidate.whatsapp or candidate.phone):
-        return OutreachChannel.WHATSAPP, candidate.whatsapp or candidate.phone
-    if requested in (OutreachChannel.SMS, OutreachChannel.CALL) and candidate.phone:
-        return requested, candidate.phone
+    if requested == OutreachChannel.WHATSAPP and valid_mobile:
+        return OutreachChannel.WHATSAPP, valid_mobile
+    if requested in (OutreachChannel.SMS, OutreachChannel.CALL) and valid_mobile:
+        return requested, valid_mobile
     if requested == OutreachChannel.PLATFORM_MESSAGE and candidate.source_ref:
         return OutreachChannel.PLATFORM_MESSAGE, candidate.source_ref
 
     # Auto-fallback chain
     if candidate.email:
         return OutreachChannel.EMAIL, candidate.email
-    if candidate.whatsapp or candidate.phone:
-        return OutreachChannel.WHATSAPP, candidate.whatsapp or candidate.phone
+    if valid_mobile:
+        return OutreachChannel.WHATSAPP, valid_mobile
     if candidate.source_ref:
         return OutreachChannel.PLATFORM_MESSAGE, candidate.source_ref
 

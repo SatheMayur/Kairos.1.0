@@ -21,7 +21,7 @@ import re
 import httpx
 from app.config import get_settings
 from app.utils.logging import get_logger
-from app.utils.phone import jid_local, to_chat_id
+from app.utils.phone import jid_local, normalize_indian_mobile, to_chat_id
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -34,8 +34,9 @@ _NEGATIVE = {"no", "nahi", "nope", "not interested", "not now", "later",
              "busy", "already placed", "not looking", "stop", "unsubscribe"}
 
 
-def _fmt_phone(phone: str) -> str:
-    """Normalise any Indian mobile to WAHA chatId format: 91XXXXXXXXXX@c.us"""
+def _fmt_phone(phone: str) -> str | None:
+    """Normalise any Indian mobile to WAHA chatId format: 91XXXXXXXXXX@c.us.
+    Returns None when the number isn't a usable Indian mobile."""
     return to_chat_id(phone)
 
 
@@ -61,15 +62,27 @@ async def send_whatsapp(phone: str, message: str, db=None) -> str | None:
     1. Queue to DB wa_queue table (polled by bridge.js every 3 s) — works with no public URL
     2. Direct WAHA/OpenClaw REST call (legacy, if OPENCLAW_API_URL is set)
     Returns a pseudo-ID on queue success, real ID on direct send, or None on failure.
+
+    The number is normalized to a clean Indian mobile FIRST. Junk / invalid
+    numbers (landlines, "NA", <10 digits, Excel ".0" artifacts that don't
+    resolve) are never queued — we return None so the caller treats the
+    candidate as unreachable instead of sending garbage to the bridge.
     """
-    # Path 1: DB queue (bridge.js polls /api/v1/wa/poll)
+    mobile = normalize_indian_mobile(phone)
+    if not mobile:
+        logger.warning("WhatsApp skipped — %r is not a valid Indian mobile", phone)
+        return None
+
+    # Path 1: DB queue (bridge.js polls /api/v1/wa/poll). Store the canonical
+    # 91XXXXXXXXXX@c.us chat id so the bridge always gets a clean target.
     if db is not None:
         try:
             from app.models.wa_queue import WAQueue
-            row = WAQueue(phone=phone, message=message)
+            chat_id = f"91{mobile}@c.us"
+            row = WAQueue(phone=chat_id, message=message)
             db.add(row)
             await db.flush()
-            logger.info("WhatsApp queued to DB (id=%d) for %s", row.id, phone)
+            logger.info("WhatsApp queued to DB (id=%d) for %s", row.id, chat_id)
             return f"queued:{row.id}"
         except Exception as exc:
             logger.warning("WA DB queue failed: %s — falling back to direct send", exc)
@@ -80,6 +93,9 @@ async def send_whatsapp(phone: str, message: str, db=None) -> str | None:
         return None
 
     chat_id = _fmt_phone(phone)
+    if not chat_id:
+        logger.warning("WhatsApp skipped — %r is not a valid Indian mobile", phone)
+        return None
     url = f"{settings.openclaw_api_url.rstrip('/')}/api/sendText"
     headers = {}
     if settings.openclaw_api_key:

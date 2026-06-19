@@ -16,6 +16,7 @@ from typing import Optional
 
 from app.adapters.base import BasePortalAdapter, RawCandidate
 from app.models.candidate import CandidateSource
+from app.utils.phone import normalize_indian_mobile
 
 logger = logging.getLogger(__name__)
 
@@ -127,12 +128,18 @@ class WorkIndiaCSVAdapter(BasePortalAdapter):
             skills_raw = get(row, "skills")
             skills = [s.strip() for s in skills_raw.replace(";", ",").split(",") if s.strip()]
 
+            phone = normalize_indian_mobile(get(row, "phone"))
+            # WorkIndia rows often have no email; the source_ref dedup key is
+            # built from the *normalized* mobile so re-uploads with a differently
+            # formatted number ("98765 43210" vs "+91-9876543210") still match.
+            ref_key = get(row, "email") or phone or name
+
             candidates.append(
                 RawCandidate(
                     name=name,
                     source=CandidateSource.WORKINDIA,
                     email=get(row, "email") or None,
-                    phone=get(row, "phone") or None,
+                    phone=phone,
                     skills=skills,
                     experience_years=_parse_experience(get(row, "exp")),
                     current_salary=_parse_salary(get(row, "cur_sal")),
@@ -141,7 +148,7 @@ class WorkIndiaCSVAdapter(BasePortalAdapter):
                     location=get(row, "loc") or None,
                     current_role=get(row, "role") or None,
                     current_employer=get(row, "employer") or None,
-                    source_ref=f"workindia:{get(row, 'phone') or name}",
+                    source_ref=f"workindia:{ref_key}",
                 )
             )
 

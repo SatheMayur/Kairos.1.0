@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 
 from app.models.candidate import Candidate
+from app.utils.phone import normalize_indian_mobile
 
 # Sources that hide a candidate's phone/email until the employer spends credits
 # to unlock them. Apna is the main one; this can grow if others behave the same.
@@ -43,11 +44,19 @@ def analyze_candidate(
 ) -> list[dict]:
     issues: list[dict] = []
     has_email = bool(c.email and c.email.strip())
+    raw_phone = c.phone or c.whatsapp
     phone_digits = _digits(c.phone) or _digits(c.whatsapp)
-    has_phone = bool(phone_digits)
+    # A phone counts as reachable only if it normalizes to a valid Indian
+    # mobile — a landline, an 11-digit junk run, or "NA" is NOT a usable phone.
+    valid_mobile = normalize_indian_mobile(raw_phone)
+    has_phone = bool(valid_mobile)
     source = c.source.value if c.source else None
 
-    if not has_email and not has_phone:
+    # Treat a present-but-unusable phone (landline / wrong length / "NA") as
+    # "no phone" for the can't-be-reached decision below, but only when there
+    # are NO phone digits at all do we say "no phone number on record". A junk
+    # number gets its own BAD_PHONE flag further down.
+    if not has_email and not has_phone and not phone_digits:
         # Special case: this person has been shortlisted (or is pending review)
         # but has no way to reach them — and on sources like Apna that's because
         # the contact details are hidden until you unlock them. Surface that with
@@ -97,12 +106,20 @@ def analyze_candidate(
             "fix": "Find and add a personal email address that works.",
         })
 
-    if has_phone and len(phone_digits) < 10:
+    # A phone is present but not a usable Indian mobile (too short, a landline,
+    # an 11-digit junk run, or text like "NA"). If there's no email either, this
+    # person can't be reached at all — flag it as high severity so it shows up
+    # in Needs Fixing exactly like a no-contact record.
+    if phone_digits and not valid_mobile:
+        short = len(phone_digits) < 10
         issues.append({
-            "code": "SHORT_PHONE", "severity": "medium",
-            "title": "Phone number looks incomplete",
-            "detail": f'The phone number "{c.phone or c.whatsapp}" has fewer than 10 digits.',
-            "fix": "Add the full 10-digit mobile number.",
+            "code": "SHORT_PHONE" if short else "BAD_PHONE",
+            "severity": "high" if not has_email else "medium",
+            "title": "Phone number looks incomplete" if short else "Phone number isn't a valid mobile",
+            "detail": (f'The phone number "{c.phone or c.whatsapp}" '
+                       + ("has fewer than 10 digits." if short
+                          else "isn't a usable 10-digit Indian mobile (it may be a landline or have extra digits).")),
+            "fix": "Add the full 10-digit mobile number." + ("" if has_email else " Without it (and with no email) we can't reach this person."),
         })
 
     for label, val in (("Expected", c.expected_salary), ("Current", c.current_salary)):

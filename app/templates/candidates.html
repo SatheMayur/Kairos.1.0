@@ -6,7 +6,10 @@
     <h1>Candidates</h1>
     <p class="text-muted text-sm" id="cand-sub">Loading…</p>
   </div>
-  <button class="btn btn-primary" onclick="showModal('add-modal')">＋ Add Manually</button>
+  <div class="flex gap-2">
+    <button class="btn btn-primary" onclick="whatsappEveryone()" id="wa-all-btn" title="Send a WhatsApp to every shortlisted/pending candidate who has a phone and hasn't been contacted yet">📲 WhatsApp all un-contacted</button>
+    <button class="btn btn-secondary" onclick="showModal('add-modal')">＋ Add Manually</button>
+  </div>
 </div>
 
 <div class="card">
@@ -65,6 +68,18 @@
 {% block scripts %}
 <script>
 let allCandidates=[];
+
+async function whatsappEveryone(){
+  if(!confirm("Send a WhatsApp now to every shortlisted/pending candidate who has a phone and hasn't been contacted yet?\n\n(People whose phone is hidden by Apna are skipped — unlock them first on the Needs Fixing page.)")) return;
+  const btn=document.getElementById('wa-all-btn');
+  const old=btn.textContent; btn.disabled=true; btn.textContent='Sending…';
+  try{
+    const r=await api('/api/v1/outreach/run-all',{method:'POST'});
+    showToast(`Messaged ${r.messaged} candidate(s) via ${r.channel}. ${r.no_phone_skipped} skipped (no phone — unlock on Apna).`, r.messaged>0?'success':'info');
+    loadCandidates();
+  }catch(e){ showToast('Could not send: '+(e.message||e), 'error'); }
+  finally{ btn.disabled=false; btn.textContent=old; }
+}
 const srcColors={NAUKRI:'badge-blue',LINKEDIN:'badge-blue',INDEED:'badge-blue',MOCK:'badge-grey',MANUAL:'badge-purple',APNA:'badge-yellow',WORKINDIA:'badge-yellow',FOUNDIT:'badge-green'};
 
 async function loadCandidates(){

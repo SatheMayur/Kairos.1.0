@@ -101,8 +101,13 @@ async def cron_outreach():
         primary_channel = OutreachChannel.WHATSAPP if wa_live else OutreachChannel.EMAIL
         logger.info("[CRON/outreach] whatsapp_live=%s primary_channel=%s", wa_live, primary_channel.value)
 
+        # Approach everyone lined up: shortlisted AND pending-review candidates
+        # who haven't been contacted yet. (Phone-less ones are filtered out below
+        # since they can't be messaged — they're surfaced in Needs Fixing instead.)
         result = await db.execute(
-            select(ShortlistEntry).where(ShortlistEntry.status == ShortlistStatus.SHORTLISTED)
+            select(ShortlistEntry).where(
+                ShortlistEntry.status.in_([ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING])
+            )
         )
         entries = result.scalars().all()
 
@@ -122,7 +127,9 @@ async def cron_outreach():
                     select(Candidate).where(Candidate.id == entry.candidate_id)
                 )
                 c = c_res.scalar_one_or_none()
-                if c:
+                # Only message candidates we can actually reach (have a phone/email).
+                # Phone-less ones (e.g. locked Apna profiles) are left for unlock.
+                if c and (c.phone or c.whatsapp or c.email):
                     candidates.append(c)
 
             try:

@@ -148,8 +148,10 @@ def _extract_salary(text: str) -> tuple[Optional[float], Optional[float]]:
         snippet = text[km.start(): km.start() + 80]
         mr = _SALARY_RANGE_RE.search(snippet)
         if mr:
-            lo = _apply_unit(mr.group(1), mr.group(2))
-            hi = _apply_unit(mr.group(3), mr.group(4))
+            # A unit on either side of the range applies to both ("6-9 LPA" → both LPA).
+            unit = mr.group(2) or mr.group(4)
+            lo = _apply_unit(mr.group(1), unit)
+            hi = _apply_unit(mr.group(3), unit)
             if lo < 1000 and hi < 1000 and lo > 0:  # bare numbers → assume LPA
                 lo *= 100_000
                 hi *= 100_000
@@ -163,8 +165,9 @@ def _extract_salary(text: str) -> tuple[Optional[float], Optional[float]]:
 
     # Priority 2: scan full text for a range that has explicit currency/unit markers
     for m in _SALARY_RANGE_RE.finditer(text):
-        lo = _apply_unit(m.group(1), m.group(2))
-        hi = _apply_unit(m.group(3), m.group(4))
+        unit = m.group(2) or m.group(4)  # share the unit across both sides of the range
+        lo = _apply_unit(m.group(1), unit)
+        hi = _apply_unit(m.group(3), unit)
         # Only trust bare-number ranges when they're plausibly salary-sized (> 1000 after conversion)
         if m.group(2) or m.group(4):  # at least one side has an explicit unit
             if lo < 1000:
@@ -190,6 +193,13 @@ def _extract_notice_period(text: str) -> Optional[int]:
 
 
 def _extract_location(text: str) -> Optional[str]:
+    # Prefer a labelled "Location: …" value (keeps the real city even if not in our list).
+    labelled = _labeled_value(text, ["location", "job location", "work location", "base location", "city"])
+    if labelled and not _HEADING_SKIP.match(labelled):
+        # Trim trailing parenthetical notes for a clean city, e.g.
+        # "Surat (Gujarat), India (Factory & Sales Office Based)" → "Surat (Gujarat), India"
+        cleaned = re.sub(r"\s*\([^)]*(office|based|factory|remote|hybrid)[^)]*\)\s*$", "", labelled, flags=re.I).strip()
+        return (cleaned or labelled)[:80]
     cities = [
         "Mumbai", "Delhi", "Bangalore", "Bengaluru", "Hyderabad", "Chennai",
         "Kolkata", "Pune", "Ahmedabad", "Surat", "Jaipur", "Lucknow",
@@ -219,12 +229,58 @@ def _extract_job_type(text: str) -> Optional[str]:
     return None
 
 
+# Generic section headings that are NEVER the job title / a field value.
+_HEADING_SKIP = re.compile(
+    r"^\s*(job description|jd|position overview|role overview|about (the|us|the role|the company)"
+    r"|company profile|overview|summary|key responsibilities|responsibilities|requirements"
+    r"|qualifications|what you.?ll do|job summary|description)\s*[:\-]?\s*$",
+    re.I,
+)
+
+
+def _labeled_value(text: str, labels: list[str]) -> Optional[str]:
+    """Read a JD written as labelled fields.
+
+    Handles both 'Label: value' on one line and 'Label' on its own line with the
+    value on the next non-empty line (the common Word/PDF JD layout). Returns the
+    value for the first label that matches.
+    """
+    lines = [ln.rstrip() for ln in text.splitlines()]
+    res = [re.compile(r"^\s*" + re.escape(lbl) + r"\s*[:\-–]?\s*(.*)$", re.I) for lbl in labels]
+    for i, line in enumerate(lines):
+        for rx in res:
+            m = rx.match(line)
+            if m:
+                inline = m.group(1).strip()
+                if inline:
+                    return inline
+                for j in range(i + 1, min(i + 4, len(lines))):  # value on next non-empty line
+                    nxt = lines[j].strip()
+                    if nxt:
+                        return nxt
+    return None
+
+
 def _extract_title(text: str) -> Optional[str]:
-    """Best-effort: grab the first non-empty line as the job title."""
+    """Find the real role title — prefer a labelled field, never a section heading."""
+    # 1) Labelled: "Position Title", "Job Title", "Designation", "Role" …
+    val = _labeled_value(text, [
+        "position title", "job title", "role title", "designation",
+        "job role", "position name", "role name",
+    ])
+    if val and not _HEADING_SKIP.match(val) and len(val) < 120:
+        return val.strip()
+    # 2) Fallback: first non-empty line that isn't a generic heading or a field label.
     for line in text.splitlines():
         line = line.strip()
-        if line and len(line) < 120:
-            return line
+        if not line or len(line) >= 120:
+            continue
+        if _HEADING_SKIP.match(line):
+            continue
+        # skip a bare field label like "Location" / "Experience" with no value
+        if re.match(r"^(location|experience|salary|ctc|skills|education|qualification|department)\s*[:\-]?\s*$", line, re.I):
+            continue
+        return line
     return None
 
 

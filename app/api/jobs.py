@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.api.deps import get_db
 from app.models.job import Job
 from app.schemas.job import JobCreate, JobRead, JobUpdate, JDAnalysisResult
-from app.services.jd_analyzer import analyze_jd, analyze_jd_smart
+from app.services.jd_analyzer import analyze_jd
 from app.services.sourcing import source_candidates_for_job
 from app.utils.logging import get_logger
 
@@ -25,8 +25,8 @@ async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/analyze-jd", response_model=JDAnalysisResult)
 async def analyze_jd_text(raw_jd: str, db: AsyncSession = Depends(get_db)):
-    """Parse a JD string and return extracted fields (does not save)."""
-    return await analyze_jd_smart(raw_jd)
+    """Parse a JD string and return extracted fields (rules-based; does not save)."""
+    return analyze_jd(raw_jd)
 
 
 @router.post("/analyze-jd-file", response_model=JDAnalysisResult)
@@ -72,7 +72,7 @@ async def analyze_jd_file(file: UploadFile = File(...), db: AsyncSession = Depen
                             detail=("Couldn't find readable text in this file."
                                     + (" Old .doc files often don't read well — please save it as PDF or DOCX and try again." if ext == "doc" else "")))
 
-    return await analyze_jd_smart(text)
+    return analyze_jd(text)
 
 
 @router.post("/from-jd", response_model=JobRead, status_code=status.HTTP_201_CREATED)

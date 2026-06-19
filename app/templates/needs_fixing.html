@@ -93,6 +93,7 @@ function render(rows) {
         <div style="font-size:12.5px;color:var(--text-primary);font-weight:600">${locked ? '🔒 ' : '• '}${esc(i.title)}</div>
         <div style="font-size:11.5px;color:var(--text-muted);margin-left:12px">${esc(i.detail)}</div>
         <div style="font-size:11.5px;color:#34d399;margin-left:12px">→ ${esc(i.fix)}</div>
+        ${i.action_url ? `<a href="${esc(i.action_url)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="margin:6px 0 2px 12px">${esc(i.action_label || 'Open ↗')}</a>` : ''}
       </div>`;
     }).join('');
     return `<div style="padding:14px 18px;border-bottom:1px solid var(--border-subtle);display:flex;gap:16px;align-items:flex-start">

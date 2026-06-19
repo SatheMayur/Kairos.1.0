@@ -59,8 +59,10 @@ def analyze_candidate(
                 "title": "Phone hidden by Apna — unlock to contact",
                 "detail": ("This person looks good and is lined up to be contacted, but Apna is "
                            "hiding their phone number and email. Right now there is no way to reach them."),
-                "fix": ("Open this person on Apna and click 'Unlock' (this uses Apna credits) to see "
-                        "their phone number, then add it here so we can message them."),
+                "fix": ("Click 'Open Apna to unlock' below, find this person, and click Unlock on Apna "
+                        "(this uses Apna credits) to see their phone number — then add it here so we can message them."),
+                "action_url": "https://employer.apna.co/database",
+                "action_label": "Open Apna to unlock ↗",
             })
         elif c.id in awaiting_contact_ids:
             issues.append({

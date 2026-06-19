@@ -144,7 +144,12 @@ async def cron_outreach():
                 log_by_cand = {lg.candidate_id: lg for lg in logs}
                 for entry in job_entries:
                     lg = log_by_cand.get(entry.candidate_id)
-                    if lg and lg.status.value == "SENT":
+                    # CONTACTED only on a real delivered channel — a PLATFORM_MESSAGE
+                    # placeholder (no real address, e.g. phone-locked Apna) logs SENT
+                    # but reaches no one, so it must stay SHORTLISTED and be surfaced.
+                    if lg and lg.status.value == "SENT" and lg.channel in (
+                        OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
+                    ):
                         entry.status = ShortlistStatus.CONTACTED
                 await db.commit()
 

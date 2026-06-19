@@ -161,15 +161,16 @@ function switchTab(tab){
 
 // ── helpers to aggregate candidate counts from shortlist ──
 async function fetchJobCounts(jobIds) {
-  // Fetch shortlist entries for ALL active jobs at once (limit 1000)
+  // Fetch shortlist entries for ALL active jobs (high limit so big imports don't undercount)
   const allEntries = {};
   jobIds.forEach(id => allEntries[id] = { total: 0, shortlisted: 0 });
   try {
-    const data = await api('/api/v1/shortlist?limit=1000');
+    const data = await api('/api/v1/shortlist?limit=100000');
     data.forEach(e => {
       if (allEntries[e.job_id] !== undefined) {
         allEntries[e.job_id].total++;
-        if (['SHORTLISTED','CONTACTED','INTERESTED','INTERVIEW_SCHEDULED','HIRED'].includes(e.status)) {
+        // "Shortlisted" = ever reached shortlist (cumulative), incl. dropped — matches the analytics funnel
+        if (['SHORTLISTED','CONTACTED','INTERESTED','INTERVIEW_SCHEDULED','HIRED','DROPPED'].includes(e.status)) {
           allEntries[e.job_id].shortlisted++;
         }
       }

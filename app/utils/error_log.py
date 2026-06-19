@@ -6,11 +6,28 @@ This is intentionally resilient — it will never raise or crash the caller.
 from __future__ import annotations
 
 import logging
+import re
 import traceback as tb
 from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Patterns for secrets that must never be persisted to the error_log table.
+_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}")
+_KV_RE = re.compile(
+    r'("?(?:apna_token|token|password|authorization|raven-token|secret|api_key)"?\s*[:=]\s*"?)[^"\s,&}]+',
+    re.IGNORECASE,
+)
+
+
+def _redact(text: Optional[str]) -> Optional[str]:
+    """Strip JWTs and secret key/value pairs before anything is stored/exposed."""
+    if not text:
+        return text
+    text = _JWT_RE.sub("<redacted-token>", text)
+    text = _KV_RE.sub(r"\1<redacted>", text)
+    return text
 
 
 async def log_error(
@@ -42,12 +59,12 @@ async def log_error(
                 level=level.upper(),
                 source=source[:128],
                 error_type=(error_type or "UnknownError")[:128],
-                message=message[:4000],
-                traceback=traceback_str[:8000] if traceback_str else None,
+                message=_redact(message)[:4000],
+                traceback=_redact(traceback_str)[:8000] if traceback_str else None,
                 method=method,
                 path=path[:512] if path else None,
                 status_code=status_code,
-                request_body=request_body[:2000] if request_body else None,
+                request_body=_redact(request_body)[:2000] if request_body else None,
             )
             db.add(entry)
             await db.commit()

@@ -266,15 +266,26 @@ def _exp_years(c: dict) -> _Opt[float]:
         return round(float(raw.get("years") or 0) + float(raw.get("months") or 0) / 12, 1)
     if isinstance(raw, str):
         import re
-        y = int(m.group(1)) if (m := re.search(r"(\\d+)\\s*yr", raw)) else 0
-        mo = int(m.group(1)) if (m := re.search(r"(\\d+)\\s*mo", raw)) else 0
+        y = int(m.group(1)) if (m := re.search(r"(\d+)\s*yr", raw)) else 0
+        mo = int(m.group(1)) if (m := re.search(r"(\d+)\s*mo", raw)) else 0
         return round(y + mo / 12, 1) if (y or mo) else None
     return None
 
 
-def _sal_lpa(c: dict) -> _Opt[float]:
+def _sal_monthly(c: dict) -> _Opt[float]:
+    """Return salary as MONTHLY rupees (the unit the whole system uses).
+
+    Apna returns currentSalary as ANNUAL rupees (e.g. 324000 = ₹3.24L/yr), while
+    jobs, all other adapters, scoring and outreach use monthly ₹. Convert large
+    (clearly annual) figures to monthly so salary-fit scoring is comparable.
+    """
     raw = c.get("ctc") or c.get("currentSalary") or c.get("salaryExpectation")
-    return round(float(raw), 2) if isinstance(raw, (int, float)) else None
+    if not isinstance(raw, (int, float)) or raw <= 0:
+        return None
+    val = float(raw)
+    if val > 100000:          # > ₹1L means it's an annual figure → monthly
+        val = val / 12
+    return round(val, 2)
 
 
 def _live_skills(c: dict) -> list[str]:
@@ -331,7 +342,10 @@ def _live_to_raw(c: dict) -> _Opt[RawCandidate]:
         # Phone is locked in search results until "unlocked" with Apna credits.
         phone=_s(c.get("phone") or c.get("phoneNumber") or c.get("mobile")),
         skills=_live_skills(c), experience_years=_exp_years(c),
-        current_salary=_sal_lpa(c), location=_live_location(c),
+        # Apna only gives current salary; use it as the expected-salary proxy too
+        # so salary-fit scoring (which reads expected_salary) actually applies.
+        current_salary=_sal_monthly(c), expected_salary=_sal_monthly(c),
+        location=_live_location(c),
         current_role=_live_role(c),
         current_employer=_live_employer(c),
         education=_live_education(c),
@@ -345,7 +359,7 @@ def to_preview(c: dict) -> dict:
         "name": _strip(c.get("fullName") or c.get("name") or c.get("candidateName")) or "Unknown",
         "current_role": _live_role(c),
         "current_employer": _live_employer(c),
-        "experience_years": _exp_years(c), "location": _live_location(c), "salary_lpa": _sal_lpa(c),
+        "experience_years": _exp_years(c), "location": _live_location(c), "salary_monthly": _sal_monthly(c),
         "skills": _live_skills(c)[:8],
         "education": _live_education(c),
         "active_label": _s(c.get("activeOn") or c.get("lastActiveLabel") or c.get("activeLabel")),

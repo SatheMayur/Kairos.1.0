@@ -10,6 +10,7 @@ POST /api/v1/import/batch
 Both endpoints return a per-candidate summary: scored, shortlisted, outreach queued.
 """
 import json
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -172,7 +173,13 @@ async def _run_import_pipeline(
                     outreach_type=OutreachType.INITIAL_CONTACT,
                     db=db,
                 )
-                if log.status.value == "SENT":
+                # Only count as contacted when a REAL channel delivered. A
+                # PLATFORM_MESSAGE/UNREACHABLE "send" (e.g. a phone-locked Apna
+                # candidate whose only address is apna:<id>) logs SENT but reaches
+                # no one — marking it CONTACTED would strand the candidate.
+                if log.status.value == "SENT" and log.channel in (
+                    OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
+                ):
                     outreach_queued += 1
                     entry.status = ShortlistStatus.CONTACTED
             except Exception as exc:
@@ -265,14 +272,25 @@ async def import_apna(
     if not title:
         raise HTTPException(status_code=400, detail="job_title is required")
 
-    res = await db.execute(select(Job).where(func.lower(Job.title) == title.lower()))
-    job = res.scalars().first()
+    # Match on normalized title (collapse inner whitespace, case-insensitive) AND
+    # company, so "Sr. Graphic Designer" doesn't attach to another company's role
+    # and "Sr Graphic Designer" / double-spaced variants don't spawn duplicate jobs.
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", " ", (s or "").strip()).lower()
+
+    norm_title, norm_company = _norm(title), _norm(company)
+    all_jobs = (await db.execute(select(Job))).scalars().all()
+    job = next(
+        (j for j in all_jobs
+         if _norm(j.title) == norm_title and (not norm_company or _norm(j.company) == norm_company)),
+        None,
+    )
     if not job:
         job = Job(title=title, company=company or None, status=JobStatus.ACTIVE)
         db.add(job)
         await db.commit()
         await db.refresh(job)
-        logger.info("import_apna: auto-created job '%s' (#%d)", title, job.id)
+        logger.info("import_apna: auto-created job '%s' (%s) (#%d)", title, company, job.id)
 
     content = await file.read()
     fname = (file.filename or "").lower()
@@ -618,8 +636,17 @@ async def ai_screen_pending(
                 "MANUAL_REVIEW": ShortlistStatus.PENDING,
                 "REJECT": ShortlistStatus.REJECTED,
             }
-            if decision in status_map:
-                entry.status = status_map[decision]
+            # Never silently demote a candidate who has already advanced past
+            # review (CONTACTED/INTERESTED/INTERVIEW/HIRED) or who already has
+            # outreach logged — re-screening must only (re)classify PENDING ones.
+            if decision in status_map and entry.status in (
+                ShortlistStatus.PENDING, ShortlistStatus.SHORTLISTED
+            ):
+                new_status = status_map[decision]
+                # Don't downgrade a SHORTLISTED entry to REJECTED automatically.
+                if not (entry.status == ShortlistStatus.SHORTLISTED
+                        and new_status == ShortlistStatus.REJECTED):
+                    entry.status = new_status
 
             results.append({
                 "name": candidate.name,

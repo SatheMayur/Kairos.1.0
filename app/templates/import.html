@@ -401,8 +401,15 @@ async function addManual() {
 // ── Apna Hire Live Search ─────────────────────────────────────────────────────
 const APNA_TOKEN_KEY = 'apna_token';
 
+// Auto-save the token as it's typed/pasted (referenced by the input's oninput).
+// Strip stray quotes/whitespace so a quoted paste still works.
+function apnaAutoSave(v) {
+  const t = (v || '').trim().replace(/^['"]|['"]$/g, '').trim();
+  if (t) localStorage.setItem(APNA_TOKEN_KEY, t);
+}
+
 function apnaSaveToken() {
-  const t = document.getElementById('apna-token').value.trim();
+  const t = document.getElementById('apna-token').value.trim().replace(/^['"]|['"]$/g, '').trim();
   if (!t) { showToast('Paste your Apna JWT token first', 'error'); return; }
   localStorage.setItem(APNA_TOKEN_KEY, t);
   showToast('Token saved', 'success');
@@ -455,7 +462,7 @@ function apnaRenderResults(r, page, size) {
     <td><div>${esc(c.current_role||'—')}</div><div style="font-size:11px;color:var(--text-muted)">${esc(c.current_employer||'')}</div></td>
     <td>${c.experience_years!=null?c.experience_years+' yrs':'—'}</td>
     <td>${esc(c.location||'—')}</td>
-    <td>${c.salary_lpa!=null?'₹'+c.salary_lpa+' LPA':'—'}</td>
+    <td>${c.salary_monthly!=null?'₹'+Math.round(c.salary_monthly).toLocaleString('en-IN')+'/mo':'—'}</td>
     <td style="max-width:160px"><div style="font-size:11px;color:var(--text-muted)">${(c.skills||[]).slice(0,5).map(s=>`<span style="background:var(--bg-surface);border-radius:4px;padding:1px 5px;margin:1px;display:inline-block">${esc(s)}</span>`).join('')}</div></td>
   </tr>`).join('');
   const pagination = totalPages > 1 ? `<div style="display:flex;gap:8px;align-items:center;margin-top:12px">

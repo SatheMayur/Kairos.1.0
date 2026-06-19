@@ -21,6 +21,13 @@ settings = get_settings()
 
 def _render_initial_contact(candidate: Candidate, job: Job) -> tuple[str, str]:
     subject = f"Exciting Opportunity: {job.title} at {job.company or 'our company'}"
+    if job.salary_min:
+        _sal = f"₹{int(job.salary_min):,}"
+        if job.salary_max:
+            _sal += f"–₹{int(job.salary_max):,}"
+        salary_line = f"{_sal}/month"
+    else:
+        salary_line = "No bar for the right candidate"
     body = f"""Hi {candidate.name},
 
 I hope this message finds you well.
@@ -32,7 +39,7 @@ Role details:
 • Position   : {job.title}
 • Location   : {job.location or 'TBD'}
 • Experience : {job.experience_min or ''}–{job.experience_max or ''} years
-• Salary     : No bar for the right candidate
+• Salary     : {salary_line}
 
 If you are interested or would like more details, please reply with:
 1. Current CTC & Expected CTC

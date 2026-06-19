@@ -97,6 +97,58 @@ def _parse_salary_inr(text: Optional[str]) -> Optional[float]:
     return val
 
 
+def _extract_contact(item: dict, kind: str) -> Optional[str]:
+    """Pull a phone/email out of an Apify lead-scraper item.
+
+    Lead-gen actors return contact info under many different shapes (top-level
+    key, a list, or nested under contactInfo). Earlier the adapter mapped only
+    `email` and dropped phones entirely — this captures whichever form is present.
+    """
+    if kind == "phone":
+        keys = ("phone", "phoneNumber", "phone_number", "mobile", "mobileNumber",
+                "contactNumber", "whatsapp")
+        containers = ("phones", "phoneNumbers", "mobileNumbers")
+    else:
+        keys = ("email", "emailAddress", "email_address", "workEmail", "personalEmail")
+        containers = ("emails", "emailAddresses")
+
+    def _norm(v):
+        if isinstance(v, str):
+            return v.strip() or None
+        if isinstance(v, (list, tuple)):
+            for x in v:
+                r = _norm(x)
+                if r:
+                    return r
+            return None
+        if isinstance(v, dict):
+            return _norm(v.get("value") or v.get("number") or v.get(kind))
+        return None
+
+    for k in keys:
+        r = _norm(item.get(k))
+        if r:
+            return r
+    for cont in containers:
+        v = item.get(cont)
+        if isinstance(v, list):
+            for x in v:
+                r = _norm(x)
+                if r:
+                    return r
+        else:
+            r = _norm(v)
+            if r:
+                return r
+    ci = item.get("contactInfo") or item.get("contact")
+    if isinstance(ci, dict):
+        for k in keys:
+            r = _norm(ci.get(k))
+            if r:
+                return r
+    return None
+
+
 class ApifyLinkedInAdapter(BasePortalAdapter):
     """Searches LinkedIn for candidate profiles via Apify get-leads/linkedin-scraper."""
 
@@ -122,6 +174,8 @@ class ApifyLinkedInAdapter(BasePortalAdapter):
             "location": _linkedin_location(location),
             "maxResults": min(limit, 50),
             "discoverEmails": True,
+            "discoverPhones": True,
+            "includeContacts": True,
         }
         try:
             items = await asyncio.to_thread(
@@ -172,7 +226,9 @@ class ApifyLinkedInAdapter(BasePortalAdapter):
         return RawCandidate(
             name=item.get("name", "Unknown"),
             source=CandidateSource.LINKEDIN,
-            email=item.get("email"),
+            email=_extract_contact(item, "email"),
+            phone=_extract_contact(item, "phone"),
+            whatsapp=_extract_contact(item, "phone"),
             skills=skills,
             experience_years=exp_years,
             location=item.get("location"),

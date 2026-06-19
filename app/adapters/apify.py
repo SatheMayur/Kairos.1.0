@@ -174,8 +174,6 @@ class ApifyLinkedInAdapter(BasePortalAdapter):
             "location": _linkedin_location(location),
             "maxResults": min(limit, 50),
             "discoverEmails": True,
-            "discoverPhones": True,
-            "includeContacts": True,
         }
         try:
             items = await asyncio.to_thread(

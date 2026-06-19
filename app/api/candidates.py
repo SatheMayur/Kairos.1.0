@@ -38,6 +38,7 @@ async def quality_issues(limit: int = 1000, db: AsyncSession = Depends(get_db)):
     bounced emails, junk salary values, or too little data to score."""
     from app.services.data_quality import analyze_candidates
     from app.models.outreach import OutreachLog, OutreachStatus
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
 
     res = await db.execute(
         select(Candidate).order_by(Candidate.created_at.desc()).limit(limit)
@@ -48,7 +49,19 @@ async def quality_issues(limit: int = 1000, db: AsyncSession = Depends(get_db)):
         select(OutreachLog.candidate_id).where(OutreachLog.status == OutreachStatus.BOUNCED)
     )
     bounced = frozenset(row[0] for row in bres.all())
-    return analyze_candidates(candidates, bounced)
+
+    # Candidates who are lined up to be contacted (shortlisted) or waiting for
+    # review (pending) — if these have no phone/email they'd silently sit there
+    # un-contacted. Surfaces Apna's "contact hidden until unlocked" candidates.
+    ares = await db.execute(
+        select(ShortlistEntry.candidate_id).where(
+            ShortlistEntry.status.in_(
+                [ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING]
+            )
+        )
+    )
+    awaiting = frozenset(row[0] for row in ares.all())
+    return analyze_candidates(candidates, bounced, awaiting)
 
 
 @router.get("/duplicates")

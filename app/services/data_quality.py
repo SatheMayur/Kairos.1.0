@@ -1,6 +1,8 @@
 """Data quality scan — surface candidate records that need a human to fix them.
 
 Plain-English issues a non-technical recruiter can act on:
+  • LOCKED_CONTACT    — they're shortlisted/being lined up but their phone & email
+                        are hidden (e.g. Apna hides contact details until unlocked)
   • NO_CONTACT        — no email and no phone (can't be reached at all)
   • BAD_EMAIL         — email is present but malformed
   • BOUNCED           — a real email to them bounced (address dead)
@@ -9,13 +11,19 @@ Plain-English issues a non-technical recruiter can act on:
   • MISSING_DETAILS   — nothing to score on (no skills, experience, or role)
 
 The pure functions take already-loaded Candidate objects; the bounced-email
-signal is passed in as a set of candidate IDs (computed from OutreachLog).
+signal is passed in as a set of candidate IDs (computed from OutreachLog), and
+the "lined up but not yet contacted" signal is passed in as a set of candidate
+IDs (computed from ShortlistEntry status).
 """
 from __future__ import annotations
 
 import re
 
 from app.models.candidate import Candidate
+
+# Sources that hide a candidate's phone/email until the employer spends credits
+# to unlock them. Apna is the main one; this can grow if others behave the same.
+_LOCKED_CONTACT_SOURCES = {"APNA"}
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -28,19 +36,48 @@ def _digits(s: str | None) -> str:
     return re.sub(r"\D", "", s or "")
 
 
-def analyze_candidate(c: Candidate, bounced_ids: frozenset[int] = frozenset()) -> list[dict]:
+def analyze_candidate(
+    c: Candidate,
+    bounced_ids: frozenset[int] = frozenset(),
+    awaiting_contact_ids: frozenset[int] = frozenset(),
+) -> list[dict]:
     issues: list[dict] = []
     has_email = bool(c.email and c.email.strip())
     phone_digits = _digits(c.phone) or _digits(c.whatsapp)
     has_phone = bool(phone_digits)
+    source = c.source.value if c.source else None
 
     if not has_email and not has_phone:
-        issues.append({
-            "code": "NO_CONTACT", "severity": "high",
-            "title": "Can't be contacted",
-            "detail": "This candidate has no email and no phone number — there is no way to reach them.",
-            "fix": "Add an email or phone number, or remove the record.",
-        })
+        # Special case: this person has been shortlisted (or is pending review)
+        # but has no way to reach them — and on sources like Apna that's because
+        # the contact details are hidden until you unlock them. Surface that with
+        # a clear, do-this-next message instead of the generic "Can't be contacted",
+        # so a good candidate never silently sits there un-contacted.
+        if c.id in awaiting_contact_ids and source in _LOCKED_CONTACT_SOURCES:
+            issues.append({
+                "code": "LOCKED_CONTACT", "severity": "high",
+                "title": "Phone hidden by Apna — unlock to contact",
+                "detail": ("This person looks good and is lined up to be contacted, but Apna is "
+                           "hiding their phone number and email. Right now there is no way to reach them."),
+                "fix": ("Open this person on Apna and click 'Unlock' (this uses Apna credits) to see "
+                        "their phone number, then add it here so we can message them."),
+            })
+        elif c.id in awaiting_contact_ids:
+            issues.append({
+                "code": "LOCKED_CONTACT", "severity": "high",
+                "title": "Lined up to contact, but no phone or email",
+                "detail": ("This person is shortlisted or waiting for review, but there is no phone "
+                           "number or email on record — so they can't be contacted yet."),
+                "fix": ("Find their phone number or email (check the job site they came from) and "
+                        "add it here so we can reach out."),
+            })
+        else:
+            issues.append({
+                "code": "NO_CONTACT", "severity": "high",
+                "title": "Can't be contacted",
+                "detail": "This candidate has no email and no phone number — there is no way to reach them.",
+                "fix": "Add an email or phone number, or remove the record.",
+            })
 
     if has_email and not _valid_email(c.email):
         issues.append({
@@ -89,13 +126,14 @@ def analyze_candidate(c: Candidate, bounced_ids: frozenset[int] = frozenset()) -
 
 
 def analyze_candidates(candidates: list[Candidate],
-                       bounced_ids: frozenset[int] = frozenset()) -> dict:
+                       bounced_ids: frozenset[int] = frozenset(),
+                       awaiting_contact_ids: frozenset[int] = frozenset()) -> dict:
     flagged: list[dict] = []
     counts = {"high": 0, "medium": 0, "low": 0}
     by_type: dict[str, int] = {}
 
     for c in candidates:
-        issues = analyze_candidate(c, bounced_ids)
+        issues = analyze_candidate(c, bounced_ids, awaiting_contact_ids)
         if not issues:
             continue
         if any(i["severity"] == "high" for i in issues):

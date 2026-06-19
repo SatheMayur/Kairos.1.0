@@ -163,7 +163,13 @@ async def _run_import_pipeline(
             rejected += 1
             result_label = "REJECTED"
 
-        if auto_outreach and entry.status == ShortlistStatus.SHORTLISTED:
+        # Auto-WhatsApp every reachable candidate the moment they're imported —
+        # shortlisted AND pending-review — as long as they have a phone/email.
+        # (Phone-less ones, e.g. locked Apna profiles, are skipped here and shown
+        # in Needs Fixing to unlock; you can't message a hidden number.)
+        if (auto_outreach
+                and entry.status in (ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING)
+                and (candidate.phone or candidate.whatsapp or candidate.email)):
             from app.models.shortlist import ShortlistEntry
             try:
                 log = await send_outreach(

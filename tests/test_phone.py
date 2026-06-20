@@ -280,11 +280,13 @@ async def _job(db_session):
 
 
 @pytest.mark.asyncio
-async def test_import_with_messy_and_junk_phones_does_not_crash(_job, db_session):
+async def test_import_with_messy_and_junk_phones_does_not_crash(_job, db_session, monkeypatch):
     """One bad phone/candidate must never abort the whole upload, and valid
     messy phones become clean WhatsApp queue entries."""
     from app.adapters.naukri import NaukriCSVAdapter
     from app.api.import_csv import _run_import_pipeline
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "imports_enabled", True)  # exercise import pipeline logic
     from app.models.wa_queue import WAQueue
     from sqlalchemy import select
 
@@ -308,11 +310,13 @@ async def test_import_with_messy_and_junk_phones_does_not_crash(_job, db_session
 
 
 @pytest.mark.asyncio
-async def test_reupload_does_not_double_message(_job, db_session):
+async def test_reupload_does_not_double_message(_job, db_session, monkeypatch):
     """Re-uploading the same applicants must skip duplicates and queue no new
     WhatsApp messages for people already contacted."""
     from app.adapters.naukri import NaukriCSVAdapter
     from app.api.import_csv import _run_import_pipeline
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "imports_enabled", True)  # exercise import pipeline logic
     from app.models.wa_queue import WAQueue
     from sqlalchemy import select, func
 

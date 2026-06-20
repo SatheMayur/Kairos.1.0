@@ -105,6 +105,18 @@ async def _run_import_pipeline(
     db: AsyncSession,
 ) -> ImportResult:
     """Score every candidate, shortlist, and optionally queue outreach."""
+    # Imports are turned off (costly Apna unlocks + low-value, no-contact bulk
+    # profiles). This is the single chokepoint for every CSV/Apna/batch/URL import,
+    # so one guard disables them all. Candidates still arrive via sourcing (which
+    # requires phone+email), manual add, and WhatsApp/email résumé capture.
+    if not settings.imports_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail=("Candidate imports (CSV / Apna / batch) are turned off. "
+                    "Candidates come in through sourcing, manual add, or WhatsApp/email CVs instead. "
+                    "To re-enable imports, set IMPORTS_ENABLED=true."),
+        )
+
     from sqlalchemy import select
     from app.models.job import Job
 

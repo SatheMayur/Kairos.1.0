@@ -69,7 +69,9 @@ async def test_sourcing_requires_email_and_phone(db_session, mock_adapters):
 
 
 @pytest.mark.asyncio
-async def test_import_skips_no_contact(db_session):
+async def test_import_skips_no_contact(db_session, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "imports_enabled", True)  # exercise the pipeline logic
     job = Job(title="Design Engineer", company="KGL")
     db_session.add(job); await db_session.flush()
     raws = [
@@ -83,6 +85,20 @@ async def test_import_skips_no_contact(db_session):
     names = {c.name for c in (await db_session.execute(select(Candidate))).scalars().all()}
     assert "HasPhone" in names
     assert "LockedApna" not in names          # never added
+
+
+@pytest.mark.asyncio
+async def test_imports_disabled_by_default(db_session):
+    """CSV/Apna/batch imports are turned off — the pipeline refuses with 403."""
+    from fastapi import HTTPException
+    from app.api.import_csv import _run_import_pipeline
+    job = Job(title="X", company="K"); db_session.add(job); await db_session.flush()
+    raw = RawCandidate(name="Anyone", source=CandidateSource.NAUKRI,
+                       email="a@b.com", phone="9876543210")
+    with pytest.raises(HTTPException) as ei:
+        await _run_import_pipeline([raw], job.id, auto_outreach=False, db=db_session)
+    assert ei.value.status_code == 403
+    assert "turned off" in ei.value.detail.lower()
 
 
 @pytest.mark.asyncio

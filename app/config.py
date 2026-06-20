@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     use_mock_adapters: bool = True
     auto_outreach_enabled: bool = True
     outreach_delay_seconds: int = 5
+    # CSV / Apna / batch / URL candidate imports. Turned OFF per Kirti — Apna
+    # unlocks cost money and the bulk imports brought in low-value, no-contact
+    # profiles. Set IMPORTS_ENABLED=true to re-enable.
+    imports_enabled: bool = False
 
 
 @lru_cache

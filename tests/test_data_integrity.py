@@ -164,9 +164,11 @@ async def test_rescore_does_not_downgrade_advanced(job, db_session):
 # ── unreachable candidate is not ADDED on import ────────────────────────────
 
 @pytest.mark.asyncio
-async def test_unreachable_candidate_not_added_on_import(job, db_session, mock_adapters):
+async def test_unreachable_candidate_not_added_on_import(job, db_session, mock_adapters, monkeypatch):
     from app.adapters.base import RawCandidate
     from app.api.import_csv import _run_import_pipeline
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "imports_enabled", True)  # exercise the pipeline logic
 
     # No email, hidden phone (Apna-style) → unreachable. Per the data-quality
     # gate it must NOT be added to the system at all (not just "not contacted").

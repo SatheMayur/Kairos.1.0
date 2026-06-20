@@ -90,6 +90,7 @@ class ImportResult(BaseModel):
     total_parsed: int
     inserted: int
     duplicates_skipped: int
+    skipped_no_contact: int = 0
     auto_shortlisted: int
     pending_review: int
     rejected: int
@@ -114,13 +115,24 @@ async def _run_import_pipeline(
 
     inserted = 0
     duplicates = 0
+    skipped_no_contact = 0
     auto_sl = 0
     pending = 0
     rejected = 0
     outreach_queued = 0
     details = []
 
+    from app.services.data_quality import is_reachable_contact
+
     for raw in raw_candidates:
+        # Data-quality gate: never add a candidate we have no way to contact.
+        # No email AND no usable mobile (incl. locked Apna profiles whose number
+        # is hidden) → skip entirely; don't create the record or a shortlist entry.
+        if not is_reachable_contact(raw.email, raw.phone, raw.whatsapp):
+            skipped_no_contact += 1
+            details.append({"name": raw.name, "result": "SKIPPED_NO_CONTACT"})
+            continue
+
         existing_before = True
         try:
             from sqlalchemy import select as sa_select
@@ -215,6 +227,7 @@ async def _run_import_pipeline(
         total_parsed=len(raw_candidates),
         inserted=inserted,
         duplicates_skipped=duplicates,
+        skipped_no_contact=skipped_no_contact,
         auto_shortlisted=auto_sl,
         pending_review=pending,
         rejected=rejected,

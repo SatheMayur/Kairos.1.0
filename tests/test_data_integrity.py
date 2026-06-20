@@ -161,25 +161,31 @@ async def test_rescore_does_not_downgrade_advanced(job, db_session):
     assert updated.status == ShortlistStatus.INTERESTED
 
 
-# ── unreachable candidate is not marked CONTACTED on import ──────────────────
+# ── unreachable candidate is not ADDED on import ────────────────────────────
 
 @pytest.mark.asyncio
-async def test_unreachable_candidate_not_contacted_on_import(job, db_session, mock_adapters):
+async def test_unreachable_candidate_not_added_on_import(job, db_session, mock_adapters):
     from app.adapters.base import RawCandidate
     from app.api.import_csv import _run_import_pipeline
 
-    # No email, hidden phone (Apna-style) → unreachable.
+    # No email, hidden phone (Apna-style) → unreachable. Per the data-quality
+    # gate it must NOT be added to the system at all (not just "not contacted").
     raw = RawCandidate(name="Locked Apna", source=CandidateSource.APNA,
                        skills=["SolidWorks"], location="Surat",
                        source_ref="apna:locked-1")
     result = await _run_import_pipeline([raw], job.id, auto_outreach=True, db=db_session)
     assert result.outreach_queued == 0
+    assert result.skipped_no_contact == 1
+    assert result.inserted == 0
 
     entry = (await db_session.execute(
         select(ShortlistEntry).where(ShortlistEntry.job_id == job.id)
     )).scalars().first()
-    assert entry is not None
-    assert entry.status != ShortlistStatus.CONTACTED
+    assert entry is None
+    cand = (await db_session.execute(
+        select(Candidate).where(Candidate.name == "Locked Apna")
+    )).scalars().first()
+    assert cand is None
 
 
 # ── INTERVIEW_SCHEDULED requires a backing interview ─────────────────────────

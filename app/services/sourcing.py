@@ -72,6 +72,20 @@ async def source_candidates_for_job(
 
     logger.info("Sourced %d raw candidates for job %d", len(raw_candidates), job.id)
 
+    # Data-quality gate: don't bring in candidates we can never contact (no email
+    # and no usable mobile — e.g. locked Apna profiles). They'd only clutter the
+    # pipeline as un-actionable rows.
+    from app.services.data_quality import is_reachable_contact
+    before = len(raw_candidates)
+    raw_candidates = [
+        r for r in raw_candidates
+        if is_reachable_contact(r.email, r.phone, r.whatsapp)
+    ]
+    skipped_no_contact = before - len(raw_candidates)
+    if skipped_no_contact:
+        logger.info("Skipped %d no-contact candidates for job %d (not added)",
+                    skipped_no_contact, job.id)
+
     entries: list[ShortlistEntry] = []
     for raw in raw_candidates:
         candidate = await _upsert_candidate(raw, db)

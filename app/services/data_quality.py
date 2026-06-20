@@ -33,6 +33,20 @@ def _valid_email(email: str | None) -> bool:
     return bool(email and _EMAIL_RE.match(email.strip()))
 
 
+def is_reachable_contact(email: str | None = None,
+                         phone: str | None = None,
+                         whatsapp: str | None = None) -> bool:
+    """True iff these raw contact fields give a real way to reach someone:
+    a well-formed email OR a phone/whatsapp that normalizes to a valid Indian
+    mobile. Used at ingestion to refuse candidates with no contact info, and by
+    is_reachable() for already-loaded Candidate rows (one source of truth)."""
+    if _valid_email(email):
+        return True
+    if normalize_indian_mobile(phone) or normalize_indian_mobile(whatsapp):
+        return True
+    return False
+
+
 def is_reachable(candidate: Candidate) -> bool:
     """True iff we have a real way to contact this candidate.
 
@@ -41,11 +55,7 @@ def is_reachable(candidate: Candidate) -> bool:
     "NA" number, or a landline is NOT reachable — so we never mark such a
     candidate CONTACTED when no message could actually have reached them.
     """
-    if _valid_email(candidate.email):
-        return True
-    if normalize_indian_mobile(candidate.phone) or normalize_indian_mobile(candidate.whatsapp):
-        return True
-    return False
+    return is_reachable_contact(candidate.email, candidate.phone, candidate.whatsapp)
 
 
 def _digits(s: str | None) -> str:

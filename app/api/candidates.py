@@ -12,6 +12,16 @@ router = APIRouter(prefix="/candidates", tags=["candidates"])
 
 @router.post("", response_model=CandidateRead, status_code=status.HTTP_201_CREATED)
 async def create_candidate(payload: CandidateCreate, db: AsyncSession = Depends(get_db)):
+    # Data-quality gate: a candidate with no email and no usable mobile can never
+    # be contacted — don't add them to the system. Add a working email or 10-digit
+    # mobile first.
+    from app.services.data_quality import is_reachable_contact
+    if not is_reachable_contact(payload.email, payload.phone, payload.whatsapp):
+        raise HTTPException(
+            status_code=422,
+            detail=("Can't add this candidate — there's no working email or phone/WhatsApp number, "
+                    "so they could never be contacted. Add a valid email or 10-digit mobile and try again."),
+        )
     candidate = Candidate(**payload.model_dump())
     db.add(candidate)
     await db.flush()
@@ -62,6 +72,65 @@ async def quality_issues(limit: int = 1000, db: AsyncSession = Depends(get_db)):
     )
     awaiting = frozenset(row[0] for row in ares.all())
     return analyze_candidates(candidates, bounced, awaiting)
+
+
+@router.post("/cleanup-no-contact")
+async def cleanup_no_contact(confirm: bool = False, db: AsyncSession = Depends(get_db)):
+    """Find candidates already in the system with no usable email/phone/WhatsApp.
+
+    Dry-run by default (returns the count + names). Pass confirm=true to remove
+    them and their dependent rows. Protective: anyone HIRED or with a real
+    scheduled interview is kept (never delete genuine progress)."""
+    from sqlalchemy import delete as sa_delete
+    from app.services.data_quality import is_reachable
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.models.outreach import OutreachLog
+    from app.models.interview import Interview
+    from app.models.conversation import Conversation
+
+    res = await db.execute(select(Candidate))
+    candidates = res.scalars().all()
+    unreachable = [c for c in candidates if not is_reachable(c)]
+
+    # Protect anyone HIRED or with a real (dated) interview.
+    protected_ids: set[int] = set()
+    if unreachable:
+        ids = [c.id for c in unreachable]
+        hired = await db.execute(
+            select(ShortlistEntry.candidate_id).where(
+                ShortlistEntry.candidate_id.in_(ids),
+                ShortlistEntry.status == ShortlistStatus.HIRED,
+            )
+        )
+        protected_ids |= {r[0] for r in hired.all()}
+        ivs = await db.execute(
+            select(Interview.candidate_id).where(
+                Interview.candidate_id.in_(ids),
+                Interview.scheduled_at.isnot(None),
+            )
+        )
+        protected_ids |= {r[0] for r in ivs.all()}
+
+    removable = [c for c in unreachable if c.id not in protected_ids]
+
+    if not confirm:
+        return {
+            "dry_run": True,
+            "no_contact_total": len(unreachable),
+            "protected_kept": len(protected_ids),
+            "would_remove": len(removable),
+            "candidates": [{"id": c.id, "name": c.name, "source": c.source.value if c.source else None}
+                           for c in removable[:200]],
+        }
+
+    removed = 0
+    for c in removable:
+        for Model in (ShortlistEntry, OutreachLog, Interview, Conversation):
+            await db.execute(sa_delete(Model).where(Model.candidate_id == c.id))
+        await db.delete(c)
+        removed += 1
+    await db.commit()
+    return {"dry_run": False, "removed": removed, "protected_kept": len(protected_ids)}
 
 
 @router.get("/duplicates")

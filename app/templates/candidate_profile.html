@@ -14,6 +14,12 @@
 <!-- Duplicate warning (shown only when this candidate is part of a duplicate group) -->
 <div id="dup-warning" class="alert alert-warn" style="display:none;margin-bottom:20px"></div>
 
+<!-- No-contact warning (shown when there's no email/phone/whatsapp) -->
+<div id="nocontact-warning" class="alert" style="display:none;margin-bottom:20px;background:rgba(245,158,11,.12);border-left:3px solid #f59e0b;color:#f59e0b">
+  ⚠ <strong>Needs contact info.</strong> This person has no email, phone, or WhatsApp — so they can't be contacted yet and are kept out of outreach.
+  Add a number/email below, or (if from Apna) unlock their contact on Apna.
+</div>
+
 <!-- Top info row -->
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
 
@@ -227,6 +233,8 @@ function renderProfile(d) {
   document.title = d.name + ' — Profile';
 
   // Contact
+  const _hasContact = !!((d.email||'').trim() || String(d.phone||'').trim() || String(d.whatsapp||'').trim());
+  document.getElementById('nocontact-warning').style.display = _hasContact ? 'none' : 'block';
   set('c-email', d.email || '–');
   set('c-phone', d.phone || '–');
   set('c-wa', d.whatsapp || d.phone || '–');

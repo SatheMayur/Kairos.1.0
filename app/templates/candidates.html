@@ -14,7 +14,10 @@
     <span class="card-title" id="cand-count">Candidates</span>
     <div class="flex gap-2 items-center">
       <input type="text" id="search-input" placeholder="Search name, skill, location…"
-        oninput="filterTable()" style="width:200px;padding:5px 10px">
+        oninput="applyFilters()" style="width:200px;padding:5px 10px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);white-space:nowrap">
+        <input type="checkbox" id="hide-nocontact" checked onchange="applyFilters()" style="width:auto"> Hide no-contact
+      </label>
       <select id="source-filter" onchange="loadCandidates()" class="filter-select">
         <option value="">All sources</option>
         <option value="NAUKRI">Naukri</option>
@@ -67,26 +70,35 @@
 let allCandidates=[];
 const srcColors={NAUKRI:'badge-blue',LINKEDIN:'badge-blue',INDEED:'badge-blue',MOCK:'badge-grey',MANUAL:'badge-purple',APNA:'badge-yellow',WORKINDIA:'badge-yellow',FOUNDIT:'badge-green'};
 
+// A candidate is reachable for outreach iff they have any email/phone/whatsapp.
+const hasContact = c => !!((c.email && c.email.trim()) || (c.phone && String(c.phone).trim()) || (c.whatsapp && String(c.whatsapp).trim()));
+
 async function loadCandidates(){
   const source=document.getElementById('source-filter').value;
   const url='/api/v1/candidates?limit=500'+(source?'&source='+source:'');
   allCandidates=await api(url);
-  document.getElementById('cand-count').textContent=`Candidates (${allCandidates.length})`;
-  document.getElementById('cand-sub').textContent=`${allCandidates.length} profiles in database`;
-  renderTable(allCandidates);
+  applyFilters();
 }
 
-function filterTable(){
+function applyFilters(){
+  let data=allCandidates;
+  if(document.getElementById('hide-nocontact').checked) data=data.filter(hasContact);
   const q=document.getElementById('search-input').value.toLowerCase();
-  if(!q){renderTable(allCandidates);return}
-  renderTable(allCandidates.filter(c=>
+  if(q) data=data.filter(c=>
     c.name.toLowerCase().includes(q)||
     (c.skills||[]).some(s=>s.toLowerCase().includes(q))||
     (c.location||'').toLowerCase().includes(q)||
     (c.current_role||'').toLowerCase().includes(q)||
     (c.current_employer||'').toLowerCase().includes(q)
-  ));
+  );
+  const noContact=allCandidates.filter(c=>!hasContact(c)).length;
+  document.getElementById('cand-count').textContent=`Candidates (${data.length})`;
+  document.getElementById('cand-sub').textContent=
+    `${data.length} shown · ${allCandidates.length} total`+(noContact?` · ${noContact} need contact info`:'');
+  renderTable(data);
 }
+// kept for any old callers
+function filterTable(){ applyFilters(); }
 
 function renderTable(data){
   const body=document.getElementById('cand-table-body');
@@ -95,7 +107,7 @@ function renderTable(data){
     <thead><tr><th>Name</th><th>Skills</th><th>Exp</th><th>Location</th><th>Expected ₹</th><th>Source</th><th class="tr-action">Actions</th></tr></thead>
     <tbody>${data.map(c=>`<tr>
       <td>
-        <div style="font-weight:600;font-size:12.5px">${esc(c.name)}</div>
+        <div style="font-weight:600;font-size:12.5px">${esc(c.name)}${hasContact(c)?'':' <span class="badge" style="background:rgba(245,158,11,.15);color:#f59e0b;font-size:9.5px">⚠ No contact</span>'}</div>
         <div style="font-size:11px;color:var(--text-muted)">${esc(c.current_role||'')}${c.current_employer?' @ '+esc(c.current_employer):''}</div>
         ${c.email?`<div style="font-size:10.5px;color:var(--text-dim)">${esc(c.email)}</div>`:''}
       </td>

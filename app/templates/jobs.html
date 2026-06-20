@@ -356,8 +356,12 @@ function renderJobTable(jobs, counts) {
         <td><span class="badge ${j.status==='ACTIVE'?'badge-green':j.status==='PAUSED'?'badge-yellow':'badge-grey'}">${j.status}</span></td>
         <td class="tr-action" onclick="event.stopPropagation()">
           <div class="flex gap-2">
-            <button class="btn btn-secondary btn-sm" onclick="triggerSourcing(${j.id},this)">⚡ Source</button>
-            <button class="btn ${j.status==='ACTIVE'?'btn-danger':'btn-primary'} btn-sm" onclick="updateStatus(${j.id},'${j.status==='ACTIVE'?'PAUSED':'ACTIVE'}',this)">${j.status==='ACTIVE'?'⏸':'▶'}</button>
+            <button class="btn btn-secondary btn-sm" onclick="triggerSourcing(${j.id},this)" title="Find candidates">⚡ Source</button>
+            <button class="btn btn-secondary btn-sm" onclick="updateStatus(${j.id},'${j.status==='ACTIVE'?'PAUSED':'ACTIVE'}',this)" title="${j.status==='ACTIVE'?'Pause hiring':'Resume hiring'}">${j.status==='ACTIVE'?'⏸':'▶'}</button>
+            ${j.status==='CLOSED'
+              ? `<button class="btn btn-primary btn-sm" onclick="reopenJob(${j.id},this)" title="Reopen">↻</button>`
+              : `<button class="btn btn-secondary btn-sm" onclick="archiveJob(${j.id},this)" title="Archive (hide, keep history)">🗄</button>`}
+            <button class="btn btn-danger btn-sm" onclick="deleteJob(${j.id},this)" title="Delete">🗑</button>
           </div>
         </td>
       </tr>`;
@@ -495,6 +499,37 @@ async function updateStatus(jobId, newStatus, btn){
     showToast('Status → ' + newStatus, 'success');
     loadJobs();
   } catch(e) { showToast('Update failed', 'error'); btn.disabled=false; }
+}
+
+async function archiveJob(jobId, btn){
+  if(!confirm('Archive this job? It will be hidden from active lists but all candidates and history are kept. You can reopen it anytime.')) return;
+  btn.disabled=true;
+  try{ await api('/api/v1/jobs/'+jobId+'/archive',{method:'POST'}); showToast('Job archived','success'); loadJobs(); }
+  catch(e){ showToast('Failed: '+e.message,'error'); btn.disabled=false; }
+}
+
+async function reopenJob(jobId, btn){
+  btn.disabled=true;
+  try{ await api('/api/v1/jobs/'+jobId+'/reopen',{method:'POST'}); showToast('Job reopened','success'); loadJobs(); }
+  catch(e){ showToast('Failed: '+e.message,'error'); btn.disabled=false; }
+}
+
+async function deleteJob(jobId, btn){
+  // First attempt is always safe (no force): the server refuses if candidates exist.
+  try{
+    const res = await fetch('/api/v1/jobs/'+jobId,{method:'DELETE'});
+    if(res.status===204){ showToast('Job deleted','success'); loadJobs(); return; }
+    if(res.status===409){
+      const msg=(await res.json()).detail;
+      if(confirm(msg+'\n\nPermanently delete the job AND all its candidate records? This cannot be undone.\n(Tip: Archive keeps the history.)')){
+        const f=await fetch('/api/v1/jobs/'+jobId+'?force=true',{method:'DELETE'});
+        if(f.status===204){ showToast('Job and its candidates deleted','success'); loadJobs(); }
+        else { showToast('Delete failed','error'); }
+      }
+      return;
+    }
+    showToast('Delete failed (HTTP '+res.status+')','error');
+  }catch(e){ showToast('Delete failed: '+e.message,'error'); }
 }
 
 async function analyzeAndCreate(){

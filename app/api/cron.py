@@ -94,12 +94,14 @@ async def cron_outreach():
         primary_channel, wa_live = await decide_primary_channel(db)
         logger.info("[CRON/outreach] whatsapp_live=%s primary_channel=%s", wa_live, primary_channel.value)
 
-        # Approach everyone lined up: shortlisted AND pending-review candidates
-        # who haven't been contacted yet. Unreachable ones (locked Apna profiles,
-        # junk numbers) are skipped by contact_job_entries and surfaced in Needs Fixing.
+        # Approach human-APPROVED candidates only: SHORTLISTED entries that haven't
+        # been contacted yet. PENDING (AI-suggested, not yet reviewed) are NOT
+        # auto-messaged — a recruiter must shortlist them first. contact_job_entries
+        # additionally skips PAUSED/CLOSED jobs and unreachable candidates (the
+        # latter surfaced in Needs Fixing).
         result = await db.execute(
             select(ShortlistEntry).where(
-                ShortlistEntry.status.in_([ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING])
+                ShortlistEntry.status == ShortlistStatus.SHORTLISTED
             )
         )
         entries = result.scalars().all()

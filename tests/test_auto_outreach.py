@@ -1,7 +1,9 @@
 """Tests for the centralized auto-outreach service + on-add automation.
 
 Rules under test:
-  • Only PENDING/SHORTLISTED entries are auto-contacted.
+  • Bulk/auto outreach contacts SHORTLISTED only (human-approved); PENDING is not
+    auto-messaged, and PAUSED/CLOSED jobs are skipped.
+  • An explicit single-candidate "Contact now" may include PENDING and ignores paused.
   • Unreachable candidates (no usable phone/email) are skipped, never messaged,
     and never flipped to CONTACTED.
   • A real send flips the entry to CONTACTED; re-running is idempotent.
@@ -96,6 +98,39 @@ async def test_contact_candidate_now_no_pipeline(db_session):
 
 
 # ── API endpoints ──────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_pending_not_auto_contacted_by_default(db_session):
+    """PENDING (AI-suggested, not reviewed) must NOT be auto-messaged in bulk."""
+    job, c, e = await _setup(db_session, reachable=True, status=ShortlistStatus.PENDING)
+    res = await contact_job_entries(db_session, job, [e], channel=OutreachChannel.EMAIL)
+    assert res["sent"] == 0
+    assert e.status == ShortlistStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_paused_job_is_skipped(db_session):
+    """A reachable SHORTLISTED candidate on a PAUSED job is not contacted."""
+    from app.models.job import JobStatus
+    job, c, e = await _setup(db_session, reachable=True, status=ShortlistStatus.SHORTLISTED)
+    job.status = JobStatus.PAUSED
+    await db_session.flush()
+    res = await contact_job_entries(db_session, job, [e], channel=OutreachChannel.EMAIL)
+    assert res.get("skipped_inactive_job") is True
+    assert e.status == ShortlistStatus.SHORTLISTED
+
+
+@pytest.mark.asyncio
+async def test_contact_candidate_now_allows_pending_and_paused(db_session):
+    """Explicit single-candidate contact may include PENDING and ignores paused."""
+    from app.models.job import JobStatus
+    job, c, e = await _setup(db_session, reachable=True, status=ShortlistStatus.PENDING)
+    job.status = JobStatus.PAUSED
+    await db_session.flush()
+    res = await contact_candidate_now(db_session, c.id)
+    assert res["contacted"] == 1
+    assert e.status == ShortlistStatus.CONTACTED
+
 
 @pytest.mark.asyncio
 async def test_contact_all_for_job_endpoint(client, db_session):

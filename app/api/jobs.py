@@ -142,9 +142,57 @@ async def update_job(job_id: int, payload: JobUpdate, db: AsyncSession = Depends
     return job
 
 
-@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_job(job_id: int, db: AsyncSession = Depends(get_db)):
+@router.post("/{job_id}/archive", response_model=JobRead)
+async def archive_job(job_id: int, db: AsyncSession = Depends(get_db)):
+    """Archive a job: mark it CLOSED and hide it from active lists. Reversible,
+    keeps all candidates/history. This is the safe alternative to deleting a job
+    that already has applicants."""
+    from app.models.job import JobStatus
     job = await _get_or_404(job_id, db)
+    job.status = JobStatus.CLOSED
+    return job
+
+
+@router.post("/{job_id}/reopen", response_model=JobRead)
+async def reopen_job(job_id: int, db: AsyncSession = Depends(get_db)):
+    """Re-activate an archived/paused job."""
+    from app.models.job import JobStatus
+    job = await _get_or_404(job_id, db)
+    job.status = JobStatus.ACTIVE
+    return job
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job(job_id: int, force: bool = False, db: AsyncSession = Depends(get_db)):
+    """Delete a job. Guarded: if the job has any candidates/applications, deletion
+    is refused (409) and the recruiter is told to archive instead — unless force=true.
+
+    When deletion proceeds, every dependent row (shortlist, outreach, interviews,
+    conversations) is removed first in the same transaction, so the delete can never
+    leave orphans or hit a foreign-key violation (which previously 500'd on Postgres)."""
+    from sqlalchemy import delete as sa_delete, func
+    from app.models.shortlist import ShortlistEntry
+    from app.models.outreach import OutreachLog
+    from app.models.interview import Interview
+    from app.models.conversation import Conversation
+
+    job = await _get_or_404(job_id, db)
+
+    app_count = (await db.execute(
+        select(func.count()).select_from(ShortlistEntry).where(ShortlistEntry.job_id == job_id)
+    )).scalar_one()
+
+    if app_count and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"This job has {app_count} candidate(s) attached. Archive it instead to keep "
+                    f"their history, or delete with force=true to permanently remove the job and "
+                    f"all {app_count} of its candidate records."),
+        )
+
+    # Safe to remove: clear every table that references jobs.id, then the job.
+    for Model in (ShortlistEntry, OutreachLog, Interview, Conversation):
+        await db.execute(sa_delete(Model).where(Model.job_id == job_id))
     await db.delete(job)
 
 
@@ -161,21 +209,42 @@ async def trigger_sourcing(job_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{job_id}/contact-all", summary="Contact all reachable, not-yet-contacted candidates for a job")
-async def contact_all_for_job(job_id: int, db: AsyncSession = Depends(get_db)):
-    """Send initial outreach to every reachable PENDING/SHORTLISTED candidate for
-    this job, on the live channel (WhatsApp if connected, else email). Idempotent —
-    anyone already contacted or unreachable is skipped."""
+async def contact_all_for_job(
+    job_id: int,
+    include_pending: bool = False,
+    include_paused: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send initial outreach to reachable, not-yet-contacted SHORTLISTED candidates
+    for this job, on the live channel (WhatsApp if connected, else email).
+
+    Safe by default: only human-approved (SHORTLISTED) candidates on an ACTIVE job
+    are contacted. Set ``include_pending=true`` to also message AI-suggested
+    (PENDING) candidates, and ``include_paused=true`` to override the paused-job
+    guard. Idempotent — anyone already contacted or unreachable is skipped."""
     from app.models.shortlist import ShortlistEntry, ShortlistStatus
-    from app.services.auto_outreach import contact_job_entries
+    from app.models.job import JobStatus
+    from app.services.auto_outreach import (
+        contact_job_entries, _DEFAULT_BULK_STATUSES, _ALL_OPEN_STATUSES,
+    )
 
     job = await _get_or_404(job_id, db)
+    statuses = _ALL_OPEN_STATUSES if include_pending else _DEFAULT_BULK_STATUSES
     entries = (await db.execute(
         select(ShortlistEntry).where(
             ShortlistEntry.job_id == job_id,
-            ShortlistEntry.status.in_([ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING]),
+            ShortlistEntry.status.in_(list(statuses)),
         )
     )).scalars().all()
-    return await contact_job_entries(db, job, entries)
+    res = await contact_job_entries(
+        db, job, entries, statuses=statuses, require_active_job=not include_paused,
+    )
+    if res.get("skipped_inactive_job"):
+        res["message"] = (
+            f"This job is {job.status.value if hasattr(job.status,'value') else job.status} — "
+            "nobody was contacted. Reopen the job (or pass include_paused) to contact its candidates."
+        )
+    return res
 
 
 async def _job_entries_and_candidates(job_id: int, db: AsyncSession):

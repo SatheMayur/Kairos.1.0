@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.candidate import Candidate
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.outreach import OutreachChannel, OutreachType
 from app.models.shortlist import ShortlistEntry, ShortlistStatus
 from app.services.data_quality import is_reachable
@@ -36,7 +36,12 @@ settings = get_settings()
 
 # Channels that actually deliver to a person (vs. a manual-platform placeholder).
 _REAL_CHANNELS = (OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS)
-_CONTACTABLE = (ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING)
+# Automatic / bulk outreach only ever contacts human-APPROVED candidates
+# (SHORTLISTED). PENDING means "AI suggested, not yet reviewed" — those are never
+# auto-messaged; a recruiter must shortlist them first. An explicit one-candidate
+# "Contact now" click may include PENDING (the recruiter chose that person).
+_DEFAULT_BULK_STATUSES = (ShortlistStatus.SHORTLISTED,)
+_ALL_OPEN_STATUSES = (ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING)
 
 
 async def decide_primary_channel(db: AsyncSession) -> tuple[OutreachChannel, bool]:
@@ -59,11 +64,24 @@ async def contact_job_entries(
     entries: list[ShortlistEntry],
     *,
     channel: OutreachChannel | None = None,
+    statuses: tuple[ShortlistStatus, ...] = _DEFAULT_BULK_STATUSES,
+    require_active_job: bool = True,
 ) -> dict:
-    """Send initial contact to every reachable, not-yet-contacted PENDING/SHORTLISTED
-    entry for ONE job. Flips them to CONTACTED on a real send. Idempotent: an entry
-    already CONTACTED or further along is skipped, so re-running never double-messages.
+    """Send initial contact to every reachable, not-yet-contacted eligible entry for
+    ONE job. Flips them to CONTACTED on a real send. Idempotent: an entry already
+    CONTACTED or further along is skipped, so re-running never double-messages.
+
+    Guardrails (added 2026-06-20 audit fix):
+      • ``require_active_job`` — a PAUSED/CLOSED/DRAFT job is skipped, so we never
+        message candidates about a role that's on hold.
+      • ``statuses`` — which pipeline stages are eligible. Defaults to SHORTLISTED
+        only (human-approved); callers must opt in to include PENDING.
     """
+    if require_active_job and job.status != JobStatus.ACTIVE:
+        return {"sent": 0, "contacted": 0, "skipped_unreachable": 0, "platform": 0,
+                "skipped_inactive_job": True,
+                "channel": (channel.value if channel else None)}
+
     if channel is None:
         channel, _ = await decide_primary_channel(db)
 
@@ -72,7 +90,7 @@ async def contact_job_entries(
     cand_by_id: dict[int, Candidate] = {}
     skipped_unreachable = 0
     for entry in entries:
-        if entry.status not in _CONTACTABLE:
+        if entry.status not in statuses:
             continue
         c = await db.get(Candidate, entry.candidate_id)
         if not c:
@@ -134,7 +152,7 @@ async def contact_candidate_now(db: AsyncSession, candidate_id: int) -> dict:
     entries = (await db.execute(
         select(ShortlistEntry).where(
             ShortlistEntry.candidate_id == candidate_id,
-            ShortlistEntry.status.in_(_CONTACTABLE),
+            ShortlistEntry.status.in_(_ALL_OPEN_STATUSES),
         )
     )).scalars().all()
     if not entries:
@@ -151,7 +169,12 @@ async def contact_candidate_now(db: AsyncSession, candidate_id: int) -> dict:
         job = await db.get(Job, job_id)
         if not job:
             continue
-        res = await contact_job_entries(db, job, job_entries, channel=channel)
+        # Explicit recruiter action on a chosen candidate: PENDING is allowed and
+        # the job's paused state doesn't block (they clicked Contact on purpose).
+        res = await contact_job_entries(
+            db, job, job_entries, channel=channel,
+            statuses=_ALL_OPEN_STATUSES, require_active_job=False,
+        )
         total_contacted += res.get("contacted", 0)
         jobs_done.append({"job_id": job_id, **res})
     return {"contacted": total_contacted, "channel": channel.value, "jobs": jobs_done}

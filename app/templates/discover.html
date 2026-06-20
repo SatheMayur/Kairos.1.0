@@ -126,8 +126,18 @@ function insightsHTML(){
 
 function recsHTML(){
   const recs = _stats.recommendations || [];
-  if(!recs.length) return '';
-  return `<div class="card"><div class="card-header"><span class="card-title">✅ Recommended next steps</span></div>
+  const s = _stats;
+  // "Contact everyone" appears whenever there are reachable people lined up to contact.
+  const lined = (s.pipeline.SHORTLISTED||0) + (s.pipeline.PENDING||0);
+  const contactAll = lined ? `<div class="card"><div class="card-header">
+      <span class="card-title">📣 Outbound outreach</span>
+      <button class="btn btn-primary btn-sm" onclick="contactAll(this)">💬 Contact all eligible now</button>
+    </div><div class="card-body" style="padding:12px 18px;font-size:12px;color:var(--text-muted)">
+      Sends a first message to every shortlisted / to-review candidate who has a phone or email,
+      on WhatsApp (if connected) or email. People with no contact info are skipped automatically.
+    </div></div>` : '';
+  if(!recs.length) return contactAll;
+  return contactAll + `<div class="card"><div class="card-header"><span class="card-title">✅ Recommended next steps</span></div>
     <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
       ${recs.map((r,i)=>`
         <div style="display:flex;gap:12px;align-items:center;background:var(--bg-overlay);border-radius:var(--radius-md);padding:11px 14px">
@@ -225,9 +235,7 @@ function actionBtn(c){
     return `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();doShortlist(${c.entry_id},this)">★ Shortlist</button>`;
   }
   if(a.key==='CONTACT'){
-    const wa = c.whatsapp || c.phone;
-    if(wa) return `<a class="btn btn-primary btn-sm" target="_blank" onclick="event.stopPropagation()" href="https://wa.me/${String(wa).replace(/\\D/g,'')}">💬 WhatsApp</a>`;
-    if(c.email) return `<a class="btn btn-primary btn-sm" onclick="event.stopPropagation()" href="mailto:${esc(c.email)}">✉ Email</a>`;
+    return `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();doContact(${c.candidate_id},this)">💬 Contact now</button>`;
   }
   if(a.key==='SCHEDULE'){
     return `<a class="btn btn-primary btn-sm" onclick="event.stopPropagation()" href="/ui/interviews">◷ Schedule</a>`;
@@ -275,6 +283,29 @@ function renderList(){
       </tr>`;
     }).join('')}
     </tbody></table></div>`;
+}
+
+async function contactAll(btn){
+  if(!confirm('Send a first message to all eligible candidates for this job?\n\nWhatsApp (if connected) or email. Anyone already contacted or without contact info is skipped.')) return;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const r = await api('/api/v1/jobs/'+_jobId+'/contact-all', {method:'POST'});
+    const msg = r.contacted
+      ? `Contacted ${r.contacted} on ${(r.channel||'').toLowerCase()}` + (r.skipped_unreachable?` · ${r.skipped_unreachable} skipped (no contact info)`:'')
+      : (r.skipped_unreachable ? `No one contacted — ${r.skipped_unreachable} have no contact info` : 'No one eligible to contact right now');
+    showToast(msg, r.contacted?'success':'info', 6000);
+    await loadJob();
+  }catch(e){ showToast(e.message,'error'); }
+  btn.disabled = false; btn.textContent = '💬 Contact all eligible now';
+}
+
+async function doContact(candId, btn){
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const r = await api('/api/v1/candidates/'+candId+'/contact', {method:'POST'});
+    showToast(r.contacted ? ('Message sent on '+(r.channel||'').toLowerCase()+' ✓') : 'Queued — will send shortly','success');
+    await loadJob();
+  }catch(e){ showToast(e.message,'error'); btn.disabled=false; btn.textContent='💬 Contact now'; }
 }
 
 async function doShortlist(entryId, btn){

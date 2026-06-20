@@ -150,10 +150,32 @@ async def delete_job(job_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{job_id}/source", summary="Trigger candidate sourcing for a job")
 async def trigger_sourcing(job_id: int, db: AsyncSession = Depends(get_db)):
-    """Fan out to all portal adapters, score, and persist candidates."""
+    """Fan out to all portal adapters, score, persist — and auto-contact the good,
+    reachable matches we just found (if auto-outreach is on)."""
+    from app.config import get_settings
     job = await _get_or_404(job_id, db)
-    entries = await source_candidates_for_job(job, db)
+    entries = await source_candidates_for_job(
+        job, db, auto_outreach=get_settings().auto_outreach_enabled
+    )
     return {"sourced": len(entries), "job_id": job_id}
+
+
+@router.post("/{job_id}/contact-all", summary="Contact all reachable, not-yet-contacted candidates for a job")
+async def contact_all_for_job(job_id: int, db: AsyncSession = Depends(get_db)):
+    """Send initial outreach to every reachable PENDING/SHORTLISTED candidate for
+    this job, on the live channel (WhatsApp if connected, else email). Idempotent —
+    anyone already contacted or unreachable is skipped."""
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.services.auto_outreach import contact_job_entries
+
+    job = await _get_or_404(job_id, db)
+    entries = (await db.execute(
+        select(ShortlistEntry).where(
+            ShortlistEntry.job_id == job_id,
+            ShortlistEntry.status.in_([ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING]),
+        )
+    )).scalars().all()
+    return await contact_job_entries(db, job, entries)
 
 
 async def _job_entries_and_candidates(job_id: int, db: AsyncSession):

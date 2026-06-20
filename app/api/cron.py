@@ -83,27 +83,20 @@ async def cron_outreach():
     if not settings.auto_outreach_enabled:
         return {"skipped": True, "reason": "AUTO_OUTREACH_ENABLED=false"}
 
+    from app.services.auto_outreach import decide_primary_channel, contact_job_entries
+
     sent_total = 0
     skipped_platform = 0
     job_results: dict = {}
 
     async with AsyncSessionLocal() as db:
-        # Decide the channel once: prefer WhatsApp, but if the bridge is offline
-        # (no poll in the last 3 minutes) fall back to email so candidates are
-        # still reached even when nobody's computer is running the bridge.
-        from datetime import timedelta
-        from app.models.wa_connection import WaConnection
-        conn = await db.get(WaConnection, 1)
-        wa_live = bool(
-            conn and conn.status == "CONNECTED" and conn.last_poll_at
-            and (datetime.utcnow() - conn.last_poll_at) < timedelta(minutes=3)
-        )
-        primary_channel = OutreachChannel.WHATSAPP if wa_live else OutreachChannel.EMAIL
+        # Decide the channel once: WhatsApp when the bridge is live, else email.
+        primary_channel, wa_live = await decide_primary_channel(db)
         logger.info("[CRON/outreach] whatsapp_live=%s primary_channel=%s", wa_live, primary_channel.value)
 
         # Approach everyone lined up: shortlisted AND pending-review candidates
-        # who haven't been contacted yet. (Phone-less ones are filtered out below
-        # since they can't be messaged — they're surfaced in Needs Fixing instead.)
+        # who haven't been contacted yet. Unreachable ones (locked Apna profiles,
+        # junk numbers) are skipped by contact_job_entries and surfaced in Needs Fixing.
         result = await db.execute(
             select(ShortlistEntry).where(
                 ShortlistEntry.status.in_([ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING])
@@ -120,70 +113,21 @@ async def cron_outreach():
             job = job_res.scalar_one_or_none()
             if not job:
                 continue
-
-            from app.services.data_quality import is_reachable
-            candidates: list[Candidate] = []
-            cand_by_id: dict[int, Candidate] = {}
-            for entry in job_entries:
-                c_res = await db.execute(
-                    select(Candidate).where(Candidate.id == entry.candidate_id)
-                )
-                c = c_res.scalar_one_or_none()
-                # Only message candidates we can actually reach (valid mobile or
-                # real email). Phone-less ones (e.g. locked Apna profiles) and junk
-                # numbers are left for unlock / Needs Fixing.
-                if c and is_reachable(c):
-                    candidates.append(c)
-                if c:
-                    cand_by_id[c.id] = c
-
             try:
-                # primary_channel decided above: WhatsApp when the bridge is
-                # live, otherwise email (so the autopilot never stalls).
-                logs = await send_bulk_outreach(
-                    candidates=candidates,
-                    job=job,
-                    channel=primary_channel,
-                    outreach_type=OutreachType.INITIAL_CONTACT,
-                    db=db,
-                    delay_seconds=settings.outreach_delay_seconds,
-                )
-                # Only mark CONTACTED the candidates whose message was actually
-                # SENT. Failed / UNREACHABLE / manual-platform sends stay
-                # SHORTLISTED so they're retried or surfaced — never falsely
-                # counted as contacted (which used to create a black hole where
-                # unreachable candidates were neither chased nor fixed).
-                log_by_cand = {lg.candidate_id: lg for lg in logs}
-                for entry in job_entries:
-                    lg = log_by_cand.get(entry.candidate_id)
-                    cand = cand_by_id.get(entry.candidate_id)
-                    # CONTACTED only on a real delivered channel AND a genuinely
-                    # reachable candidate — a PLATFORM_MESSAGE placeholder (no real
-                    # address, e.g. phone-locked Apna) logs SENT but reaches no one,
-                    # so it must stay SHORTLISTED and be surfaced.
-                    if (lg and lg.status.value == "SENT"
-                            and lg.channel in (
-                                OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
-                            )
-                            and cand and is_reachable(cand)):
-                        entry.status = ShortlistStatus.CONTACTED
+                res = await contact_job_entries(db, job, job_entries, channel=primary_channel)
                 await db.commit()
-
-                sent = sum(1 for lg in logs if lg.status.value == "SENT")
-                platform = sum(1 for lg in logs if lg.channel.value == "PLATFORM_MESSAGE")
-                unreachable = sum(1 for lg in logs if lg.channel.value == "UNREACHABLE")
-                sent_total += sent
-                skipped_platform += platform
-
+                sent_total += res["sent"]
+                skipped_platform += res["platform"]
                 job_results[job_id] = {
                     "title": job.title,
-                    "sent": sent,
-                    "platform_message": platform,
-                    "unreachable": unreachable,
+                    "sent": res["sent"],
+                    "contacted": res["contacted"],
+                    "platform_message": res["platform"],
+                    "unreachable": res["skipped_unreachable"],
                 }
                 logger.info(
-                    "[CRON/outreach] job=%d sent=%d platform=%d unreachable=%d",
-                    job_id, sent, platform, unreachable,
+                    "[CRON/outreach] job=%d sent=%d contacted=%d platform=%d unreachable=%d",
+                    job_id, res["sent"], res["contacted"], res["platform"], res["skipped_unreachable"],
                 )
             except Exception as exc:
                 await db.rollback()

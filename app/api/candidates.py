@@ -120,6 +120,29 @@ async def candidate_conversation(candidate_id: int, db: AsyncSession = Depends(g
     }
 
 
+@router.post("/{candidate_id}/contact")
+async def contact_candidate(candidate_id: int, db: AsyncSession = Depends(get_db)):
+    """Reach out to this candidate now — through the system, on the live channel
+    (WhatsApp if connected, else email). Logs the message and advances them to
+    CONTACTED. Refuses politely if there's no usable phone/email."""
+    from app.services.data_quality import is_reachable
+    from app.services.auto_outreach import contact_candidate_now
+
+    candidate = await _get_or_404(candidate_id, db)
+    if not is_reachable(candidate):
+        raise HTTPException(
+            status_code=422,
+            detail="This candidate has no usable phone or email yet — add contact info first.",
+        )
+    result = await contact_candidate_now(db, candidate_id)
+    if result.get("reason") == "no_open_pipeline_entry":
+        raise HTTPException(
+            status_code=422,
+            detail="This candidate isn't lined up for any job yet — shortlist them for a job first.",
+        )
+    return result
+
+
 @router.post("/{candidate_id}/merge")
 async def merge_candidate(
     candidate_id: int, duplicate_id: int, db: AsyncSession = Depends(get_db)

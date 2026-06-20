@@ -16,10 +16,14 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-async def source_candidates_for_job(job: Job, db: AsyncSession) -> list[ShortlistEntry]:
+async def source_candidates_for_job(
+    job: Job, db: AsyncSession, *, auto_outreach: bool = False
+) -> list[ShortlistEntry]:
     """Search all active adapters for candidates matching the job, then score and persist.
 
-    Returns newly created ShortlistEntry rows.
+    Returns the resulting ShortlistEntry rows. When ``auto_outreach`` is True and
+    the owner has auto-outreach enabled, freshly-sourced reachable good matches are
+    contacted immediately (the on-add automation); never raises because of it.
     """
     registry = get_registry()
     keywords = (job.skills or []) + ([job.title] if job.title else [])
@@ -76,6 +80,13 @@ async def source_candidates_for_job(job: Job, db: AsyncSession) -> list[Shortlis
             entries.append(entry)
 
     await db.flush()
+
+    # On-add automation: contact the good, reachable matches we just sourced.
+    if auto_outreach:
+        from app.services.auto_outreach import auto_outreach_after_sourcing
+        await auto_outreach_after_sourcing(db, job, entries)
+        await db.flush()
+
     return entries
 
 

@@ -47,6 +47,17 @@ def is_reachable_contact(email: str | None = None,
     return False
 
 
+def has_email_and_phone(email: str | None = None,
+                        phone: str | None = None,
+                        whatsapp: str | None = None) -> bool:
+    """Stricter gate used by SOURCING (Kirti's business rule): a candidate must
+    have BOTH a well-formed email AND a valid Indian mobile (in phone or whatsapp).
+    Missing either → we don't source them. Differs from is_reachable_contact,
+    which only needs one channel."""
+    has_mobile = bool(normalize_indian_mobile(phone) or normalize_indian_mobile(whatsapp))
+    return _valid_email(email) and has_mobile
+
+
 def is_reachable(candidate: Candidate) -> bool:
     """True iff we have a real way to contact this candidate.
 

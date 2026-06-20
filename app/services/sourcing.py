@@ -72,18 +72,18 @@ async def source_candidates_for_job(
 
     logger.info("Sourced %d raw candidates for job %d", len(raw_candidates), job.id)
 
-    # Data-quality gate: don't bring in candidates we can never contact (no email
-    # and no usable mobile — e.g. locked Apna profiles). They'd only clutter the
-    # pipeline as un-actionable rows.
-    from app.services.data_quality import is_reachable_contact
+    # Business rule (Kirti): sourcing requires BOTH a phone number AND an email.
+    # Without both, we don't source the candidate — they can't be reached on our
+    # two channels (WhatsApp + email), so they don't enter the system.
+    from app.services.data_quality import has_email_and_phone
     before = len(raw_candidates)
     raw_candidates = [
         r for r in raw_candidates
-        if is_reachable_contact(r.email, r.phone, r.whatsapp)
+        if has_email_and_phone(r.email, r.phone, r.whatsapp)
     ]
     skipped_no_contact = before - len(raw_candidates)
     if skipped_no_contact:
-        logger.info("Skipped %d no-contact candidates for job %d (not added)",
+        logger.info("Skipped %d candidates missing phone and/or email for job %d (not sourced)",
                     skipped_no_contact, job.id)
 
     entries: list[ShortlistEntry] = []

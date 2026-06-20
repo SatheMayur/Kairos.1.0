@@ -59,7 +59,9 @@ async def test_sourcing_includes_apna_when_token_set(sample_job, db_session, mon
         skills=["HR", "Payroll"],
         experience_years=2.0,
         location="Surat",
-        phone="9876543210",          # unlocked Apna profile → reachable, so it's added
+        # Sourcing requires BOTH phone AND email — an unlocked, fully-contactable profile.
+        phone="9876543210",
+        email="apna.live@example.com",
         source_ref="apna:live-123",
     )
 

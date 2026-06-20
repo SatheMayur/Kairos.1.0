@@ -24,6 +24,50 @@ def test_is_reachable_contact():
     assert not is_reachable_contact(phone="04012345678")   # landline-ish, not a mobile
 
 
+def test_has_email_and_phone_requires_both():
+    from app.services.data_quality import has_email_and_phone
+    # Both present → ok
+    assert has_email_and_phone(email="a@b.com", phone="9876543210")
+    assert has_email_and_phone(email="a@b.com", whatsapp="+91 98765 43210")
+    # Only one → not enough for sourcing
+    assert not has_email_and_phone(email="a@b.com")            # no phone
+    assert not has_email_and_phone(phone="9876543210")         # no email
+    assert not has_email_and_phone(email="a@b.com", phone="NA")  # phone invalid
+    assert not has_email_and_phone(email="bad", phone="9876543210")  # email invalid
+
+
+@pytest.mark.asyncio
+async def test_sourcing_requires_email_and_phone(db_session, mock_adapters):
+    """Sourcing skips candidates missing either phone or email."""
+    from app.models.job import Job
+    from app.services.sourcing import source_candidates_for_job
+    from app.adapters import registry as reg
+
+    # A custom adapter returning three candidates: both / email-only / phone-only.
+    class _Stub:
+        async def search(self, **kw):
+            return [
+                RawCandidate(name="Both", source=CandidateSource.NAUKRI,
+                             email="both@x.com", phone="9876543210", skills=["AutoCAD"]),
+                RawCandidate(name="EmailOnly", source=CandidateSource.NAUKRI,
+                             email="e@x.com", skills=["AutoCAD"]),
+                RawCandidate(name="PhoneOnly", source=CandidateSource.NAUKRI,
+                             phone="9876500000", skills=["AutoCAD"]),
+            ]
+    reg._registry = {"stub": _Stub()}
+    try:
+        job = Job(title="Design Engineer", company="KGL", skills=["AutoCAD"], location=None)
+        db_session.add(job); await db_session.flush()
+        await source_candidates_for_job(job, db_session)
+        from sqlalchemy import select
+        names = {c.name for c in (await db_session.execute(select(Candidate))).scalars().all()}
+        assert "Both" in names
+        assert "EmailOnly" not in names   # missing phone → not sourced
+        assert "PhoneOnly" not in names   # missing email → not sourced
+    finally:
+        reg.reset_registry()
+
+
 @pytest.mark.asyncio
 async def test_import_skips_no_contact(db_session):
     job = Job(title="Design Engineer", company="KGL")

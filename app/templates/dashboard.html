@@ -33,7 +33,7 @@
   <div class="kpi blue">
     <div class="kpi-label">Active Jobs</div>
     <div class="kpi-value" id="kpi-jobs">–</div>
-    <div class="kpi-sub">open requisitions</div>
+    <div class="kpi-sub" id="kpi-jobs-sub">open requisitions</div>
   </div>
   <div class="kpi green">
     <div class="kpi-label">Total Candidates</div>
@@ -41,19 +41,19 @@
     <div class="kpi-sub">in database</div>
   </div>
   <div class="kpi yellow">
-    <div class="kpi-label">Shortlisted</div>
+    <div class="kpi-label">Shortlisted now</div>
     <div class="kpi-value" id="kpi-shortlisted">–</div>
-    <div class="kpi-sub">ready for outreach</div>
+    <div class="kpi-sub">currently ready for outreach</div>
   </div>
   <div class="kpi blue">
     <div class="kpi-label">Contacted</div>
     <div class="kpi-value" id="kpi-contacted">–</div>
-    <div class="kpi-sub">awaiting reply</div>
+    <div class="kpi-sub">currently awaiting reply</div>
   </div>
   <div class="kpi purple">
-    <div class="kpi-label">Interviews</div>
+    <div class="kpi-label">Interviews upcoming</div>
     <div class="kpi-value" id="kpi-interviews">–</div>
-    <div class="kpi-sub">pending / confirmed</div>
+    <div class="kpi-sub" id="kpi-interviews-sub">confirmed &amp; upcoming</div>
   </div>
 </div>
 
@@ -246,15 +246,36 @@ async function loadDashboard(){
     }else{banner.innerHTML=''}
 
     // KPIs
+    const nowMs=Date.now();
     const activeJobs=jobs.filter(j=>j.status==='ACTIVE').length;
     const shortlisted=shortlistAll.filter(s=>s.status==='SHORTLISTED').length;
     const contacted=shortlistAll.filter(s=>s.status==='CONTACTED').length;
-    const pendingIvw=interviews.filter(i=>['PROPOSED','CONFIRMED'].includes(i.status)).length;
+
+    // Interviews: count ONLY genuinely-booked, still-upcoming interviews. A
+    // PROPOSED slot the candidate hasn't accepted is NOT a scheduled interview;
+    // a CONFIRMED slot whose date has passed needs wrapping up, not counting as
+    // "upcoming". This is why the headline differs from the Interviews page total.
+    const ivUpcomingConfirmed=interviews.filter(i=>i.status==='CONFIRMED'&&i.scheduled_at&&new Date(i.scheduled_at).getTime()>=nowMs).length;
+    const ivAwaitingConfirm=interviews.filter(i=>i.status==='PROPOSED').length;
+    const ivToWrapUp=interviews.filter(i=>i.status==='CONFIRMED'&&i.scheduled_at&&new Date(i.scheduled_at).getTime()<nowMs).length;
+
     setKPI('kpi-jobs',activeJobs);
     setKPI('kpi-candidates',candidates.length);
     setKPI('kpi-shortlisted',shortlisted);
     setKPI('kpi-contacted',contacted);
-    setKPI('kpi-interviews',pendingIvw);
+    setKPI('kpi-interviews',ivUpcomingConfirmed);
+
+    // Honest sub-labels so the numbers reconcile with the Jobs / Interviews pages.
+    const totalJobs=jobs.length, pausedJobs=jobs.filter(j=>j.status==='PAUSED').length;
+    const jsub=document.getElementById('kpi-jobs-sub');
+    if(jsub) jsub.textContent=`${activeJobs} active of ${totalJobs} total`+(pausedJobs?` · ${pausedJobs} paused`:'');
+    const isub=document.getElementById('kpi-interviews-sub');
+    if(isub){
+      const bits=[];
+      if(ivAwaitingConfirm) bits.push(`${ivAwaitingConfirm} awaiting reply`);
+      if(ivToWrapUp) bits.push(`${ivToWrapUp} to wrap up`);
+      isub.textContent=bits.length?('confirmed & upcoming · '+bits.join(' · ')):'confirmed & upcoming';
+    }
     document.getElementById('last-updated').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
 
     // Funnel

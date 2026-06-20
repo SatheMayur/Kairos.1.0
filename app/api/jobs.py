@@ -213,6 +213,7 @@ async def contact_all_for_job(
     job_id: int,
     include_pending: bool = False,
     include_paused: bool = False,
+    limit: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
     """Send initial outreach to reachable, not-yet-contacted SHORTLISTED candidates
@@ -238,6 +239,7 @@ async def contact_all_for_job(
     )).scalars().all()
     res = await contact_job_entries(
         db, job, entries, statuses=statuses, require_active_job=not include_paused,
+        limit=limit,
     )
     if res.get("skipped_inactive_job"):
         res["message"] = (

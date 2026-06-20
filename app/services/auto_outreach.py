@@ -66,6 +66,7 @@ async def contact_job_entries(
     channel: OutreachChannel | None = None,
     statuses: tuple[ShortlistStatus, ...] = _DEFAULT_BULK_STATUSES,
     require_active_job: bool = True,
+    limit: int = 0,
 ) -> dict:
     """Send initial contact to every reachable, not-yet-contacted eligible entry for
     ONE job. Flips them to CONTACTED on a real send. Idempotent: an entry already
@@ -101,17 +102,27 @@ async def contact_job_entries(
         else:
             skipped_unreachable += 1
 
+    # Optional cap so a single serverless request never tries to do too many
+    # (keeps each call comfortably inside the function time limit).
+    remaining = len(eligible) - (limit if limit else len(eligible))
+    if limit:
+        eligible = eligible[:limit]
+
     if not eligible:
         return {"sent": 0, "contacted": 0, "skipped_unreachable": skipped_unreachable,
-                "platform": 0, "channel": channel.value}
+                "platform": 0, "remaining": max(0, remaining), "channel": channel.value}
 
+    # delay_seconds=0: sends only ENQUEUE to the WhatsApp bridge / email queue,
+    # which pace actual delivery themselves — an inter-send sleep here just risks
+    # the serverless timeout (and was the cause of a 60s timeout on a 20-send run).
     logs = await send_bulk_outreach(
         candidates=[c for _, c in eligible],
         job=job,
         channel=channel,
         outreach_type=OutreachType.INITIAL_CONTACT,
         db=db,
-        delay_seconds=settings.outreach_delay_seconds,
+        delay_seconds=0,
+        max_per_minute=600,
     )
     log_by_cand = {lg.candidate_id: lg for lg in logs}
 
@@ -127,7 +138,8 @@ async def contact_job_entries(
     platform = sum(1 for lg in logs if lg.channel.value == "PLATFORM_MESSAGE")
     return {"sent": sent, "contacted": contacted,
             "skipped_unreachable": skipped_unreachable,
-            "platform": platform, "channel": channel.value}
+            "platform": platform, "remaining": max(0, remaining),
+            "channel": channel.value}
 
 
 async def auto_outreach_after_sourcing(

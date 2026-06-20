@@ -68,7 +68,7 @@ _EDU_TOKENS = {
     "b.tech": "B.Tech",
     "btech": "B.Tech",
     "b.e.": "B.E.",
-    "be ": "B.E.",
+    "b.e ": "B.E.",
     "m.tech": "M.Tech",
     "mtech": "M.Tech",
     "mba": "MBA",
@@ -113,15 +113,81 @@ def _apply_unit(num_str: str, unit: str | None) -> float:
     return val
 
 
+_SKILL_HEADINGS = (
+    "preferred technical skills", "technical skills", "required skills", "key skills",
+    "skills required", "desired skills", "must have skills", "must-have skills",
+    "preferred skills", "skills", "tech stack", "technical requirements", "tools",
+)
+_SECTION_END_RE = re.compile(
+    r"^(candidate profile|key responsibilities|responsibilities|qualifications?|"
+    r"requirements?|about|experience|education|what you|key areas|position overview|"
+    r"overview|perks|benefits|how to apply|eligibility|roles?\b|nice to have|good to have|"
+    r"compensation|salary|location|reporting)\b",
+    re.I,
+)
+
+
+def _split_skill_line(line: str) -> list[str]:
+    """Turn a JD skill bullet into individual skills, expanding parentheticals.
+
+    "Data visualization tools (Power BI, Tableau, Looker Studio)" →
+        ["Data visualization tools", "Power BI", "Tableau", "Looker Studio"]
+    """
+    out: list[str] = []
+    line = re.sub(r"^[\-•*•·\d.\)\s]+", "", line).strip()  # strip bullet markers
+    for paren in re.findall(r"\(([^)]*)\)", line):
+        for p in re.split(r"[,/]| and ", paren):
+            p = p.strip()
+            if p:
+                out.append(p)
+    main = re.sub(r"\([^)]*\)", "", line).strip(" .;:")
+    # If the main part is itself a comma list, split it; else keep as one phrase.
+    if "," in main:
+        out = [m.strip() for m in main.split(",") if m.strip()] + out
+    elif main:
+        out = [main] + out
+    return out
+
+
+def _extract_skills_section(text: str) -> list[str]:
+    """Read the skills section (heading + following bullet lines) into a list."""
+    lines = [ln.strip() for ln in text.splitlines()]
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        head = line.lower().rstrip(":").strip()
+        if head in _SKILL_HEADINGS:
+            for j in range(i + 1, min(i + 25, len(lines))):
+                cur = lines[j]
+                if not cur:
+                    continue
+                # Skip sub-intros ("Experience with some of the following:") and long
+                # sentences BEFORE the section-end test, so an intro that happens to
+                # start with a section word doesn't prematurely end collection.
+                if cur.endswith(":") or len(cur.split()) > 9:
+                    continue
+                if _SECTION_END_RE.match(cur):
+                    break
+                out.extend(_split_skill_line(cur))
+                if len(out) > 30:
+                    break
+            break
+    return out
+
+
 def _extract_skills(text: str) -> list[str]:
+    """Combine skills read from the JD's skills section with known-token matches."""
+    found: list[str] = list(_extract_skills_section(text))
     lower = text.lower()
-    found = []
     for token in _SKILL_TOKENS:
-        # word-boundary aware check
-        pattern = r"\b" + re.escape(token) + r"\b"
-        if re.search(pattern, lower):
+        if re.search(r"\b" + re.escape(token) + r"\b", lower):
             found.append(token.title() if " " not in token else token)
-    return list(dict.fromkeys(found))  # preserve order, deduplicate
+    # Case-insensitive dedup, preserve order.
+    seen: dict[str, str] = {}
+    for s in found:
+        k = s.lower()
+        if k not in seen and 1 < len(s) <= 60:
+            seen[k] = s
+    return list(seen.values())[:20]
 
 
 def _extract_experience(text: str) -> tuple[Optional[float], Optional[float]]:
@@ -216,7 +282,8 @@ def _extract_location(text: str) -> Optional[str]:
 def _extract_education(text: str) -> Optional[str]:
     lower = text.lower()
     for token, label in _EDU_TOKENS.items():
-        if token in lower:
+        # Word-boundary match so "be"/"graduate" don't fire inside "can be"/"undergraduate".
+        if re.search(r"(?<![a-z])" + re.escape(token.strip()) + r"(?![a-z])", lower):
             return label
     return None
 

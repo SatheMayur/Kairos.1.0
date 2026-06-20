@@ -268,6 +268,7 @@ async def get_candidate_profile(
             "type": o.outreach_type.value,
             "status": o.status.value,
             "message": (o.message or "")[:300],
+            "error_detail": o.error_detail,
             "reply": o.reply_text,
             "sent_at": o.sent_at.isoformat() if o.sent_at else None,
             "replied_at": o.replied_at.isoformat() if o.replied_at else None,
@@ -296,7 +297,15 @@ async def get_candidate_profile(
     timeline = []
     for o in outreach_data:
         ts = o.get("sent_at") or o.get("created_at")
-        timeline.append({"ts": ts, "type": "outreach", "channel": o["channel"], "status": o["status"], "detail": o["type"]})
+        # Additive: carry the failure reason (when a send failed) and a short
+        # message preview so the timeline can show plain-English detail.
+        preview = (o.get("message") or "").strip()
+        timeline.append({
+            "ts": ts, "type": "outreach", "channel": o["channel"],
+            "status": o["status"], "detail": o["type"],
+            "failure_reason": o.get("error_detail"),
+            "preview": (preview[:80] + ("…" if len(preview) > 80 else "")) if preview else None,
+        })
         if o.get("reply"):
             timeline.append({"ts": o.get("replied_at") or ts, "type": "reply", "detail": (o["reply"] or "")[:100]})
     for i in interview_data:

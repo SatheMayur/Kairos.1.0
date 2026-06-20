@@ -126,6 +126,97 @@ async def test_list_shortlist_with_filter(client):
 
 
 @pytest.mark.asyncio
+async def test_shortlist_reachable_flag_and_filter(client, db_session):
+    """GET /shortlist tags each entry with `reachable`, and ?reachable_only=true
+    hides candidates with no valid email or mobile while keeping contactable ones."""
+    from app.models.candidate import Candidate, CandidateSource
+    from app.models.job import Job, JobStatus
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+
+    job = Job(title="Design Engineer", company="KGI", location="Surat", status=JobStatus.ACTIVE)
+    db_session.add(job)
+    await db_session.flush()
+
+    # Reachable: valid Indian mobile, no email.
+    reachable = Candidate(name="Tirth B.", phone="9876543210", source=CandidateSource.NAUKRI)
+    # Reachable: valid email, no phone.
+    by_email = Candidate(name="Email Only", email="cand@example.com", source=CandidateSource.NAUKRI)
+    # Not reachable: junk phone, no email (e.g. locked Apna profile).
+    no_contact = Candidate(name="No Contact", phone="NA", source=CandidateSource.APNA)
+    db_session.add_all([reachable, by_email, no_contact])
+    await db_session.flush()
+
+    for c, score in ((reachable, 80), (by_email, 70), (no_contact, 60)):
+        db_session.add(ShortlistEntry(
+            job_id=job.id, candidate_id=c.id, score=score, status=ShortlistStatus.SHORTLISTED
+        ))
+    await db_session.flush()
+
+    # Default: all entries returned, each carrying a `reachable` boolean.
+    r = await client.get(f"/api/v1/shortlist?job_id={job.id}")
+    assert r.status_code == 200
+    entries = {e["candidate_id"]: e for e in r.json()}
+    assert len(entries) == 3
+    assert all("reachable" in e for e in entries.values())
+    assert entries[reachable.id]["reachable"] is True
+    assert entries[by_email.id]["reachable"] is True
+    assert entries[no_contact.id]["reachable"] is False
+
+    # reachable_only=true: the no-contact candidate is excluded.
+    r2 = await client.get(f"/api/v1/shortlist?job_id={job.id}&reachable_only=true")
+    assert r2.status_code == 200
+    ids = {e["candidate_id"] for e in r2.json()}
+    assert reachable.id in ids
+    assert by_email.id in ids
+    assert no_contact.id not in ids
+
+
+@pytest.mark.asyncio
+async def test_candidate_conversation_still_returns(client, db_session):
+    """Conversation endpoint must keep returning successfully (timeline preview /
+    failure_reason additions live in the profile timeline, not here)."""
+    from app.models.candidate import Candidate, CandidateSource
+
+    c = Candidate(name="Conv Person", phone="9876500000", source=CandidateSource.NAUKRI)
+    db_session.add(c)
+    await db_session.flush()
+
+    r = await client.get(f"/api/v1/candidates/{c.id}/conversation")
+    assert r.status_code == 200
+    assert r.json()["exists"] is False
+
+
+@pytest.mark.asyncio
+async def test_candidate_profile_timeline_outreach_fields(client, db_session):
+    """A failed outreach surfaces failure_reason + preview on its timeline item."""
+    from app.models.candidate import Candidate, CandidateSource
+    from app.models.job import Job, JobStatus
+    from app.models.outreach import OutreachLog, OutreachChannel, OutreachStatus, OutreachType
+
+    job = Job(title="HR Executive", company="KGI", location="Surat", status=JobStatus.ACTIVE)
+    db_session.add(job)
+    await db_session.flush()
+    c = Candidate(name="Outreach Person", email="o@example.com", source=CandidateSource.NAUKRI)
+    db_session.add(c)
+    await db_session.flush()
+    db_session.add(OutreachLog(
+        candidate_id=c.id, job_id=job.id, channel=OutreachChannel.EMAIL,
+        outreach_type=OutreachType.INITIAL_CONTACT, status=OutreachStatus.FAILED,
+        message="Hi, we would love to chat about the HR Executive role at KGI.",
+        error_detail="Mailbox does not exist",
+    ))
+    await db_session.flush()
+
+    r = await client.get(f"/api/v1/candidates/{c.id}/profile")
+    assert r.status_code == 200
+    outreach_items = [t for t in r.json()["timeline"] if t["type"] == "outreach"]
+    assert outreach_items
+    item = outreach_items[0]
+    assert item["failure_reason"] == "Mailbox does not exist"
+    assert item["preview"] and item["preview"].startswith("Hi, we would love")
+
+
+@pytest.mark.asyncio
 async def test_list_interviews(client):
     r = await client.get("/api/v1/interviews")
     assert r.status_code == 200

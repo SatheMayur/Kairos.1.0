@@ -29,3 +29,6 @@ class ShortlistEntryRead(BaseModel):
     status: ShortlistStatus
     created_at: datetime
     updated_at: datetime
+    # True when we have a real way to reach this candidate (valid email or mobile).
+    # Computed per-request from the linked Candidate; not stored in the DB.
+    reachable: Optional[bool] = None

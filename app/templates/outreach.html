@@ -32,6 +32,10 @@
         <option value="REPLIED">Replied</option>
         <option value="BOUNCED">Bounced</option>
       </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#a1a1aa;cursor:pointer">
+        <input type="checkbox" id="hide-nocontact" checked onchange="loadOutreach()">
+        Hide candidates with no contact info
+      </label>
     </div>
   </div>
   <div id="outreach-table-body">
@@ -62,6 +66,10 @@ async function loadOutreach() {
   let filtered = all;
   if (channel) filtered = filtered.filter(o => o.channel===channel);
   if (status) filtered = filtered.filter(o => o.status===status);
+  // Hide rows for candidates we had no way to contact (these are logged with the
+  // "UNREACHABLE" channel — the message reached no one), unless the owner unticks.
+  const hideNoContact = document.getElementById('hide-nocontact').checked;
+  if (hideNoContact) filtered = filtered.filter(o => o.channel !== 'UNREACHABLE');
 
   document.getElementById('ol-count').textContent = `Outreach Log (${filtered.length})`;
   const body = document.getElementById('outreach-table-body');
@@ -72,7 +80,7 @@ async function loadOutreach() {
   body.innerHTML = `<div class="table-wrap"><table>
     <tr><th>Channel</th><th>Type</th><th>Subject / Message</th><th>Status</th><th>Sent</th><th>Error</th></tr>
     ${filtered.map(o => `<tr>
-      <td>${CH_ICONS[o.channel]||''} <strong>${o.channel}</strong></td>
+      <td>${CH_ICONS[o.channel]||''} <strong>${o.channel}</strong>${o.channel==='UNREACHABLE'?` <span class="badge badge-yellow" style="font-size:9.5px" title="No valid email or phone on record — this message reached no one">⚠ No contact</span>`:''}</td>
       <td><span class="badge ${TYPE_COLORS[o.outreach_type]||'badge-grey'}" style="font-size:10px">${o.outreach_type.replace(/_/g,' ')}</span></td>
       <td>
         <span style="color:#e4e4e7;font-size:12px">${esc(o.subject||'')}</span><br>

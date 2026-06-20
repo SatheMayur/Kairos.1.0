@@ -313,6 +313,19 @@ function renderJobs(entries) {
   </table></div>`;
 }
 
+// Plain-English channel names — no jargon.
+const CH_LABELS = { EMAIL:'Email', WHATSAPP:'WhatsApp', SMS:'SMS', CALL:'Call', PLATFORM_MESSAGE:'Job portal message', UNREACHABLE:'No way to contact' };
+// How each send status reads to the owner, with a colour.
+const OUTREACH_STATUS = {
+  SENT:      { text:'Sent successfully', color:'#34d399' },
+  DELIVERED: { text:'Delivered',         color:'#34d399' },
+  REPLIED:   { text:'Replied',           color:'#34d399' },
+  FAILED:    { text:'Failed',            color:'#f87171' },
+  BOUNCED:   { text:'Bounced',           color:'#f87171' },
+  QUEUED:    { text:'Queued',            color:'var(--text-muted)' },
+  PENDING:   { text:'Queued',            color:'var(--text-muted)' },
+};
+
 function renderTimeline(items) {
   const el = document.getElementById('c-timeline');
   if (!items.length) return;
@@ -324,8 +337,25 @@ function renderTimeline(items) {
       label = `<strong style="color:#34d399">Replied:</strong> ${esc((item.detail||'').substring(0,100))}`;
     } else if (item.type === 'outreach') {
       icon = CH_ICONS[item.channel] || '📧'; color = 'var(--text-muted)';
-      const statusColor = item.status === 'REPLIED' ? '#34d399' : item.status === 'FAILED' ? '#f87171' : 'var(--text-muted)';
-      label = `${esc((item.detail||'').replace(/_/g,' '))} sent via ${item.channel} <span style="color:${statusColor}">[${item.status}]</span>`;
+      const channelName = CH_LABELS[item.channel] || item.channel;
+      const st = OUTREACH_STATUS[item.status] || { text: (item.status||'').replace(/_/g,' '), color:'var(--text-muted)' };
+      // "Replied via WhatsApp" reads better than a bare "Replied" on an inbound reply.
+      let statusText = (item.status === 'REPLIED') ? `Replied via ${channelName}` : st.text;
+      let line = `<strong>${esc(channelName)}</strong> — <span style="color:${st.color}">${esc(statusText)}</span> — ${ts}`;
+      // On a failure, show why (plain reason) so the owner knows what to fix.
+      if ((item.status === 'FAILED' || item.status === 'BOUNCED') && item.failure_reason) {
+        line += `<div style="font-size:11px;color:#f87171;margin-top:3px">${esc(item.failure_reason)}</div>`;
+      }
+      // Short preview of what was sent, when we have it.
+      if (item.preview) {
+        line += `<div style="font-size:11px;color:var(--text-muted);margin-top:3px">"${esc(item.preview)}"</div>`;
+      }
+      // Timestamp is already inline in the label, so blank out the duplicate below.
+      label = line;
+      return `<div style="display:flex;gap:14px;padding:10px 18px;border-bottom:1px solid var(--border-subtle)">
+        <div style="font-size:16px;flex-shrink:0;margin-top:1px">${icon}</div>
+        <div style="flex:1"><div style="font-size:12.5px;color:var(--text-secondary);line-height:1.5">${label}</div></div>
+      </div>`;
     } else if (item.type === 'interview') {
       icon = '📅'; color = '#60a5fa';
       label = `<strong style="color:#60a5fa">${esc(item.round)} interview</strong> — ${esc(item.status)}`;

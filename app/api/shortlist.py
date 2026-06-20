@@ -28,6 +28,7 @@ async def list_entries(
     job_id: Optional[int] = None,
     status: Optional[str] = None,
     min_score: float = 0.0,
+    reachable_only: bool = False,
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
@@ -44,7 +45,27 @@ async def list_entries(
     if status:
         query = query.where(ShortlistEntry.status == status)
     result = await db.execute(query)
-    return result.scalars().all()
+    entries = result.scalars().all()
+
+    # Tag each entry with whether the candidate can actually be reached (valid
+    # email or mobile). The dashboard/jobs counts use the default (no filter), so
+    # this stays additive; reachable_only lets the active lists hide no-contact rows.
+    from app.services.data_quality import is_reachable
+
+    cand_ids = [e.candidate_id for e in entries]
+    cands: dict[int, Candidate] = {}
+    if cand_ids:
+        cr = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
+        cands = {c.id: c for c in cr.scalars().all()}
+
+    for e in entries:
+        c = cands.get(e.candidate_id)
+        # No candidate row (shouldn't normally happen) → treat as not reachable.
+        e.reachable = is_reachable(c) if c is not None else False
+
+    if reachable_only:
+        entries = [e for e in entries if e.reachable]
+    return entries
 
 
 @router.get("/triage")

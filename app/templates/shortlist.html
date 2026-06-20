@@ -35,6 +35,12 @@
       <input type="number" id="score-filter" value="0" min="0" max="100" onchange="loadShortlist()"
         class="filter-select" style="width:72px">
     </div>
+    <div class="filter-group">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer">
+        <input type="checkbox" id="hide-nocontact" checked onchange="loadShortlist()">
+        Hide candidates with no contact info
+      </label>
+    </div>
     <div style="margin-left:auto">
       <button class="btn btn-primary btn-sm" onclick="bulkOutreach()" id="bulk-btn">▶ Bulk Outreach</button>
     </div>
@@ -97,7 +103,11 @@ async function loadShortlist(){
   let url=`/api/v1/shortlist?limit=200&min_score=${minScore}`;
   if(jobId)url+=`&job_id=${jobId}`;
   if(status)url+=`&status=${status}`;
-  const entries=await api(url);
+  let entries=await api(url);
+  // Hide candidates we have no way to contact (no valid email or mobile),
+  // unless the owner unticks the box to review them.
+  const hideNoContact=document.getElementById('hide-nocontact').checked;
+  if(hideNoContact)entries=entries.filter(e=>e.reachable!==false);
   document.getElementById('sl-count').textContent=`Shortlist (${entries.length})`;
 
   const body=document.getElementById('sl-table-body');
@@ -121,6 +131,7 @@ async function loadShortlist(){
       return`<tr>
         <td>
           <a href="/ui/candidate/${e.candidate_id}" style="font-weight:600;font-size:12.5px;color:var(--text-primary);text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-primary)'">${c?esc(c.name):'#'+e.candidate_id}</a>
+          ${e.reachable===false?`<span class="badge badge-yellow" style="font-size:9.5px;margin-left:6px" title="No valid email or phone on record — add contact info before reaching out">⚠ No contact</span>`:''}
           <div style="font-size:11px;color:var(--text-muted)">${c?esc(c.location||c.current_role||''):''}</div>
         </td>
         <td style="font-size:12px;color:var(--text-secondary)">${j?esc(j.title):'#'+e.job_id}</td>

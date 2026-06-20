@@ -9,7 +9,11 @@
     <h1>Hiring Pipeline</h1>
     <p class="text-muted text-sm">Visual view of all candidates across hiring stages</p>
   </div>
-  <div class="topbar-right" style="display:flex;gap:8px;align-items:center">
+  <div class="topbar-right" style="display:flex;gap:10px;align-items:center">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer">
+      <input type="checkbox" id="hide-nocontact" checked onchange="renderKanban()">
+      Hide candidates with no contact info
+    </label>
     <select id="pipe-job-filter" onchange="loadPipeline()" style="padding:5px 10px;font-size:12px">
       <option value="">All Jobs</option>
     </select>
@@ -99,6 +103,14 @@ async function loadPipeline() {
 }
 
 function renderKanban() {
+  // Hide candidates we have no way to contact (no valid email or mobile) from the
+  // board, unless the owner unticks the box. KPI counts below still use allEntries
+  // so the totals match the dashboard/jobs pages.
+  const hideNoContact = document.getElementById('hide-nocontact').checked;
+  const boardEntries = hideNoContact
+    ? allEntries.filter(e => e.reachable !== false)
+    : allEntries;
+
   // KPI counts
   const counts = {};
   STAGES.forEach(s => { counts[s.key] = allEntries.filter(e => e.status === s.key).length; });
@@ -115,7 +127,7 @@ function renderKanban() {
 
   const board = document.getElementById('kanban-board');
   board.innerHTML = visibleStages.map(stage => {
-    const cards = allEntries.filter(e => e.status === stage.key);
+    const cards = boardEntries.filter(e => e.status === stage.key);
     return `<div style="min-width:220px;max-width:260px;flex-shrink:0">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:${stage.color}">${stage.label}</div>
@@ -149,6 +161,7 @@ function renderCard(e, stage) {
     </div>
     ${role ? `<div style="font-size:10.5px;color:var(--text-muted);margin-top:3px">${role}</div>` : ''}
     ${job ? `<div style="font-size:10px;color:var(--text-dim);margin-top:4px">📋 ${job}</div>` : ''}
+    ${e.reachable === false ? `<div style="margin-top:6px"><span class="badge badge-yellow" style="font-size:9.5px" title="No valid email or phone on record — add contact info before reaching out">⚠ No contact</span></div>` : ''}
     <div style="display:flex;gap:6px;margin-top:10px">
       <button class="btn btn-secondary btn-sm" style="flex:1;justify-content:center;font-size:10.5px"
         onclick="event.stopPropagation();openMoveModal(${e.id},'${esc(c ? c.name : '#'+e.candidate_id)}','${stage.key}')">

@@ -50,11 +50,22 @@ async def test_sourcing_creates_shortlist_entries(sample_job, db_session):
 
 @pytest.mark.asyncio
 async def test_sourcing_idempotent(sample_job, db_session):
-    """Running sourcing twice should not duplicate candidates."""
+    """Running sourcing twice must not create duplicate candidates or entries.
+
+    Re-scoring now UPSERTS: the second run returns the same (updated) entries
+    rather than None, so we assert the row count is unchanged — one entry per
+    (candidate, job), never a second row.
+    """
     entries1 = await source_candidates_for_job(sample_job, db_session)
+    count1 = len((await db_session.execute(select(ShortlistEntry))).scalars().all())
+
     entries2 = await source_candidates_for_job(sample_job, db_session)
-    # Second run: all candidates already exist, no new shortlist entries
-    assert len(entries2) == 0
+    count2 = len((await db_session.execute(select(ShortlistEntry))).scalars().all())
+
+    # No new rows inserted on the second run.
+    assert count2 == count1
+    # Re-scoring updates the SAME rows (same ids), not new ones.
+    assert {e.id for e in entries2}.issubset({e.id for e in entries1})
 
 
 @pytest.mark.asyncio

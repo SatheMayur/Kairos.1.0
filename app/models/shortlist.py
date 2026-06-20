@@ -2,7 +2,9 @@
 import enum
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Integer, Float, DateTime, ForeignKey, Enum as SAEnum, JSON, Text
+from sqlalchemy import (
+    Integer, Float, DateTime, ForeignKey, Enum as SAEnum, JSON, Text, UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -19,8 +21,35 @@ class ShortlistStatus(str, enum.Enum):
     DROPPED = "DROPPED"
 
 
+# How "advanced" a pipeline status is. Used to pick the best row when
+# de-duplicating (most-advanced wins) and to decide safe status transitions
+# (never auto-move a candidate backwards past review). Higher = further along.
+STATUS_RANK: dict[ShortlistStatus, int] = {
+    ShortlistStatus.HIRED: 7,
+    ShortlistStatus.INTERVIEW_SCHEDULED: 6,
+    ShortlistStatus.INTERESTED: 5,
+    ShortlistStatus.CONTACTED: 4,
+    ShortlistStatus.SHORTLISTED: 3,
+    ShortlistStatus.PENDING: 2,
+    ShortlistStatus.REJECTED: 1,
+    ShortlistStatus.NOT_INTERESTED: 1,
+    ShortlistStatus.DROPPED: 0,
+}
+
+# Statuses past review that re-scoring must never silently move backwards.
+ADVANCED_STATUSES = frozenset({
+    ShortlistStatus.CONTACTED,
+    ShortlistStatus.INTERESTED,
+    ShortlistStatus.INTERVIEW_SCHEDULED,
+    ShortlistStatus.HIRED,
+})
+
+
 class ShortlistEntry(Base):
     __tablename__ = "shortlist"
+    __table_args__ = (
+        UniqueConstraint("candidate_id", "job_id", name="uq_shortlist_candidate_job"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     job_id: Mapped[int] = mapped_column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)

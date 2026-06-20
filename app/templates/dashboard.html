@@ -292,12 +292,15 @@ async function loadDashboard(){
           ${a.action?`<button class="btn btn-secondary btn-sm" onclick="${a.action.fn.toString().replace(/"/g,"'")+';event.stopPropagation()'}">${a.action.label}</button>`:''}
         </div>`).join('');
 
-    // ── Upcoming interviews (next 48h, sorted) ──────────────
+    // ── Upcoming interviews (now → next 48h, sorted) ────────
+    // Must have a real date/time AND fall strictly inside the next 48 hours.
+    // PROPOSED interviews with no confirmed time (scheduled_at null) are excluded —
+    // an interview only shows here once it's actually booked for a moment in time.
     const upcoming=interviews.filter(i=>{
       const d=i.scheduled_at?new Date(i.scheduled_at):null;
-      if(!d)return false;
+      if(!d||isNaN(d))return false;
       const diff=d-now;
-      return diff>-3600000&&diff<172800000&&['PROPOSED','CONFIRMED'].includes(i.status);
+      return diff>=0&&diff<=172800000&&['PROPOSED','CONFIRMED'].includes(i.status);
     }).sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
 
     const jobMap=Object.fromEntries(jobs.map(j=>[j.id,j]));

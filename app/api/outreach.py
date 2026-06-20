@@ -65,14 +65,19 @@ async def bulk_outreach(
     )
     entries = result.scalars().all()
 
+    from app.services.data_quality import is_reachable
     candidates = []
+    cand_by_id = {}
     for entry in entries:
         cand_result = await db.execute(
             select(Candidate).where(Candidate.id == entry.candidate_id)
         )
         candidate = cand_result.scalar_one_or_none()
         if candidate:
-            candidates.append(candidate)
+            cand_by_id[candidate.id] = candidate
+            # Only message candidates we can actually reach (valid mobile / real email).
+            if is_reachable(candidate):
+                candidates.append(candidate)
 
     logs = await send_bulk_outreach(
         candidates=candidates,
@@ -84,13 +89,16 @@ async def bulk_outreach(
     )
 
     # Mark CONTACTED only where a real channel actually sent (not phone-less
-    # PLATFORM_MESSAGE placeholders that reach no one).
+    # PLATFORM_MESSAGE placeholders that reach no one) AND the candidate is reachable.
     log_by_cand = {lg.candidate_id: lg for lg in logs}
     for entry in entries:
         lg = log_by_cand.get(entry.candidate_id)
-        if lg and lg.status.value == "SENT" and lg.channel in (
-            OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
-        ):
+        cand = cand_by_id.get(entry.candidate_id)
+        if (lg and lg.status.value == "SENT"
+                and lg.channel in (
+                    OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
+                )
+                and cand and is_reachable(cand)):
             entry.status = ShortlistStatus.CONTACTED
 
     sent = len([l for l in logs if l.status.value == "SENT"])
@@ -107,6 +115,7 @@ async def run_all_outreach(db: AsyncSession = Depends(get_db)):
     """
     from datetime import datetime, timedelta
     from app.models.wa_connection import WaConnection
+    from app.services.data_quality import is_reachable
 
     res = await db.execute(
         select(ShortlistEntry).where(
@@ -137,7 +146,7 @@ async def run_all_outreach(db: AsyncSession = Depends(get_db)):
             c = (await db.execute(select(Candidate).where(Candidate.id == e.candidate_id))).scalar_one_or_none()
             if c:
                 cand_map[e.candidate_id] = c
-        reachable = [c for c in cand_map.values() if (c.phone or c.whatsapp)]
+        reachable = [c for c in cand_map.values() if is_reachable(c)]
         no_phone += len(cand_map) - len(reachable)
         if not reachable:
             continue
@@ -149,9 +158,12 @@ async def run_all_outreach(db: AsyncSession = Depends(get_db)):
         log_by_cand = {lg.candidate_id: lg for lg in logs}
         for e in job_entries:
             lg = log_by_cand.get(e.candidate_id)
-            if lg and lg.status.value == "SENT" and lg.channel in (
-                OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
-            ):
+            cand = cand_map.get(e.candidate_id)
+            if (lg and lg.status.value == "SENT"
+                    and lg.channel in (
+                        OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
+                    )
+                    and cand and is_reachable(cand)):
                 e.status = ShortlistStatus.CONTACTED
                 messaged += 1
     await db.commit()

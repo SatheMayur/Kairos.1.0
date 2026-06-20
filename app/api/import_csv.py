@@ -164,12 +164,14 @@ async def _run_import_pipeline(
             result_label = "REJECTED"
 
         # Auto-WhatsApp every reachable candidate the moment they're imported —
-        # shortlisted AND pending-review — as long as they have a phone/email.
-        # (Phone-less ones, e.g. locked Apna profiles, are skipped here and shown
-        # in Needs Fixing to unlock; you can't message a hidden number.)
+        # shortlisted AND pending-review — as long as we can actually reach them
+        # (a valid mobile or a real email). Phone-less ones (e.g. locked Apna
+        # profiles) are skipped here and shown in Needs Fixing to unlock; you
+        # can't message a hidden number.
+        from app.services.data_quality import is_reachable
         if (auto_outreach
                 and entry.status in (ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING)
-                and (candidate.phone or candidate.whatsapp or candidate.email)):
+                and is_reachable(candidate)):
             from app.models.shortlist import ShortlistEntry
             try:
                 log = await send_outreach(
@@ -179,13 +181,16 @@ async def _run_import_pipeline(
                     outreach_type=OutreachType.INITIAL_CONTACT,
                     db=db,
                 )
-                # Only count as contacted when a REAL channel delivered. A
-                # PLATFORM_MESSAGE/UNREACHABLE "send" (e.g. a phone-locked Apna
-                # candidate whose only address is apna:<id>) logs SENT but reaches
-                # no one — marking it CONTACTED would strand the candidate.
-                if log.status.value == "SENT" and log.channel in (
-                    OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
-                ):
+                # Only count as contacted when a REAL channel delivered AND the
+                # candidate is genuinely reachable. A PLATFORM_MESSAGE/UNREACHABLE
+                # "send" (e.g. a phone-locked Apna candidate whose only address is
+                # apna:<id>) logs SENT but reaches no one — marking it CONTACTED
+                # would strand the candidate.
+                if (log.status.value == "SENT"
+                        and log.channel in (
+                            OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
+                        )
+                        and is_reachable(candidate)):
                     outreach_queued += 1
                     entry.status = ShortlistStatus.CONTACTED
             except Exception as exc:

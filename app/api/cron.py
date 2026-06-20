@@ -121,16 +121,21 @@ async def cron_outreach():
             if not job:
                 continue
 
+            from app.services.data_quality import is_reachable
             candidates: list[Candidate] = []
+            cand_by_id: dict[int, Candidate] = {}
             for entry in job_entries:
                 c_res = await db.execute(
                     select(Candidate).where(Candidate.id == entry.candidate_id)
                 )
                 c = c_res.scalar_one_or_none()
-                # Only message candidates we can actually reach (have a phone/email).
-                # Phone-less ones (e.g. locked Apna profiles) are left for unlock.
-                if c and (c.phone or c.whatsapp or c.email):
+                # Only message candidates we can actually reach (valid mobile or
+                # real email). Phone-less ones (e.g. locked Apna profiles) and junk
+                # numbers are left for unlock / Needs Fixing.
+                if c and is_reachable(c):
                     candidates.append(c)
+                if c:
+                    cand_by_id[c.id] = c
 
             try:
                 # primary_channel decided above: WhatsApp when the bridge is
@@ -151,12 +156,16 @@ async def cron_outreach():
                 log_by_cand = {lg.candidate_id: lg for lg in logs}
                 for entry in job_entries:
                     lg = log_by_cand.get(entry.candidate_id)
-                    # CONTACTED only on a real delivered channel — a PLATFORM_MESSAGE
-                    # placeholder (no real address, e.g. phone-locked Apna) logs SENT
-                    # but reaches no one, so it must stay SHORTLISTED and be surfaced.
-                    if lg and lg.status.value == "SENT" and lg.channel in (
-                        OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
-                    ):
+                    cand = cand_by_id.get(entry.candidate_id)
+                    # CONTACTED only on a real delivered channel AND a genuinely
+                    # reachable candidate — a PLATFORM_MESSAGE placeholder (no real
+                    # address, e.g. phone-locked Apna) logs SENT but reaches no one,
+                    # so it must stay SHORTLISTED and be surfaced.
+                    if (lg and lg.status.value == "SENT"
+                            and lg.channel in (
+                                OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS
+                            )
+                            and cand and is_reachable(cand)):
                         entry.status = ShortlistStatus.CONTACTED
                 await db.commit()
 
@@ -224,15 +233,33 @@ async def cron_schedule():
         )).scalars().all()
 
         for entry in entries:
-            existing = (await db.execute(
+            # An entry is only truly INTERVIEW_SCHEDULED once a backing Interview
+            # has a real date/time (i.e. the candidate confirmed a slot). A
+            # PROPOSED interview with no scheduled_at is just "slots offered" — the
+            # candidate stays INTERESTED until they pick one, so the pipeline never
+            # shows a scheduled interview that doesn't actually exist.
+            confirmed = (await db.execute(
                 select(Interview).where(
                     Interview.candidate_id == entry.candidate_id,
                     Interview.job_id == entry.job_id,
-                    Interview.status.in_([InterviewStatus.PROPOSED, InterviewStatus.CONFIRMED]),
+                    Interview.scheduled_at.isnot(None),
                 )
             )).scalars().first()
-            if existing:
+            if confirmed:
                 entry.status = ShortlistStatus.INTERVIEW_SCHEDULED
+                already += 1
+                continue
+
+            # Already have open (proposed) slots out — don't re-propose, and don't
+            # mark scheduled yet (no time confirmed). Leave as INTERESTED.
+            pending_iv = (await db.execute(
+                select(Interview).where(
+                    Interview.candidate_id == entry.candidate_id,
+                    Interview.job_id == entry.job_id,
+                    Interview.status.in_([InterviewStatus.PROPOSED, InterviewStatus.RESCHEDULED]),
+                )
+            )).scalars().first()
+            if pending_iv:
                 already += 1
                 continue
 
@@ -241,8 +268,10 @@ async def cron_schedule():
             if not cand or not job:
                 continue
             try:
+                # Sends slot options and creates a PROPOSED interview (no time yet).
+                # Candidate stays INTERESTED until they confirm a slot (webhook /
+                # confirmation link sets scheduled_at + INTERVIEW_SCHEDULED then).
                 await propose_interview_slots(candidate=cand, job=job, channel=channel, db=db)
-                entry.status = ShortlistStatus.INTERVIEW_SCHEDULED
                 proposed += 1
             except Exception as exc:
                 errors[str(entry.candidate_id)] = str(exc)[:150]

@@ -170,16 +170,20 @@ async def _upsert_candidate(raw: RawCandidate, db: AsyncSession) -> Candidate:
 async def _score_and_shortlist(
     candidate: Candidate, job: Job, db: AsyncSession
 ) -> ShortlistEntry | None:
-    """Score a candidate against a job and create a ShortlistEntry."""
-    # Skip if already scored for this job
+    """Score a candidate against a job and create OR update a ShortlistEntry.
+
+    There is exactly one entry per (candidate, job) — enforced by a unique
+    constraint. Re-scoring an existing pair UPDATES that row (score, insights,
+    and — for not-yet-advanced entries — status); it never inserts a second row.
+    """
+    # Find the existing entry for this (candidate, job), if any.
     result = await db.execute(
         select(ShortlistEntry).where(
             ShortlistEntry.job_id == job.id,
             ShortlistEntry.candidate_id == candidate.id,
         )
     )
-    if result.scalar_one_or_none():
-        return None
+    existing = result.scalar_one_or_none()
 
     scored = score_candidate(
         candidate_skills=candidate.skills or [],
@@ -221,12 +225,27 @@ async def _score_and_shortlist(
     }
 
     breakdown = {**(scored.breakdown or {}), **ai_insights}
+    new_status = status_map[scored.decision]
+
+    if existing is not None:
+        # Re-score: always refresh the score + insights, but only re-classify the
+        # status when the candidate hasn't advanced past review. A CONTACTED /
+        # INTERESTED / INTERVIEW_SCHEDULED / HIRED entry keeps its status (we never
+        # silently move it back to PENDING/REJECTED); PENDING/SHORTLISTED ones are
+        # freely re-classified.
+        from app.models.shortlist import ADVANCED_STATUSES
+        existing.score = scored.total
+        existing.score_breakdown = breakdown
+        if existing.status not in ADVANCED_STATUSES:
+            existing.status = new_status
+        return existing
+
     entry = ShortlistEntry(
         job_id=job.id,
         candidate_id=candidate.id,
         score=scored.total,
         score_breakdown=breakdown,
-        status=status_map[scored.decision],
+        status=new_status,
     )
     db.add(entry)
     return entry

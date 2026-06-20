@@ -33,6 +33,21 @@ def _valid_email(email: str | None) -> bool:
     return bool(email and _EMAIL_RE.match(email.strip()))
 
 
+def is_reachable(candidate: Candidate) -> bool:
+    """True iff we have a real way to contact this candidate.
+
+    Reachable = a well-formed email OR a phone/whatsapp that normalizes to a
+    valid Indian mobile. A locked Apna profile (no email, hidden phone), a junk
+    "NA" number, or a landline is NOT reachable — so we never mark such a
+    candidate CONTACTED when no message could actually have reached them.
+    """
+    if _valid_email(candidate.email):
+        return True
+    if normalize_indian_mobile(candidate.phone) or normalize_indian_mobile(candidate.whatsapp):
+        return True
+    return False
+
+
 def _digits(s: str | None) -> str:
     return re.sub(r"\D", "", s or "")
 

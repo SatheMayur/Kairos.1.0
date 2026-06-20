@@ -47,7 +47,11 @@ _ALL_OPEN_STATUSES = (ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING)
 async def decide_primary_channel(db: AsyncSession) -> tuple[OutreachChannel, bool]:
     """Pick the channel to use right now: WhatsApp when the bridge is live (polled
     in the last 3 min), otherwise Email — so outreach never stalls when nobody's
-    computer is running the WhatsApp bridge. Returns (channel, whatsapp_live)."""
+    computer is running the WhatsApp bridge. Returns (channel, whatsapp_live).
+
+    PERMANENT RULE (Kirti): WhatsApp is ALWAYS first; email is only the fallback
+    when WhatsApp can't be used. Do not reverse this ordering.
+    """
     from app.models.wa_connection import WaConnection
 
     conn = await db.get(WaConnection, 1)

@@ -14,19 +14,32 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 logger = get_logger(__name__)
 
 
+async def _bank_jd(db: AsyncSession, *, title, raw_text, source, job_id=None) -> None:
+    """Save a JD into the JD Bank. Non-fatal — never blocks job creation."""
+    try:
+        if raw_text and raw_text.strip():
+            from app.api.resumes import store_jd
+            await store_jd(db, title, raw_text, source, job_id=job_id)
+    except Exception as exc:
+        logger.warning("Could not save JD to the JD Bank: %s", exc)
+
+
 @router.post("", response_model=JobRead, status_code=status.HTTP_201_CREATED)
 async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
     """Create a job requisition (fields pre-filled or from JD analysis)."""
     job = Job(**payload.model_dump())
     db.add(job)
     await db.flush()
+    await _bank_jd(db, title=job.title, raw_text=job.raw_jd, source="PASTE", job_id=job.id)
     return job
 
 
 @router.post("/analyze-jd", response_model=JDAnalysisResult)
 async def analyze_jd_text(raw_jd: str, db: AsyncSession = Depends(get_db)):
     """Parse a JD string and return extracted fields (rules-based; does not save)."""
-    return analyze_jd(raw_jd)
+    parsed = analyze_jd(raw_jd)
+    await _bank_jd(db, title=parsed.title, raw_text=raw_jd, source="PASTE")
+    return parsed
 
 
 @router.post("/analyze-jd-file", response_model=JDAnalysisResult)
@@ -72,7 +85,9 @@ async def analyze_jd_file(file: UploadFile = File(...), db: AsyncSession = Depen
                             detail=("Couldn't find readable text in this file."
                                     + (" Old .doc files often don't read well — please save it as PDF or DOCX and try again." if ext == "doc" else "")))
 
-    return analyze_jd(text)
+    parsed = analyze_jd(text)
+    await _bank_jd(db, title=parsed.title, raw_text=text, source="UPLOAD")
+    return parsed
 
 
 @router.post("/from-jd", response_model=JobRead, status_code=status.HTTP_201_CREATED)
@@ -95,6 +110,7 @@ async def create_job_from_jd(raw_jd: str, db: AsyncSession = Depends(get_db)):
     )
     db.add(job)
     await db.flush()
+    await _bank_jd(db, title=job.title, raw_text=raw_jd, source="PASTE", job_id=job.id)
     return job
 
 

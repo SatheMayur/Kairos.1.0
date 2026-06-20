@@ -6,6 +6,7 @@ from app.api import sourcing
 from app.api import webhook
 from app.api import wa_bridge
 from app.api import logs
+from app.api import resumes
 from app.api.analytics import router as analytics_router
 from app.api.orchestrator import router as orchestrator_router
 
@@ -21,5 +22,7 @@ api_router.include_router(sourcing.router)
 api_router.include_router(webhook.router)
 api_router.include_router(wa_bridge.router)
 api_router.include_router(logs.router)
+api_router.include_router(resumes.router)
+api_router.include_router(resumes.jd_router)
 api_router.include_router(analytics_router)
 api_router.include_router(orchestrator_router)

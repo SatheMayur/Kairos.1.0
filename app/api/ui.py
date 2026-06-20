@@ -65,6 +65,14 @@ async def system(request: Request):
 async def whatsapp(request: Request):
     return _render(request, "whatsapp.html", "whatsapp")
 
+@router.get("/resumes", response_class=HTMLResponse)
+async def resumes_bank(request: Request):
+    return _render(request, "resumes.html", "resumes")
+
+@router.get("/jd-bank", response_class=HTMLResponse)
+async def jd_bank(request: Request):
+    return _render(request, "jd_bank.html", "jd-bank")
+
 @router.get("/candidate/{candidate_id}", response_class=HTMLResponse)
 async def candidate_profile(candidate_id: int, request: Request):
     return templates.TemplateResponse(

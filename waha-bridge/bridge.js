@@ -17,9 +17,11 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
 } = require('@whiskeysockets/baileys');
 const express = require('express');
 const axios = require('axios');
+const FormData = require('form-data');
 const path = require('path');
 const fs = require('fs');
 const pino = require('pino');
@@ -229,6 +231,38 @@ async function connectToWhatsApp() {
       }
 
       const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+
+      // ── CV / resume attachment → Resume Bank ──────────────────────────────
+      // A document (PDF/DOC/DOCX/TXT) sent by a candidate is downloaded and
+      // pushed to the Resume Bank, tagged with their phone number. Text messages
+      // fall through to the normal reply handler below.
+      const docMsg = msg.message?.documentMessage
+                  || msg.message?.documentWithCaptionMessage?.message?.documentMessage;
+      if (docMsg) {
+        const fname = docMsg.fileName || 'cv';
+        const mime = docMsg.mimetype || '';
+        const looksLikeCv = /\.(pdf|docx?|txt)$/i.test(fname)
+                          || /pdf|word|officedocument|msword|text\/plain/i.test(mime);
+        if (looksLikeCv) {
+          try {
+            const buf = await downloadMediaMessage(
+              msg, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage }
+            );
+            const fd = new FormData();
+            fd.append('file', buf, { filename: fname });
+            fd.append('source', 'WHATSAPP');
+            fd.append('from_contact', from);
+            await axios.post(`${VERCEL}/api/v1/resumes/ingest`, fd, {
+              headers: fd.getHeaders(), timeout: 30000,
+            });
+            console.log(`[CV] ← ${from}: ${fname} → Resume Bank`);
+          } catch (err) {
+            console.error('[CV ERR]', err.message);
+          }
+          continue;  // handled as a CV; don't treat as a text reply
+        }
+      }
+
       if (!body) continue;
 
       console.log(`[RECV] ← ${from}: ${body.substring(0, 60)}`);

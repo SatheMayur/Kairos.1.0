@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Resume Bank{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Resume Bank</h1>
+    <p class="text-muted text-sm">Every CV we have on file. Search by name or by anything written in the CV.</p>
+  </div>
+</div>
+
+<div id="alert-area"></div>
+
+<div class="grid-2" style="margin-bottom:20px">
+  <!-- Upload a CV -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">📄 Add a CV</span></div>
+    <div class="card-body">
+      <p class="text-muted text-sm" style="margin-bottom:12px">
+        Choose a CV file (PDF, Word or text). We read the text out of it and file it
+        under the right person automatically.
+      </p>
+      <div class="form-group">
+        <input type="file" id="cv-file" accept=".pdf,.doc,.docx,.txt" style="width:100%">
+      </div>
+      <button class="btn btn-primary" id="cv-btn" onclick="uploadCV()">📤 Add to Resume Bank</button>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">🔎 Search</span></div>
+    <div class="card-body">
+      <div class="form-group">
+        <label>Search by name or words inside the CV</label>
+        <input type="text" id="cv-search" placeholder="e.g. Kavya, or “Adobe Photoshop”"
+               onkeyup="if(event.key==='Enter')loadResumes()">
+      </div>
+      <button class="btn btn-secondary" onclick="loadResumes()">Search</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('cv-search').value='';loadResumes()">Clear</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span class="card-title">CVs on File</span></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Where it came from</th><th>File</th><th>Received</th><th></th></tr>
+      </thead>
+      <tbody id="resume-rows">
+        <tr><td colspan="5" style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- View modal -->
+<div class="modal-overlay" id="cv-modal">
+  <div class="modal-box modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="cv-modal-title">CV</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cv-modal').style.display='none'">✕</button>
+    </div>
+    <div id="cv-modal-meta" class="text-muted text-sm" style="margin-bottom:12px"></div>
+    <pre id="cv-modal-text" style="white-space:pre-wrap;font-family:var(--font);font-size:12.5px;color:#d4d4d8;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:14px;max-height:55vh;overflow:auto"></pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SRC_BADGE = {UPLOAD:'badge-blue', WHATSAPP:'badge-green', EMAIL:'badge-purple'};
+const SRC_LABEL = {UPLOAD:'Uploaded', WHATSAPP:'WhatsApp', EMAIL:'Email'};
+
+function fmtDate(s){ if(!s) return '—'; try{ return new Date(s).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }catch(e){ return s; } }
+
+async function loadResumes(){
+  const q = document.getElementById('cv-search').value.trim();
+  const tbody = document.getElementById('resume-rows');
+  tbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></td></tr>';
+  try{
+    const rows = await api('/api/v1/resumes' + (q?('?q='+encodeURIComponent(q)):''));
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">▤</div><p>No CVs yet. Add one above to get started.</p></div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r=>{
+      const badge = SRC_BADGE[r.source]||'badge-grey';
+      const label = SRC_LABEL[r.source]||esc(r.source||'—');
+      const name = r.candidate_id
+        ? `<a href="/ui/candidate/${r.candidate_id}" style="color:var(--blue)">${esc(r.candidate_name||'View person')}</a>`
+        : esc(r.candidate_name||'Unknown');
+      return `<tr>
+        <td>${name}</td>
+        <td><span class="badge ${badge}">${label}</span>${r.from_contact?` <span class="text-dim text-xs">${esc(r.from_contact)}</span>`:''}</td>
+        <td class="text-muted text-sm">${esc(r.filename||'—')}</td>
+        <td class="text-muted text-sm">${fmtDate(r.received_at)}</td>
+        <td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="viewCV(${r.id})">View</button></td>
+      </tr>`;
+    }).join('');
+  }catch(e){
+    tbody.innerHTML = `<tr><td colspan="5"><div class="alert alert-error">${esc(e.message)}</div></td></tr>`;
+  }
+}
+
+async function viewCV(id){
+  try{
+    const d = await api('/api/v1/resumes/'+id);
+    document.getElementById('cv-modal-title').textContent = (d.candidate&&d.candidate.name) || d.filename || 'CV';
+    const parts = [];
+    if(d.candidate&&d.candidate.email) parts.push('Email: '+d.candidate.email);
+    if(d.candidate&&d.candidate.phone) parts.push('Phone: '+d.candidate.phone);
+    if(d.filename) parts.push('File: '+d.filename);
+    document.getElementById('cv-modal-meta').textContent = parts.join('   •   ');
+    document.getElementById('cv-modal-text').textContent = d.text || '(no text)';
+    document.getElementById('cv-modal').style.display='block';
+  }catch(e){ showToast(e.message,'error'); }
+}
+
+async function uploadCV(){
+  const input = document.getElementById('cv-file');
+  if(!input.files.length){ showToast('Please choose a CV file first.','error'); return; }
+  const btn = document.getElementById('cv-btn');
+  btn.disabled = true; btn.textContent = 'Reading…';
+  try{
+    const fd = new FormData();
+    fd.append('file', input.files[0]);
+    fd.append('source', 'UPLOAD');
+    const res = await fetch('/api/v1/resumes/ingest', {method:'POST', body:fd});
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.detail||'Could not add this CV.');
+    if(data.duplicate){ showToast('This CV is already in the bank.','info'); }
+    else if(data.matched){ showToast('Added — filed under '+(data.candidate_name||'an existing person')+'.','success'); }
+    else{ showToast('Added a new person from this CV: '+(data.candidate_name||'Unknown')+'.','success'); }
+    input.value='';
+    loadResumes();
+  }catch(e){ showToast(e.message,'error'); }
+  finally{ btn.disabled=false; btn.textContent='📤 Add to Resume Bank'; }
+}
+
+loadResumes();
+</script>
+{% endblock %}

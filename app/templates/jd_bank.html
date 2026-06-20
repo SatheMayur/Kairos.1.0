@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Job Description Bank{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Job Description Bank</h1>
+    <p class="text-muted text-sm">Every job description that came through the system, saved for reference.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="filter-bar">
+    <div class="filter-group" style="flex:1">
+      <span class="filter-label">Search</span>
+      <input type="text" id="jd-search" placeholder="Search by job title or words in the description"
+             onkeyup="if(event.key==='Enter')loadJDs()">
+    </div>
+    <button class="btn btn-secondary" onclick="loadJDs()">Search</button>
+    <button class="btn btn-ghost" onclick="document.getElementById('jd-search').value='';loadJDs()">Clear</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Job Title</th><th>How it came in</th><th>Date saved</th><th></th></tr>
+      </thead>
+      <tbody id="jd-rows">
+        <tr><td colspan="4" style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- View modal -->
+<div class="modal-overlay" id="jd-modal">
+  <div class="modal-box modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="jd-modal-title">Job Description</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('jd-modal').style.display='none'">✕</button>
+    </div>
+    <pre id="jd-modal-text" style="white-space:pre-wrap;font-family:var(--font);font-size:12.5px;color:#d4d4d8;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:14px;max-height:55vh;overflow:auto"></pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const JD_SRC = {UPLOAD:'badge-blue', PASTE:'badge-grey'};
+const JD_LABEL = {UPLOAD:'Uploaded file', PASTE:'Typed / pasted'};
+let JD_CACHE = {};
+
+function fmtDate(s){ if(!s) return '—'; try{ return new Date(s).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }catch(e){ return s; } }
+
+async function loadJDs(){
+  const q = document.getElementById('jd-search').value.trim();
+  const tbody = document.getElementById('jd-rows');
+  tbody.innerHTML = '<tr><td colspan="4" style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></td></tr>';
+  try{
+    const rows = await api('/api/v1/jd-bank' + (q?('?q='+encodeURIComponent(q)):''));
+    JD_CACHE = {};
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="empty-state-icon">▦</div><p>No job descriptions saved yet. They are saved automatically when you add or analyse a job.</p></div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(d=>{
+      JD_CACHE[d.id] = d;
+      const badge = JD_SRC[d.source]||'badge-grey';
+      const label = JD_LABEL[d.source]||esc(d.source||'—');
+      return `<tr>
+        <td>${esc(d.title||'Untitled Role')}</td>
+        <td><span class="badge ${badge}">${label}</span></td>
+        <td class="text-muted text-sm">${fmtDate(d.created_at)}</td>
+        <td style="text-align:right"><button class="btn btn-ghost btn-sm" onclick="viewJD(${d.id})">View text</button></td>
+      </tr>`;
+    }).join('');
+  }catch(e){
+    tbody.innerHTML = `<tr><td colspan="4"><div class="alert alert-error">${esc(e.message)}</div></td></tr>`;
+  }
+}
+
+function viewJD(id){
+  const d = JD_CACHE[id];
+  if(!d) return;
+  document.getElementById('jd-modal-title').textContent = d.title || 'Job Description';
+  document.getElementById('jd-modal-text').textContent = d.raw_text || '(no text)';
+  document.getElementById('jd-modal').style.display='block';
+}
+
+loadJDs();
+</script>
+{% endblock %}

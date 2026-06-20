@@ -67,8 +67,9 @@
         <div style="padding:24px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
       </div>
       <div style="padding:10px 16px;border-top:1px solid var(--border-subtle);display:flex;gap:8px">
-        <a id="panel-link-shortlist" href="#" class="btn btn-secondary btn-sm" style="font-size:11px">Open Shortlist ↗</a>
-        <a id="panel-link-triage" href="#" class="btn btn-primary btn-sm" style="font-size:11px">Quick Review ↗</a>
+        <a id="panel-link-discover" href="#" class="btn btn-primary btn-sm" style="font-size:11px">◎ Find Candidates ↗</a>
+        <a id="panel-link-shortlist" href="#" class="btn btn-secondary btn-sm" style="font-size:11px">Shortlist ↗</a>
+        <a id="panel-link-triage" href="#" class="btn btn-secondary btn-sm" style="font-size:11px">Quick Review ↗</a>
       </div>
     </div>
   </div>
@@ -377,6 +378,7 @@ async function openPanel(jobId) {
   const panel = document.getElementById('detail-panel');
   panel.style.display = 'block';
   document.getElementById('panel-title').textContent = esc(job.title);
+  document.getElementById('panel-link-discover').href = '/ui/discover?job_id=' + jobId;
   document.getElementById('panel-link-shortlist').href = '/ui/shortlist?job_id=' + jobId;
   document.getElementById('panel-link-triage').href = '/ui/triage?job_id=' + jobId;
   document.getElementById('panel-pipeline').innerHTML = '';

@@ -156,6 +156,181 @@ async def trigger_sourcing(job_id: int, db: AsyncSession = Depends(get_db)):
     return {"sourced": len(entries), "job_id": job_id}
 
 
+async def _job_entries_and_candidates(job_id: int, db: AsyncSession):
+    """Load every shortlist entry for a job plus the matching candidate rows."""
+    from app.models.shortlist import ShortlistEntry
+    from app.models.candidate import Candidate
+
+    er = await db.execute(
+        select(ShortlistEntry).where(ShortlistEntry.job_id == job_id)
+        .order_by(ShortlistEntry.score.desc())
+    )
+    entries = er.scalars().all()
+    cand_ids = list({e.candidate_id for e in entries})
+    cands: dict[int, Candidate] = {}
+    if cand_ids:
+        cr = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
+        cands = {c.id: c for c in cr.scalars().all()}
+    return entries, cands
+
+
+@router.get("/{job_id}/stats", summary="Job intelligence: bands, pipeline, insights")
+async def job_stats(job_id: int, db: AsyncSession = Depends(get_db)):
+    """For ONE job: how many strong/medium/weak matches, the pipeline breakdown,
+    how many are reachable, and plain-English insights + recommended next steps."""
+    from app.services.job_intelligence import (
+        compute_stats, build_insights, build_recommendations, band_of,
+    )
+    from app.services.data_quality import is_reachable
+    from app.models.shortlist import ShortlistStatus
+
+    job = await _get_or_404(job_id, db)
+    entries, cands = await _job_entries_and_candidates(job_id, db)
+
+    stats = compute_stats(entries, cands)
+
+    # Action-ready tallies the recommendations need (reachability is per-candidate).
+    counts = {
+        "pending_strong_reachable": 0,
+        "shortlisted_reachable": 0,
+        "interested": 0,
+    }
+    for e in entries:
+        c = cands.get(e.candidate_id)
+        ok = is_reachable(c) if c is not None else False
+        if e.status == ShortlistStatus.PENDING and ok and band_of(e.score) == "strong":
+            counts["pending_strong_reachable"] += 1
+        elif e.status == ShortlistStatus.SHORTLISTED and ok:
+            counts["shortlisted_reachable"] += 1
+        elif e.status == ShortlistStatus.INTERESTED:
+            counts["interested"] += 1
+
+    return {
+        "job": {
+            "id": job.id, "title": job.title, "company": job.company,
+            "location": job.location, "status": job.status,
+            "skills": job.skills or [],
+            "experience_min": job.experience_min, "experience_max": job.experience_max,
+            "salary_min": job.salary_min, "salary_max": job.salary_max,
+        },
+        **stats,
+        "insights": build_insights(stats),
+        "recommendations": build_recommendations(stats, counts),
+    }
+
+
+@router.get("/{job_id}/candidates", summary="Matching candidates for a job, enriched")
+async def job_candidates(
+    job_id: int,
+    band: Optional[str] = None,            # strong | medium | weak
+    status: Optional[str] = None,
+    reachable_only: bool = False,
+    needs_contact: bool = False,
+    include_closed: bool = True,
+    q: Optional[str] = None,
+    limit: int = 500,
+    db: AsyncSession = Depends(get_db),
+):
+    """The ranked candidate list for a job — match score, per-dimension match,
+    status, last activity, and the recommended next action. Built in a handful of
+    queries (no per-candidate round-trips)."""
+    from app.models.shortlist import ShortlistStatus
+    from app.models.outreach import OutreachLog
+    from app.services.data_quality import is_reachable
+    from app.services.job_intelligence import (
+        band_of, match_dimensions, recommended_action, STATUS_LABEL, CLOSED_STATUSES,
+    )
+
+    await _get_or_404(job_id, db)
+    entries, cands = await _job_entries_and_candidates(job_id, db)
+
+    # Latest activity per candidate for this job — one query, grouped in Python.
+    last_activity: dict[int, dict] = {}
+    if cands:
+        olr = await db.execute(
+            select(OutreachLog).where(OutreachLog.job_id == job_id)
+            .order_by(OutreachLog.created_at.desc())
+        )
+        for o in olr.scalars().all():
+            if o.candidate_id in last_activity:
+                continue  # already have the most-recent one (ordered desc)
+            ts = o.sent_at or o.replied_at or o.created_at
+            label = {"EMAIL": "Emailed", "WHATSAPP": "WhatsApp sent"}.get(
+                o.channel.value, o.channel.value.title())
+            if o.status.value == "REPLIED" or o.replied_at:
+                label = "Replied"
+            elif o.status.value in ("FAILED", "BOUNCED"):
+                label = "Message failed"
+            last_activity[o.candidate_id] = {
+                "ts": ts.isoformat() if ts else None, "label": label,
+            }
+
+    rows = []
+    for e in entries:
+        c = cands.get(e.candidate_id)
+        if c is None:
+            continue
+        b = band_of(e.score)
+        ok = is_reachable(c)
+        st = e.status
+        if band and b != band:
+            continue
+        if status and st.value != status:
+            continue
+        if reachable_only and not ok:
+            continue
+        if needs_contact and (ok or st in (
+            ShortlistStatus.HIRED, ShortlistStatus.REJECTED,
+            ShortlistStatus.NOT_INTERESTED, ShortlistStatus.DROPPED)):
+            continue
+        if not include_closed and st in CLOSED_STATUSES:
+            continue
+        if q:
+            ql = q.lower()
+            hay = " ".join(filter(None, [
+                c.name, c.current_role, c.current_employer, c.location,
+                " ".join(c.skills or []),
+            ])).lower()
+            if ql not in hay:
+                continue
+
+        bd = e.score_breakdown or {}
+        la = last_activity.get(c.id)
+        rows.append({
+            "entry_id": e.id,
+            "candidate_id": c.id,
+            "name": c.name,
+            "score": round(e.score) if e.score is not None else None,
+            "band": b,
+            "status": st.value,
+            "status_label": STATUS_LABEL.get(st, st.value),
+            "reachable": ok,
+            "needs_contact": (not ok) and st not in (
+                ShortlistStatus.HIRED, ShortlistStatus.REJECTED,
+                ShortlistStatus.NOT_INTERESTED, ShortlistStatus.DROPPED),
+            "match": match_dimensions(bd),
+            "skills": c.skills or [],
+            "experience_years": c.experience_years,
+            "location": c.location,
+            "current_role": c.current_role,
+            "current_employer": c.current_employer,
+            "expected_salary": c.expected_salary,
+            "email": c.email,
+            "phone": c.phone,
+            "whatsapp": c.whatsapp,
+            "source": c.source.value if c.source else None,
+            "ai_strengths": bd.get("ai_strengths", []),
+            "ai_concerns": bd.get("ai_concerns", []),
+            "ai_reasoning": bd.get("ai_reasoning", ""),
+            "last_activity": la,
+            "recommended_action": recommended_action(st, e.score, ok),
+            "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+        })
+
+    rows.sort(key=lambda r: (r["score"] or 0), reverse=True)
+    return {"job_id": job_id, "count": len(rows), "candidates": rows[:limit]}
+
+
 async def _get_or_404(job_id: int, db: AsyncSession) -> Job:
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()

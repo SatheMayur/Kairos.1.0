@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}Find Candidates{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Find Candidates</h1>
+    <p class="text-muted text-sm">Pick a job — see your best candidates for it right now</p>
+  </div>
+  <div class="topbar-right">
+    <select id="job-select" class="filter-select" style="min-width:280px" onchange="onJobChange()">
+      <option value="">Loading jobs…</option>
+    </select>
+  </div>
+</div>
+
+<div id="discover-body">
+  <div class="empty-state"><div class="empty-state-icon">◎</div>
+    <p>Choose a job above to see who your best candidates are.</p></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── state ──
+let _jobs = [];
+let _jobId = null;
+let _stats = null;
+let _cands = [];       // enriched candidate rows for the selected job
+let _filter = { band:'', status:'', q:'', reachable:false, needs_contact:false };
+
+const STATUS_CLASS = {
+  PENDING:'badge-grey', SHORTLISTED:'badge-green', REJECTED:'badge-red',
+  CONTACTED:'badge-blue', INTERESTED:'badge-green', NOT_INTERESTED:'badge-red',
+  INTERVIEW_SCHEDULED:'badge-purple', HIRED:'badge-green', DROPPED:'badge-grey',
+};
+const BAND_COLOR = { strong:'var(--accent)', medium:'var(--yellow)', weak:'var(--red)' };
+const BAND_LABEL = { strong:'Strong', medium:'Good', weak:'Weak' };
+
+function qsParam(name){ return new URLSearchParams(location.search).get(name); }
+
+async function init(){
+  try{
+    _jobs = await api('/api/v1/jobs?limit=100');
+  }catch(e){ _jobs = []; }
+  const sel = document.getElementById('job-select');
+  if(!_jobs.length){
+    sel.innerHTML = '<option value="">No jobs yet</option>';
+    document.getElementById('discover-body').innerHTML =
+      '<div class="empty-state"><div class="empty-state-icon">◫</div><p>No jobs yet. <a href="/ui/jobs" style="color:var(--accent)">Create a job</a> first.</p></div>';
+    return;
+  }
+  // Active jobs first, then the rest.
+  _jobs.sort((a,b)=> (a.status==='ACTIVE'?0:1) - (b.status==='ACTIVE'?0:1));
+  sel.innerHTML = _jobs.map(j=>
+    `<option value="${j.id}">${esc(j.title)}${j.company?' — '+esc(j.company):''}${j.status!=='ACTIVE'?' ('+j.status+')':''}</option>`
+  ).join('');
+
+  const want = qsParam('job_id');
+  _jobId = (want && _jobs.some(j=>String(j.id)===String(want))) ? Number(want) : _jobs[0].id;
+  sel.value = _jobId;
+  loadJob();
+}
+
+function onJobChange(){
+  _jobId = Number(document.getElementById('job-select').value);
+  _filter = { band:'', status:'', q:'', reachable:false, needs_contact:false };
+  history.replaceState(null,'','/ui/discover?job_id='+_jobId);
+  loadJob();
+}
+
+async function loadJob(){
+  const body = document.getElementById('discover-body');
+  body.innerHTML = '<div style="padding:40px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>';
+  try{
+    const [stats, cands] = await Promise.all([
+      api('/api/v1/jobs/'+_jobId+'/stats'),
+      api('/api/v1/jobs/'+_jobId+'/candidates?limit=500'),
+    ]);
+    _stats = stats;
+    _cands = cands.candidates || [];
+    render();
+  }catch(e){
+    body.innerHTML = `<div class="alert alert-error">Couldn't load this job: ${esc(e.message)}</div>`;
+  }
+}
+
+// ── render ──
+function render(){
+  document.getElementById('discover-body').innerHTML =
+    statCardsHTML() + insightsHTML() + recsHTML() + filterBarHTML() + '<div id="cand-list"></div>';
+  renderList();
+}
+
+function statCard(label, value, color, filterFn, active){
+  return `<div class="kpi ${color}" style="cursor:pointer;${active?'border-color:var(--accent-border)':''}" onclick='${filterFn}'>
+    <div class="kpi-label">${label}</div><div class="kpi-value">${value}</div></div>`;
+}
+
+function statCardsHTML(){
+  const s = _stats, b = s.bands, p = s.pipeline;
+  return `
+  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+    ${statCard('Total candidates', s.total, 'blue', "setBand('')")}
+    ${statCard('Strong match (80+)', b.strong, 'green', "setBand('strong')", _filter.band==='strong')}
+    ${statCard('Good match (60–79)', b.medium, 'yellow', "setBand('medium')", _filter.band==='medium')}
+    ${statCard('Weak match (&lt;60)', b.weak, 'red', "setBand('weak')", _filter.band==='weak')}
+  </div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:20px">
+    ${statCard('Shortlisted', p.SHORTLISTED||0, 'green', "setStatus('SHORTLISTED')", _filter.status==='SHORTLISTED')}
+    ${statCard('Contacted', p.CONTACTED||0, 'blue', "setStatus('CONTACTED')", _filter.status==='CONTACTED')}
+    ${statCard('Interview', p.INTERVIEW_SCHEDULED||0, 'purple', "setStatus('INTERVIEW_SCHEDULED')", _filter.status==='INTERVIEW_SCHEDULED')}
+    ${statCard('Hired', p.HIRED||0, 'green', "setStatus('HIRED')", _filter.status==='HIRED')}
+    ${statCard('Needs contact info', s.needs_contact, 'orange', "setNeedsContact()", _filter.needs_contact)}
+  </div>`;
+}
+
+function insightsHTML(){
+  const ins = _stats.insights || [];
+  if(!ins.length) return '';
+  return `<div class="card"><div class="card-header"><span class="card-title">📊 Talent insights</span></div>
+    <div class="card-body" style="padding:14px 18px">
+      <ul style="margin:0;padding-left:18px;line-height:2;font-size:12.5px;color:var(--text-secondary)">
+        ${ins.map(t=>`<li>${esc(t)}</li>`).join('')}
+      </ul></div></div>`;
+}
+
+function recsHTML(){
+  const recs = _stats.recommendations || [];
+  if(!recs.length) return '';
+  return `<div class="card"><div class="card-header"><span class="card-title">✅ Recommended next steps</span></div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+      ${recs.map((r,i)=>`
+        <div style="display:flex;gap:12px;align-items:center;background:var(--bg-overlay);border-radius:var(--radius-md);padding:11px 14px">
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:12.5px">${esc(r.title)}</div>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">${esc(r.detail)}</div>
+          </div>
+          ${r.action_url
+            ? `<a href="${r.action_url}" class="btn btn-secondary btn-sm">${esc(r.action_label||'Open')}</a>`
+            : (r.filter ? `<button class="btn btn-primary btn-sm" onclick='applyRec(${i})'>View</button>` : '')}
+        </div>`).join('')}
+    </div></div>`;
+}
+
+function applyRec(i){
+  const r = (_stats.recommendations||[])[i]; if(!r||!r.filter) return;
+  _filter = { band:'', status:'', q:'', reachable:false, needs_contact:false };
+  if(r.filter.band) _filter.band = r.filter.band;
+  if(r.filter.status) _filter.status = r.filter.status;
+  if(r.filter.needs_contact) _filter.needs_contact = true;
+  render();
+  document.getElementById('cand-list').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function filterBarHTML(){
+  return `<div class="card"><div class="card-header" style="flex-wrap:wrap;gap:10px">
+    <span class="card-title">Candidates <span id="cand-shown" style="color:var(--text-muted);font-weight:400"></span></span>
+    <div class="flex gap-2 items-center" style="flex-wrap:wrap">
+      <input type="text" id="d-search" placeholder="Search name, skill, location…" value="${esc(_filter.q)}"
+        oninput="_filter.q=this.value;renderList()" style="width:200px;padding:5px 10px">
+      <select class="filter-select" onchange="_filter.band=this.value;renderList()">
+        <option value="">All match levels</option>
+        <option value="strong"${_filter.band==='strong'?' selected':''}>Strong (80+)</option>
+        <option value="medium"${_filter.band==='medium'?' selected':''}>Good (60–79)</option>
+        <option value="weak"${_filter.band==='weak'?' selected':''}>Weak (&lt;60)</option>
+      </select>
+      <select class="filter-select" onchange="_filter.status=this.value;renderList()">
+        <option value="">All stages</option>
+        <option value="PENDING"${_filter.status==='PENDING'?' selected':''}>Needs review</option>
+        <option value="SHORTLISTED"${_filter.status==='SHORTLISTED'?' selected':''}>Shortlisted</option>
+        <option value="CONTACTED"${_filter.status==='CONTACTED'?' selected':''}>Contacted</option>
+        <option value="INTERESTED"${_filter.status==='INTERESTED'?' selected':''}>Interested</option>
+        <option value="INTERVIEW_SCHEDULED"${_filter.status==='INTERVIEW_SCHEDULED'?' selected':''}>Interview</option>
+        <option value="HIRED"${_filter.status==='HIRED'?' selected':''}>Hired</option>
+        <option value="REJECTED"${_filter.status==='REJECTED'?' selected':''}>Rejected</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);white-space:nowrap">
+        <input type="checkbox" ${_filter.reachable?'checked':''} onchange="_filter.reachable=this.checked;renderList()" style="width:auto"> Reachable only
+      </label>
+    </div></div>
+    <div id="cand-rows"></div></div>`;
+}
+
+function setBand(b){ _filter.band = (_filter.band===b?'':b); _filter.needs_contact=false; render(); }
+function setStatus(s){ _filter.status = (_filter.status===s?'':s); _filter.needs_contact=false; render(); }
+function setNeedsContact(){ _filter.needs_contact = !_filter.needs_contact; if(_filter.needs_contact){_filter.band='';_filter.status='';} render(); }
+
+function filtered(){
+  let d = _cands;
+  if(_filter.band) d = d.filter(c=>c.band===_filter.band);
+  if(_filter.status) d = d.filter(c=>c.status===_filter.status);
+  if(_filter.reachable) d = d.filter(c=>c.reachable);
+  if(_filter.needs_contact) d = d.filter(c=>c.needs_contact);
+  const q = (_filter.q||'').toLowerCase();
+  if(q) d = d.filter(c=>
+    (c.name||'').toLowerCase().includes(q) ||
+    (c.skills||[]).some(s=>s.toLowerCase().includes(q)) ||
+    (c.location||'').toLowerCase().includes(q) ||
+    (c.current_role||'').toLowerCase().includes(q));
+  return d;
+}
+
+function dimBar(label, pct){
+  const col = pct>=70?'var(--accent)':pct>=40?'var(--yellow)':'var(--red)';
+  return `<div style="display:flex;align-items:center;gap:5px;font-size:9.5px;color:var(--text-muted)">
+    <span style="width:26px">${label}</span>
+    <span style="flex:1;height:3px;background:var(--border-default);border-radius:99px;overflow:hidden;min-width:36px">
+      <span style="display:block;height:100%;width:${pct}%;background:${col}"></span></span></div>`;
+}
+
+function timeAgo(iso){
+  if(!iso) return '';
+  const d = (Date.now() - new Date(iso).getTime())/1000;
+  if(d<3600) return Math.max(1,Math.round(d/60))+'m ago';
+  if(d<86400) return Math.round(d/3600)+'h ago';
+  return Math.round(d/86400)+'d ago';
+}
+
+function actionBtn(c){
+  const a = c.recommended_action || {};
+  if(a.kind==='blocked'){
+    return `<span class="badge badge-orange" title="Add a phone or email before you can reach this person">⚠ ${esc(a.label)}</span>`;
+  }
+  if(a.key==='SHORTLIST' || a.key==='REVIEW'){
+    return `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();doShortlist(${c.entry_id},this)">★ Shortlist</button>`;
+  }
+  if(a.key==='CONTACT'){
+    const wa = c.whatsapp || c.phone;
+    if(wa) return `<a class="btn btn-primary btn-sm" target="_blank" onclick="event.stopPropagation()" href="https://wa.me/${String(wa).replace(/\\D/g,'')}">💬 WhatsApp</a>`;
+    if(c.email) return `<a class="btn btn-primary btn-sm" onclick="event.stopPropagation()" href="mailto:${esc(c.email)}">✉ Email</a>`;
+  }
+  if(a.key==='SCHEDULE'){
+    return `<a class="btn btn-primary btn-sm" onclick="event.stopPropagation()" href="/ui/interviews">◷ Schedule</a>`;
+  }
+  // neutral / informational
+  return `<span class="badge badge-grey" style="font-size:10px">${esc(a.label||'')}</span>`;
+}
+
+function renderList(){
+  const d = filtered();
+  const shown = document.getElementById('cand-shown');
+  if(shown) shown.textContent = `· ${d.length} of ${_cands.length}`;
+  const rows = document.getElementById('cand-rows');
+  if(!rows) return;
+  if(!d.length){
+    rows.innerHTML = '<div class="empty-state" style="padding:32px"><p>No candidates match these filters.</p></div>';
+    return;
+  }
+  rows.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>Candidate</th><th>Match</th><th>Skills</th><th>Stage</th><th>Last activity</th><th class="tr-action">Next step</th>
+    </tr></thead><tbody>
+    ${d.map(c=>{
+      const col = BAND_COLOR[c.band];
+      const m = c.match||{};
+      return `<tr style="cursor:pointer" onclick="window.open('/ui/candidate/'+${c.candidate_id},'_blank')">
+        <td>
+          <div style="font-weight:600;font-size:12.5px">${esc(c.name)}${c.needs_contact?' <span class="badge badge-orange" style="font-size:9px">⚠ No contact</span>':''}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${esc(c.current_role||'')}${c.current_employer?' @ '+esc(c.current_employer):''}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${c.location?esc(c.location):''}${c.experience_years!=null?' · '+c.experience_years+'y exp':''}</div>
+        </td>
+        <td style="min-width:120px">
+          <div style="display:flex;align-items:baseline;gap:6px">
+            <span style="font-size:18px;font-weight:700;color:${col}">${c.score!=null?c.score:'–'}</span>
+            <span class="badge" style="background:${col}1f;color:${col};border:none;font-size:9.5px">${BAND_LABEL[c.band]}</span>
+          </div>
+          <div style="margin-top:3px;display:flex;flex-direction:column;gap:2px">
+            ${dimBar('Skl', m.skills||0)}${dimBar('Exp', m.experience||0)}${dimBar('Loc', m.location||0)}
+          </div>
+        </td>
+        <td>${(c.skills||[]).slice(0,3).map(s=>`<span class="badge badge-grey" style="margin:1px;font-size:9.5px">${esc(s)}</span>`).join('')}${(c.skills||[]).length>3?`<span class="text-muted" style="font-size:10px"> +${c.skills.length-3}</span>`:''}</td>
+        <td><span class="badge ${STATUS_CLASS[c.status]||'badge-grey'}" style="font-size:10px">${esc(c.status_label)}</span></td>
+        <td style="font-size:11px;color:var(--text-muted)">${c.last_activity?esc(c.last_activity.label)+'<br>'+timeAgo(c.last_activity.ts):'—'}</td>
+        <td class="tr-action" onclick="event.stopPropagation()">${actionBtn(c)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>`;
+}
+
+async function doShortlist(entryId, btn){
+  btn.disabled = true; btn.textContent = '…';
+  try{
+    await api('/api/v1/shortlist/'+entryId, {method:'PATCH', body:{status:'SHORTLISTED'}});
+    showToast('Shortlisted ✓','success');
+    // update local state + re-render
+    const c = _cands.find(x=>x.entry_id===entryId);
+    if(c){ c.status='SHORTLISTED'; c.status_label='Shortlisted';
+           c.recommended_action = c.reachable ? {key:'CONTACT',label:'Contact',kind:'primary'} : {key:'GET_CONTACT',label:'Needs contact info',kind:'blocked'}; }
+    await loadJob();
+  }catch(e){ showToast('Failed: '+e.message,'error'); btn.disabled=false; btn.textContent='★ Shortlist'; }
+}
+
+init();
+</script>
+{% endblock %}

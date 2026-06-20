@@ -286,6 +286,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     <a href="/ui/jobs" class="nav-item {% if active=='jobs' %}active{% endif %}">
       <span class="nav-icon">◫</span> Jobs <span class="nav-kbd">G J</span>
     </a>
+    <a href="/ui/discover" class="nav-item {% if active=='discover' %}active{% endif %}">
+      <span class="nav-icon">◎</span> Find Candidates <span class="nav-kbd">G F</span>
+    </a>
     <a href="/ui/candidates" class="nav-item {% if active=='candidates' %}active{% endif %}">
       <span class="nav-icon">◎</span> Candidates <span class="nav-kbd">G C</span>
     </a>
@@ -462,7 +465,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='g'||gBuffer==='g'){
     if(e.key==='g'){gBuffer='g';setTimeout(()=>{gBuffer=''},1200);return}
     if(gBuffer==='g'){
-      const map={d:'/ui/',j:'/ui/jobs',c:'/ui/candidates',s:'/ui/shortlist',o:'/ui/outreach',i:'/ui/interviews',w:'/ui/whatsapp'};
+      const map={d:'/ui/',j:'/ui/jobs',f:'/ui/discover',c:'/ui/candidates',s:'/ui/shortlist',o:'/ui/outreach',i:'/ui/interviews',w:'/ui/whatsapp'};
       if(map[e.key]){location.href=map[e.key];e.preventDefault()}
       gBuffer='';return;
     }
@@ -475,6 +478,7 @@ const CMD_PAGES=[
   {icon:'✦',label:'Start Here',sub:'How it works — in 3 simple steps',url:'/ui/start'},
   {icon:'◈',label:'Dashboard',sub:'Overview & priorities',url:'/ui/',kbd:'G D'},
   {icon:'◫',label:'Jobs',sub:'Open requisitions',url:'/ui/jobs',kbd:'G J'},
+  {icon:'◎',label:'Find Candidates',sub:'Best candidates for a job, right now',url:'/ui/discover',kbd:'G F'},
   {icon:'◎',label:'Candidates',sub:'All sourced candidates',url:'/ui/candidates',kbd:'G C'},
   {icon:'▤',label:'Resume Bank',sub:'All CVs we have on file',url:'/ui/resumes'},
   {icon:'▦',label:'JD Bank',sub:'Saved job descriptions',url:'/ui/jd-bank'},

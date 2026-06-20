@@ -37,6 +37,10 @@ async def start_here(request: Request):
 async def jobs(request: Request):
     return _render(request, "jobs.html", "jobs")
 
+@router.get("/discover", response_class=HTMLResponse)
+async def discover(request: Request):
+    return _render(request, "discover.html", "discover")
+
 @router.get("/candidates", response_class=HTMLResponse)
 async def candidates(request: Request):
     return _render(request, "candidates.html", "candidates")

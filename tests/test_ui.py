@@ -19,6 +19,13 @@ async def test_ui_jobs_renders(client):
 
 
 @pytest.mark.asyncio
+async def test_ui_discover_renders(client):
+    r = await client.get("/ui/discover")
+    assert r.status_code == 200
+    assert "Find Candidates" in r.text
+
+
+@pytest.mark.asyncio
 async def test_ui_candidates_renders(client):
     r = await client.get("/ui/candidates")
     assert r.status_code == 200

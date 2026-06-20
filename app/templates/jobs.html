@@ -14,7 +14,7 @@
   <div class="kpi blue"><div class="kpi-label">Total Jobs</div><div class="kpi-value" id="kpi-total">–</div></div>
   <div class="kpi green"><div class="kpi-label">Active</div><div class="kpi-value" id="kpi-active">–</div></div>
   <div class="kpi yellow"><div class="kpi-label">Total Candidates</div><div class="kpi-value" id="kpi-cands">–</div></div>
-  <div class="kpi purple"><div class="kpi-label">Shortlisted</div><div class="kpi-value" id="kpi-shortlisted">–</div></div>
+  <div class="kpi purple"><div class="kpi-label">Reached shortlist</div><div class="kpi-value" id="kpi-shortlisted">–</div></div>
 </div>
 
 <div style="display:flex;gap:16px;align-items:flex-start">
@@ -338,7 +338,7 @@ function renderJobTable(jobs, counts) {
   body.innerHTML = `<div class="table-wrap"><table>
     <thead><tr>
       <th>Role</th><th>Skills</th><th>Exp</th><th>Salary</th>
-      <th>Candidates</th><th>Shortlisted</th><th>Status</th><th class="tr-action">Actions</th>
+      <th>Candidates</th><th>Reached shortlist</th><th>Status</th><th class="tr-action">Actions</th>
     </tr></thead>
     <tbody>${jobs.map(j => {
       const c = counts[j.id] || { total: '…', shortlisted: '…' };

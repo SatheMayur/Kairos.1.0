@@ -65,6 +65,33 @@ async def test_morning_brief_shape(db_session):
     assert any(l["candidate"] == "Bhavna" for l in leads)
 
 
+def test_is_applicant_email():
+    from app.services.agent_memory import _is_applicant_email
+    assert _is_applicant_email({"from": "info@naukri.com", "subject": "responses summary"})
+    assert _is_applicant_email({"from": "support@workindia.in", "subject": "Interview Confirmation"})
+    assert _is_applicant_email({"from": "x@gmail.com", "subject": "Application for Designer — resume"})
+    # Not recruitment mail:
+    assert not _is_applicant_email({"from": "info@educohire.com", "subject": "feedback request"})
+    assert not _is_applicant_email({"from": "noreply@google.com", "subject": "Apps Script failed"})
+    assert not _is_applicant_email({"from": "monil@kgirdharlal.com", "subject": "email renamed"})
+
+
+@pytest.mark.asyncio
+async def test_morning_brief_inbox_shows_only_applicants(db_session):
+    await mem.set_memory(db_session, "external", "gmail", {"fetched_at": "2026-06-21T00:00:00", "items": [
+        {"from": "info@naukri.com", "subject": "232 applicants", "unread": True},
+        {"from": "info@educohire.com", "subject": "feedback request", "unread": True},
+        {"from": "x@y.com", "subject": "Application for Engineer", "unread": False},
+    ]})
+    brief = await mem.build_morning_brief(db_session)
+    recent = brief["email"]["inbox"]["recent"]
+    subjects = {m["subject"] for m in recent}
+    assert "232 applicants" in subjects
+    assert "Application for Engineer" in subjects
+    assert "feedback request" not in subjects           # general mail filtered out
+    assert brief["email"]["inbox"]["unread"] == 1        # only the unread applicant one
+
+
 @pytest.mark.asyncio
 async def test_memory_endpoints(client, db_session):
     assert (await client.post("/api/v1/memory/sync")).status_code == 200

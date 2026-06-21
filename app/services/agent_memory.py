@@ -24,6 +24,28 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Email senders / keywords that mark a message as a job applicant or their response,
+# so the morning brief's inbox shows ONLY recruitment mail (not the whole mailbox).
+_JOB_SENDER_DOMAINS = (
+    "naukri.com", "workindia.in", "apna.co", "indeed.com", "foundit", "monsterindia",
+    "shine.com", "timesjobs", "hirect", "instahyre", "cutshort", "internshala",
+    "freshersworld", "quikr", "jobhai",
+)
+_JOB_KEYWORDS = (
+    "applicant", "application", "candidate", "resume", " cv", "interview confirmation",
+    "job posting", "responses received", "applied for", "profile details", "shortlist",
+    "for the role", "job application",
+)
+
+
+def _is_applicant_email(item: dict) -> bool:
+    """True if an inbox email is a job applicant / their response (not general mail)."""
+    frm = (item.get("from") or "").lower()
+    subj = (item.get("subject") or "").lower()
+    if any(d in frm for d in _JOB_SENDER_DOMAINS):
+        return True
+    return any(k in subj for k in _JOB_KEYWORDS)
+
 
 # ── low-level tree access ────────────────────────────────────────────────────
 
@@ -254,20 +276,24 @@ async def build_morning_brief(db: AsyncSession, hours: int = 16) -> dict:
     # view (sent emails + scheduled interviews) when no snapshot exists.
     ext_gmail = await get_memory(db, "external", "gmail") or {}
     ext_cal = await get_memory(db, "external", "calendar") or {}
-    gmail_items = ext_gmail.get("items") or []
+    all_gmail = ext_gmail.get("items") or []
+    # Show ONLY job applicants and their responses — not the whole inbox.
+    gmail_items = [m for m in all_gmail if _is_applicant_email(m)]
     gmail_unread = sum(1 for m in gmail_items if m.get("unread"))
 
     email_section = {
         "sent": len(emails_sent),
         "bounced": len(bounced),
     }
-    if gmail_items:
+    if all_gmail:
         email_section["inbox"] = {
             "unread": gmail_unread,
             "recent": gmail_items[:15],
             "fetched_at": ext_gmail.get("fetched_at"),
         }
-        email_section["note"] = f"Live inbox snapshot ({len(gmail_items)} recent, {gmail_unread} unread)."
+        email_section["note"] = (
+            f"Job applicants & responses only — {len(gmail_items)} of {len(all_gmail)} inbox emails."
+        )
     else:
         email_section["note"] = "Live Gmail inbox sync needs Google credentials; showing emails the system sent."
 

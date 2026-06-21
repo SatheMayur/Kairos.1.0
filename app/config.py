@@ -43,7 +43,6 @@ class Settings(BaseSettings):
     google_sa_credentials_json: str = ""   # full JSON string (for Vercel env vars)
     google_sa_credentials_file: str = ""   # path to .json file (for local dev)
     sheets_email_queue_id: str = "1u9hSfBLiAZW06x8zVNa_AAYrI-biMKQX2c7rXwiOl5c"
-    sheets_master_id: str = "1ni68KrCfUmV-5iooy2wI201mfPgKnHOcVzQA2i4XSDI"
     use_sheets_email_queue: bool = True    # route emails through queue sheet
 
     # Apify — web scraping for LinkedIn / Naukri sourcing

@@ -1,7 +1,8 @@
 """Auto-seed logic — seeds the DB with real K. Girdharlal data on first startup.
 
 Called from the lifespan hook. Checks if the DB is empty before seeding so
-re-seeding is safe and idempotent. Data sourced from HR Master Sheet.
+re-seeding is safe and idempotent. Seed data is hardcoded here; the legacy HR
+Master Sheet is retired and is no longer read by the system.
 """
 import logging
 from datetime import datetime

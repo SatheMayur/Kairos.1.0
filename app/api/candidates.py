@@ -36,6 +36,7 @@ class IngestApplicantsIn(BaseModel):
     applicants: list[ApplicantIn]
     job_id: Optional[int] = None        # if set, score + shortlist against this job
     require_both: bool = False          # True → need email AND phone (else either is fine)
+    outreach: bool = False              # True → WhatsApp-first outbound to each captured reachable applicant
 
 
 @router.post("/ingest-applicants")
@@ -55,6 +56,7 @@ async def ingest_applicants(payload: IngestApplicantsIn, db: AsyncSession = Depe
 
     added = duplicates = skipped_no_contact = scored = 0
     results = []
+    touched_ids: list[int] = []         # candidates we added/updated this run (for outbound)
     for a in payload.applicants:
         if not gate(a.email, a.phone, a.whatsapp):
             skipped_no_contact += 1
@@ -93,13 +95,28 @@ async def ingest_applicants(payload: IngestApplicantsIn, db: AsyncSession = Depe
             from app.services.sourcing import _score_and_shortlist
             await _score_and_shortlist(cand, job, db)
             scored += 1
+        touched_ids.append(cand.id)
         results.append({"name": a.name, "candidate_id": cand.id,
                         "result": "DUPLICATE" if cand and duplicates and not added else "ADDED"})
 
     await db.commit()
+
+    # Outbound: WhatsApp-first contact to each captured, reachable applicant. They
+    # applied, so we reach out even at PENDING and regardless of job pause state.
+    contacted = 0
+    if payload.outreach and touched_ids:
+        from app.services.auto_outreach import contact_candidate_now
+        for cid in touched_ids:
+            try:
+                res = await contact_candidate_now(db, cid)
+                contacted += res.get("contacted", 0)
+            except Exception:
+                pass
+        await db.commit()
+
     return {"added": added, "duplicates": duplicates,
             "skipped_no_contact": skipped_no_contact, "scored": scored,
-            "job": job.title if job else None, "details": results}
+            "contacted": contacted, "job": job.title if job else None, "details": results}
 
 
 @router.post("", response_model=CandidateRead, status_code=status.HTTP_201_CREATED)

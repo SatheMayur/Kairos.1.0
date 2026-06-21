@@ -249,6 +249,39 @@ async def build_morning_brief(db: AsyncSession, hours: int = 16) -> dict:
     insights = await get_memory(db, "global", "intent_counts") or {}
     sync_meta = await get_memory(db, "sync", "meta") or {}
 
+    # Live Gmail / Google-Calendar snapshot, if an agent with Google access has
+    # pushed one (via /memory/external-snapshot). Falls back to the system-only
+    # view (sent emails + scheduled interviews) when no snapshot exists.
+    ext_gmail = await get_memory(db, "external", "gmail") or {}
+    ext_cal = await get_memory(db, "external", "calendar") or {}
+    gmail_items = ext_gmail.get("items") or []
+    gmail_unread = sum(1 for m in gmail_items if m.get("unread"))
+
+    email_section = {
+        "sent": len(emails_sent),
+        "bounced": len(bounced),
+    }
+    if gmail_items:
+        email_section["inbox"] = {
+            "unread": gmail_unread,
+            "recent": gmail_items[:15],
+            "fetched_at": ext_gmail.get("fetched_at"),
+        }
+        email_section["note"] = f"Live inbox snapshot ({len(gmail_items)} recent, {gmail_unread} unread)."
+    else:
+        email_section["note"] = "Live Gmail inbox sync needs Google credentials; showing emails the system sent."
+
+    calendar_section = {
+        "today": [_iv(i) for i in todays],
+        "upcoming": [_iv(i) for i in upcoming],
+    }
+    if ext_cal.get("items") is not None:
+        calendar_section["google_events"] = ext_cal.get("items") or []
+        calendar_section["fetched_at"] = ext_cal.get("fetched_at")
+        calendar_section["note"] = "Includes a live Google Calendar snapshot + scheduled interviews."
+    else:
+        calendar_section["note"] = "Built from scheduled interviews; live Google Calendar sync needs credentials."
+
     return {
         "generated_at": now.isoformat(),
         "window_hours": hours,
@@ -258,16 +291,8 @@ async def build_morning_brief(db: AsyncSession, hours: int = 16) -> dict:
             "items": [{"candidate": names.get(r["candidate_id"], f"#{r['candidate_id']}"),
                        "text": r["text"], "ts": r["ts"]} for r in wa_replies[-15:]],
         },
-        "email": {
-            "sent": len(emails_sent),
-            "bounced": len(bounced),
-            "note": "Live Gmail inbox sync needs Google credentials; shows emails the system sent.",
-        },
-        "calendar": {
-            "today": [_iv(i) for i in todays],
-            "upcoming": [_iv(i) for i in upcoming],
-            "note": "Built from scheduled interviews; live Google Calendar sync needs credentials.",
-        },
+        "email": email_section,
+        "calendar": calendar_section,
         "action_needed": {
             "interested_to_schedule": [{"candidate": names.get(e.candidate_id, f"#{e.candidate_id}"),
                                         "candidate_id": e.candidate_id}

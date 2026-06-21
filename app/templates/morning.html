@@ -47,6 +47,15 @@ async function loadBrief(){
           <div style="font-size:12px;color:var(--text-secondary)">${esc(r.text)}</div>
         </div>`).join(''):'<p class="text-muted" style="font-size:12.5px">No new replies.</p>'}</div></div>
 
+    <div class="card"><div class="card-header"><span class="card-title">📧 Inbox</span>${em.inbox?`<span class="text-muted text-xs">${em.inbox.unread} unread · snapshot ${fmtTime(em.inbox.fetched_at)}</span>`:''}</div>
+      <div class="card-body">${(em.inbox&&em.inbox.recent&&em.inbox.recent.length)?em.inbox.recent.map(m=>`
+        <div style="padding:7px 0;border-bottom:1px solid var(--border-subtle)">
+          <div style="font-size:12.5px;font-weight:${m.unread?'700':'500'}">${esc(m.subject||'(no subject)')} ${m.unread?'<span class="badge badge-blue" style="font-size:9px">new</span>':''}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${esc(m.from||'')} · ${fmtTime(m.date)}</div>
+        </div>`).join(''):`<p class="text-muted" style="font-size:12px">${esc(em.note||'No inbox snapshot yet.')}</p>`}</div></div>
+  </div>
+
+  <div class="grid-2">
     <div class="card"><div class="card-header"><span class="card-title">📅 Calendar — interviews</span></div>
       <div class="card-body">
         <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">Today</div>

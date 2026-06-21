@@ -19,23 +19,61 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Runtime overrides loaded from app_settings (so an Anthropic key / provider choice
+# pasted in the browser takes effect with no redeploy). Cached per process; the
+# save endpoint calls invalidate_runtime() so instances pick it up.
+_RUNTIME: dict = {"loaded": False, "anthropic_key": "", "provider": ""}
+
+
+async def ensure_runtime() -> None:
+    if _RUNTIME["loaded"]:
+        return
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services.app_settings import get_setting
+        async with AsyncSessionLocal() as db:
+            _RUNTIME["anthropic_key"] = (await get_setting(db, "anthropic_api_key")) or ""
+            _RUNTIME["provider"] = (await get_setting(db, "ai_provider")) or ""
+    except Exception:
+        pass
+    _RUNTIME["loaded"] = True
+
+
+def invalidate_runtime() -> None:
+    _RUNTIME["loaded"] = False
+
+
+def _eff_anthropic_key(s) -> str:
+    return _RUNTIME.get("anthropic_key") or s.anthropic_api_key
+
+
+def _eff_provider_pref(s) -> str:
+    return (_RUNTIME.get("provider") or getattr(s, "ai_provider", "") or "auto").lower()
+
 
 def llm_provider() -> str:
+    """Which provider to use. 'auto' prefers Claude (Anthropic) when its key is set,
+    else Gemini. An explicit ai_provider ('claude'/'gemini') forces the choice."""
     s = get_settings()
-    if s.gemini_api_key:
-        return "gemini"
-    if s.anthropic_api_key:
+    pref = _eff_provider_pref(s)
+    akey = _eff_anthropic_key(s)
+    gkey = s.gemini_api_key
+    if pref == "claude" and akey:
         return "claude"
+    if pref == "gemini" and gkey:
+        return "gemini"
+    # auto: Anthropic-first (owner's preference), then Gemini.
+    if akey:
+        return "claude"
+    if gkey:
+        return "gemini"
     return "none"
 
 
 def llm_model() -> str | None:
     s = get_settings()
-    if s.gemini_api_key:
-        return s.gemini_model
-    if s.anthropic_api_key:
-        return s.claude_model
-    return None
+    return s.claude_model if llm_provider() == "claude" else (
+        s.gemini_model if llm_provider() == "gemini" else None)
 
 
 def _extract_json(text: str) -> dict:
@@ -80,7 +118,7 @@ async def _call_gemini(prompt: str, max_tokens: int, s) -> str:
 
 async def _call_claude(prompt: str, max_tokens: int, s) -> str:
     import anthropic
-    client = anthropic.AsyncAnthropic(api_key=s.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=_eff_anthropic_key(s))
     msg = await client.messages.create(
         model=s.claude_model,
         max_tokens=max_tokens,
@@ -91,6 +129,7 @@ async def _call_claude(prompt: str, max_tokens: int, s) -> str:
 
 async def llm_json(prompt: str, max_tokens: int = 600) -> dict | None:
     """Send a prompt, return parsed JSON. None if no provider or on failure."""
+    await ensure_runtime()
     s = get_settings()
     provider = llm_provider()
     if provider == "none":

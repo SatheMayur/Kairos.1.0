@@ -13,6 +13,25 @@
   <div style="padding:40px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
 </div>
 
+<!-- AI engine: run the recruitment AI on Anthropic Claude -->
+<div class="card" id="ai-card" style="margin-top:8px">
+  <div class="card-header">
+    <span class="card-title">🧠 AI engine</span>
+    <span id="ai-status" class="text-muted text-xs"></span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted" style="font-size:12px;margin-bottom:10px">
+      The recruitment AI (candidate scoring, the WhatsApp conversation agent, message wording, daily plan)
+      can run on <strong>Anthropic Claude</strong>. Paste an Anthropic API key (from
+      <code>console.anthropic.com → API keys</code>) and it switches over — everything else stays the same.
+    </p>
+    <div class="form-group"><label>Anthropic API key</label>
+      <input type="password" id="ai-key" placeholder="sk-ant-..." style="font-family:monospace;font-size:12px"></div>
+    <button class="btn btn-primary btn-sm" onclick="saveAI(this)">🧠 Switch to Claude</button>
+    <span id="ai-msg" style="font-size:12px;margin-left:10px"></span>
+  </div>
+</div>
+
 <!-- Optional: connect Google for hands-off Gmail/Calendar refresh -->
 <div class="card" id="gconnect-card" style="margin-top:8px">
   <div class="card-header">
@@ -124,7 +143,29 @@ async function saveGoogle(btn){
   }catch(e){ msg.style.color='var(--red)'; msg.textContent=e.message; }
   btn.disabled=false;
 }
+async function refreshAIStatus(){
+  try{
+    const s=await api('/api/v1/memory/ai-engine');
+    document.getElementById('ai-status').textContent =
+      'Running on '+(s.provider==='claude'?'Claude':s.provider==='gemini'?'Gemini':'—')+(s.model?(' · '+s.model):'');
+  }catch(e){}
+}
+async function saveAI(btn){
+  const key=document.getElementById('ai-key').value.trim();
+  const msg=document.getElementById('ai-msg');
+  if(!key){ msg.style.color='var(--red)'; msg.textContent='Paste your Anthropic API key first.'; return; }
+  btn.disabled=true; msg.style.color='var(--text-muted)'; msg.textContent='Switching…';
+  try{
+    const r=await api('/api/v1/memory/ai-engine',{method:'POST',body:{anthropic_api_key:key,provider:'claude'}});
+    msg.style.color='var(--accent)';
+    msg.textContent='Now running on '+(r.provider==='claude'?('Claude ✓ ('+(r.model||'')+')'):r.provider);
+    document.getElementById('ai-key').value='';
+    refreshAIStatus();
+  }catch(e){ msg.style.color='var(--red)'; msg.textContent=e.message; }
+  btn.disabled=false;
+}
 loadBrief();
 refreshGStatus();
+refreshAIStatus();
 </script>
 {% endblock %}

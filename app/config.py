@@ -60,7 +60,8 @@ class Settings(BaseSettings):
     apps_script_webhook_secret: str = ""   # shared secret — set in both Script Properties + Vercel
 
     # AI brain (scoring, personalization, digest, WhatsApp conversations).
-    # Either provider works; Gemini is used when its key is set, else Claude.
+    # Either provider works; 'auto' prefers Anthropic Claude when its key is set, else Gemini.
+    ai_provider: str = "auto"            # auto | claude | gemini
     anthropic_api_key: str = ""
     claude_model: str = "claude-haiku-4-5-20251001"  # fast + cheap for high-volume scoring
     gemini_api_key: str = ""

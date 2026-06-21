@@ -6,6 +6,7 @@
                                 nothing, only reads business tables + writes memory).
                                 Called every ~20 min by the WhatsApp bridge.
 """
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,11 @@ class GoogleCreds(BaseModel):
     impersonate_email: str                # the mailbox to read, e.g. kirti@kgirdharlal.com
 
 
+class AIEngine(BaseModel):
+    anthropic_api_key: Optional[str] = None   # paste to switch the recruitment AI to Claude
+    provider: Optional[str] = None            # auto | claude | gemini
+
+
 @router.get("/tree")
 async def memory_tree(db: AsyncSession = Depends(get_db)):
     return await agent_memory.build_tree(db)
@@ -41,6 +47,43 @@ async def memory_sync(db: AsyncSession = Depends(get_db)):
     """Snapshot recent WhatsApp/outreach/pipeline/interview activity into the
     memory tree. Safe + side-effect-free (sends no messages)."""
     return await agent_memory.run_sync(db)
+
+
+@router.get("/ai-engine")
+async def ai_engine_status(db: AsyncSession = Depends(get_db)):
+    """Which AI engine the recruitment system runs on (never returns the key)."""
+    from app.services.app_settings import get_setting
+    from app.services.llm import ensure_runtime, llm_provider, llm_model
+    from app.services import llm as _llm
+    _llm.invalidate_runtime()
+    await ensure_runtime()
+    return {
+        "provider": llm_provider(), "model": llm_model(),
+        "anthropic_connected": bool(await get_setting(db, "anthropic_api_key")),
+        "preference": (await get_setting(db, "ai_provider")) or "auto",
+    }
+
+
+@router.post("/ai-engine")
+async def set_ai_engine(payload: AIEngine, db: AsyncSession = Depends(get_db)):
+    """Switch the recruitment AI to Anthropic Claude by pasting an Anthropic API
+    key (from console.anthropic.com). Stored server-side; never returned. Takes
+    effect within a couple of minutes (no redeploy)."""
+    from app.services.app_settings import set_setting
+    from app.services import llm as _llm
+    if payload.anthropic_api_key:
+        key = payload.anthropic_api_key.strip()
+        if not key.startswith("sk-ant-"):
+            raise HTTPException(status_code=400,
+                                detail="That doesn't look like an Anthropic API key (it should start with 'sk-ant-').")
+        await set_setting(db, "anthropic_api_key", key)
+        await set_setting(db, "ai_provider", payload.provider or "claude")
+    elif payload.provider:
+        await set_setting(db, "ai_provider", payload.provider)
+    await db.commit()
+    _llm.invalidate_runtime()
+    await _llm.ensure_runtime()
+    return {"saved": True, "provider": _llm.llm_provider(), "model": _llm.llm_model()}
 
 
 @router.get("/google-credentials")

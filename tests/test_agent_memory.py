@@ -92,6 +92,28 @@ async def test_morning_brief_inbox_shows_only_applicants(db_session):
     assert brief["email"]["inbox"]["unread"] == 1        # only the unread applicant one
 
 
+def test_llm_provider_prefers_claude_when_key_present(monkeypatch):
+    from app.services import llm
+    # Simulate an Anthropic key loaded at runtime + a Gemini key in settings.
+    monkeypatch.setitem(llm._RUNTIME, "loaded", True)
+    monkeypatch.setitem(llm._RUNTIME, "anthropic_key", "sk-ant-test")
+    monkeypatch.setitem(llm._RUNTIME, "provider", "")
+    monkeypatch.setattr(llm.get_settings(), "gemini_api_key", "g-key")
+    # auto preference → Anthropic-first when its key is present
+    assert llm.llm_provider() == "claude"
+    monkeypatch.setitem(llm._RUNTIME, "provider", "gemini")
+    assert llm.llm_provider() == "gemini"   # explicit override honored
+
+
+@pytest.mark.asyncio
+async def test_ai_engine_endpoint_validates_key(client):
+    s = (await client.get("/api/v1/memory/ai-engine")).json()
+    assert "provider" in s
+    bad = await client.post("/api/v1/memory/ai-engine",
+                            json={"anthropic_api_key": "not-a-key", "provider": "claude"})
+    assert bad.status_code == 400
+
+
 @pytest.mark.asyncio
 async def test_google_credentials_endpoint(client):
     # Not configured by default.

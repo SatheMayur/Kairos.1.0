@@ -1,6 +1,7 @@
 """Candidates API — CRUD for candidate records."""
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.api.deps import get_db
@@ -8,6 +9,97 @@ from app.models.candidate import Candidate
 from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateUpdate
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
+
+
+# ── Inbound applicant capture ────────────────────────────────────────────────
+# Candidates who APPLY to your job postings arrive with real contact details
+# (Naukri / WorkIndia / Indeed application emails land in Gmail). An agent with
+# Gmail access parses those and posts them here. This is NOT the disabled bulk
+# import — it's warm inbound leads, gated on reachability and de-duplicated.
+
+class ApplicantIn(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    whatsapp: Optional[str] = None
+    source: str = "WORKINDIA"
+    current_role: Optional[str] = None
+    current_employer: Optional[str] = None
+    experience_years: Optional[float] = None
+    expected_salary: Optional[float] = None
+    location: Optional[str] = None
+    skills: Optional[list[str]] = None
+    raw_profile: Optional[str] = None
+
+
+class IngestApplicantsIn(BaseModel):
+    applicants: list[ApplicantIn]
+    job_id: Optional[int] = None        # if set, score + shortlist against this job
+    require_both: bool = False          # True → need email AND phone (else either is fine)
+
+
+@router.post("/ingest-applicants")
+async def ingest_applicants(payload: IngestApplicantsIn, db: AsyncSession = Depends(get_db)):
+    """Add inbound applicants (from your Gmail) as candidates. Skips anyone with no
+    usable contact, de-dupes on email/phone, and (if job_id given) scores + shortlists
+    them so they enter that job's pipeline."""
+    from app.services.data_quality import is_reachable_contact, has_email_and_phone
+    from app.models.candidate import CandidateSource
+    from app.models.job import Job
+    from app.utils.phone import normalize_indian_mobile
+
+    gate = has_email_and_phone if payload.require_both else is_reachable_contact
+    job = await db.get(Job, payload.job_id) if payload.job_id else None
+    if payload.job_id and not job:
+        raise HTTPException(status_code=404, detail=f"Job {payload.job_id} not found")
+
+    added = duplicates = skipped_no_contact = scored = 0
+    results = []
+    for a in payload.applicants:
+        if not gate(a.email, a.phone, a.whatsapp):
+            skipped_no_contact += 1
+            results.append({"name": a.name, "result": "SKIPPED_NO_CONTACT"})
+            continue
+
+        # De-dupe: match an existing candidate by email or by normalized mobile.
+        cand = None
+        if a.email:
+            cand = (await db.execute(select(Candidate).where(Candidate.email == a.email))).scalar_one_or_none()
+        nm = normalize_indian_mobile(a.phone) or normalize_indian_mobile(a.whatsapp)
+        if not cand and nm:
+            for c in (await db.execute(select(Candidate))).scalars().all():
+                if normalize_indian_mobile(c.phone) == nm or normalize_indian_mobile(c.whatsapp) == nm:
+                    cand = c
+                    break
+
+        if cand:
+            duplicates += 1
+        else:
+            try:
+                src = CandidateSource[a.source] if a.source in CandidateSource.__members__ else CandidateSource.MANUAL
+            except Exception:
+                src = CandidateSource.MANUAL
+            cand = Candidate(
+                name=a.name, email=a.email, phone=a.phone, whatsapp=a.whatsapp or a.phone,
+                current_role=a.current_role, current_employer=a.current_employer,
+                experience_years=a.experience_years, expected_salary=a.expected_salary,
+                location=a.location, skills=a.skills or [], raw_profile=a.raw_profile, source=src,
+            )
+            db.add(cand)
+            await db.flush()
+            added += 1
+
+        if job:
+            from app.services.sourcing import _score_and_shortlist
+            await _score_and_shortlist(cand, job, db)
+            scored += 1
+        results.append({"name": a.name, "candidate_id": cand.id,
+                        "result": "DUPLICATE" if cand and duplicates and not added else "ADDED"})
+
+    await db.commit()
+    return {"added": added, "duplicates": duplicates,
+            "skipped_no_contact": skipped_no_contact, "scored": scored,
+            "job": job.title if job else None, "details": results}
 
 
 @router.post("", response_model=CandidateRead, status_code=status.HTTP_201_CREATED)

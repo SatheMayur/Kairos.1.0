@@ -332,6 +332,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     <a href="/ui/whatsapp" class="nav-item {% if active=='whatsapp' %}active{% endif %}">
       <span class="nav-icon">◉</span> WhatsApp
     </a>
+    <a href="/ui/import" class="nav-item {% if active=='import' %}active{% endif %}">
+      <span class="nav-icon">🔍</span> Search Apna
+    </a>
 
     <div class="nav-label">Insights</div>
     <a href="/ui/analytics" class="nav-item {% if active=='analytics' %}active{% endif %}">
@@ -477,6 +480,7 @@ document.addEventListener('keydown',e=>{
 const CMD_PAGES=[
   {icon:'✦',label:'Start Here',sub:'How it works — in 3 simple steps',url:'/ui/start'},
   {icon:'☀',label:'Morning Briefing',sub:'Overnight WhatsApp, calendar & to-dos',url:'/ui/morning'},
+  {icon:'🔍',label:'Search Apna',sub:'Live Apna candidate search',url:'/ui/import'},
   {icon:'◈',label:'Dashboard',sub:'Overview & priorities',url:'/ui/',kbd:'G D'},
   {icon:'◫',label:'Jobs',sub:'Open requisitions',url:'/ui/jobs',kbd:'G J'},
   {icon:'◎',label:'Find Candidates',sub:'Best candidates for a job, right now',url:'/ui/discover',kbd:'G F'},

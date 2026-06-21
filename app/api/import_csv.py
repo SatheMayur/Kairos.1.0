@@ -103,18 +103,19 @@ async def _run_import_pipeline(
     job_id: int,
     auto_outreach: bool,
     db: AsyncSession,
+    allow_when_disabled: bool = False,
 ) -> ImportResult:
     """Score every candidate, shortlist, and optionally queue outreach."""
-    # Imports are turned off (costly Apna unlocks + low-value, no-contact bulk
-    # profiles). This is the single chokepoint for every CSV/Apna/batch/URL import,
-    # so one guard disables them all. Candidates still arrive via sourcing (which
-    # requires phone+email), manual add, and WhatsApp/email résumé capture.
-    if not settings.imports_enabled:
+    # Bulk CSV/batch/URL imports are turned off (low-value, no-contact uploads).
+    # The Apna live path passes allow_when_disabled=True because the owner chose to
+    # keep Apna — and its results still pass the no-contact gate below, so only
+    # contactable (unlocked) Apna candidates ever get added.
+    if not settings.imports_enabled and not allow_when_disabled:
         raise HTTPException(
             status_code=403,
-            detail=("Candidate imports (CSV / Apna / batch) are turned off. "
-                    "Candidates come in through sourcing, manual add, or WhatsApp/email CVs instead. "
-                    "To re-enable imports, set IMPORTS_ENABLED=true."),
+            detail=("Candidate imports (CSV / batch) are turned off. "
+                    "Candidates come in through sourcing, Apna live search, manual add, "
+                    "or WhatsApp/email CVs instead. To re-enable bulk imports, set IMPORTS_ENABLED=true."),
         )
 
     from sqlalchemy import select
@@ -637,7 +638,11 @@ async def apna_import(payload: ApnaImportRequest, db: AsyncSession = Depends(get
         raise HTTPException(status_code=422, detail="Could not parse any candidate from the provided data")
 
     logger.info("Apna live import: job=%d candidates=%d", payload.job_id, len(raw))
-    return await _run_import_pipeline(raw, payload.job_id, payload.auto_outreach, db)
+    # Apna is kept on purpose (owner's call); exempt from the bulk-imports-off gate.
+    # The no-contact gate inside still drops locked Apna profiles, so only unlocked
+    # (contactable) candidates are added.
+    return await _run_import_pipeline(raw, payload.job_id, payload.auto_outreach, db,
+                                      allow_when_disabled=True)
 
 @router.post("/ai-screen/{job_id}")
 async def ai_screen_pending(

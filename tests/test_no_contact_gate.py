@@ -111,6 +111,39 @@ async def test_manual_add_no_contact_refused(client):
 
 
 @pytest.mark.asyncio
+async def test_ingest_applicants(client, db_session):
+    from app.models.job import Job
+    job = Job(title="Design Engineer", company="KGL", skills=["AutoCAD"])
+    db_session.add(job); await db_session.flush(); await db_session.commit()
+
+    body = {"job_id": job.id, "applicants": [
+        {"name": "Dev Saini", "phone": "9876543210", "source": "WORKINDIA",
+         "current_role": "CAD Designer", "experience_years": 1.0},          # reachable (phone)
+        {"name": "No Contact Guy", "source": "WORKINDIA"},                    # no contact → skipped
+    ]}
+    r = await client.post("/api/v1/candidates/ingest-applicants", json=body)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["added"] == 1
+    assert d["skipped_no_contact"] == 1
+    assert d["scored"] == 1          # the reachable one got scored against the job
+
+    from sqlalchemy import select
+    names = {c.name for c in (await db_session.execute(select(Candidate))).scalars().all()}
+    assert "Dev Saini" in names
+    assert "No Contact Guy" not in names
+
+
+@pytest.mark.asyncio
+async def test_ingest_applicants_dedupes(client, db_session):
+    db_session.add(Candidate(name="Existing", email="dev@x.com", source=CandidateSource.WORKINDIA))
+    await db_session.commit()
+    body = {"applicants": [{"name": "Dev (again)", "email": "dev@x.com", "phone": "9876543210"}]}
+    d = (await client.post("/api/v1/candidates/ingest-applicants", json=body)).json()
+    assert d["duplicates"] == 1 and d["added"] == 0
+
+
+@pytest.mark.asyncio
 async def test_cleanup_no_contact_dry_run_then_confirm(client, db_session):
     db_session.add_all([
         Candidate(name="Ghost", source=CandidateSource.APNA),                       # no contact

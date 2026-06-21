@@ -12,6 +12,28 @@
 <div id="brief-body">
   <div style="padding:40px;text-align:center"><div class="spinner" style="margin:0 auto"></div></div>
 </div>
+
+<!-- Optional: connect Google for hands-off Gmail/Calendar refresh -->
+<div class="card" id="gconnect-card" style="margin-top:8px">
+  <div class="card-header">
+    <span class="card-title">🔗 Auto-refresh Gmail &amp; Calendar (optional)</span>
+    <span id="gconnect-status" class="text-muted text-xs"></span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted" style="font-size:12px;margin-bottom:10px">
+      Right now this briefing's inbox/calendar refresh while the assistant is working.
+      To keep it updating <strong>every 20 minutes on its own</strong> (even overnight), paste a Google
+      <strong>service-account key</strong> once. Your Workspace admin creates it with Gmail + Calendar
+      read access (domain-wide delegation). Nothing else to set up — the assistant handles the rest.
+    </p>
+    <div class="form-group"><label>Mailbox to read</label>
+      <input type="email" id="g-subject" placeholder="kirti@kgirdharlal.com"></div>
+    <div class="form-group"><label>Service-account JSON key</label>
+      <textarea id="g-json" placeholder='{ "type": "service_account", "client_email": "...", "private_key": "..." }' style="min-height:90px;font-family:monospace;font-size:11px"></textarea></div>
+    <button class="btn btn-primary btn-sm" onclick="saveGoogle(this)">💾 Save &amp; connect</button>
+    <span id="g-msg" style="font-size:12px;margin-left:10px"></span>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -76,6 +98,33 @@ async function loadBrief(){
       <p class="text-muted" style="font-size:10.5px;margin-top:10px">${esc(em.note||'')}</p>
     </div></div>`;
 }
+async function refreshGStatus(){
+  try{
+    const s=await api('/api/v1/memory/google-credentials');
+    document.getElementById('gconnect-status').textContent =
+      s.configured ? ('Connected · '+(s.impersonate_email||'')) : 'Not connected — refreshes while assistant is active';
+    if(s.configured){ document.getElementById('g-subject').value=s.impersonate_email||''; }
+  }catch(e){}
+}
+async function saveGoogle(btn){
+  const subject=document.getElementById('g-subject').value.trim();
+  const json=document.getElementById('g-json').value.trim();
+  const msg=document.getElementById('g-msg');
+  if(!subject||!json){ msg.style.color='var(--red)'; msg.textContent='Enter both the mailbox and the JSON key.'; return; }
+  btn.disabled=true; msg.style.color='var(--text-muted)'; msg.textContent='Connecting…';
+  try{
+    const r=await api('/api/v1/memory/google-credentials',{method:'POST',body:{service_account_json:json,impersonate_email:subject}});
+    const g=r.first_sync||{};
+    msg.style.color='var(--accent)';
+    msg.textContent = g.error==='auth_failed'
+      ? 'Saved, but Google refused access — ask your admin to enable domain-wide delegation for Gmail+Calendar read scopes.'
+      : `Connected ✓ (pulled ${g.gmail||0} emails, ${g.calendar||0} events). It now refreshes every 20 min.`;
+    document.getElementById('g-json').value='';
+    refreshGStatus(); loadBrief();
+  }catch(e){ msg.style.color='var(--red)'; msg.textContent=e.message; }
+  btn.disabled=false;
+}
 loadBrief();
+refreshGStatus();
 </script>
 {% endblock %}

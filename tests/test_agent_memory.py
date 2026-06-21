@@ -93,6 +93,17 @@ async def test_morning_brief_inbox_shows_only_applicants(db_session):
 
 
 @pytest.mark.asyncio
+async def test_google_credentials_endpoint(client):
+    # Not configured by default.
+    s = (await client.get("/api/v1/memory/google-credentials")).json()
+    assert s["configured"] is False
+    # Garbage JSON is rejected.
+    bad = await client.post("/api/v1/memory/google-credentials",
+                            json={"service_account_json": "not json", "impersonate_email": "k@x.com"})
+    assert bad.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_memory_endpoints(client, db_session):
     assert (await client.post("/api/v1/memory/sync")).status_code == 200
     assert (await client.get("/api/v1/memory/morning-brief")).status_code == 200

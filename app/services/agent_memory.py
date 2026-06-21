@@ -199,6 +199,17 @@ async def run_sync(db: AsyncSession) -> dict:
     await set_memory(db, "sync", "meta", {"last_sync_at": now.isoformat(),
                                           "synced_count": int(meta.get("synced_count", 0)) + 1})
     await db.commit()
+
+    # If a Google service account is configured, also refresh Gmail/Calendar so the
+    # briefing stays live with no agent in the loop. Inert + safe when not set up.
+    try:
+        from app.services.google_sync import sync_google
+        g = await sync_google(db)
+        if g.get("configured"):
+            snapshot["google"] = g
+    except Exception as exc:
+        logger.warning("[memory-sync] google sync skipped: %s", exc)
+
     logger.info("[memory-sync] replies=%d wa=%d email=%d interested=%d",
                 new_replies, wa_sent, em_sent, snapshot["interested_now"])
     return snapshot

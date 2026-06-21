@@ -6,7 +6,7 @@
                                 nothing, only reads business tables + writes memory).
                                 Called every ~20 min by the WhatsApp bridge.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,11 @@ router = APIRouter(prefix="/memory", tags=["memory"])
 class ExternalSnapshot(BaseModel):
     gmail: list[dict] | None = None       # [{from, subject, date, unread}]
     calendar: list[dict] | None = None    # [{title, start, end, location}]
+
+
+class GoogleCreds(BaseModel):
+    service_account_json: str             # the downloaded SA key (JSON)
+    impersonate_email: str                # the mailbox to read, e.g. kirti@kgirdharlal.com
 
 
 @router.get("/tree")
@@ -36,6 +41,36 @@ async def memory_sync(db: AsyncSession = Depends(get_db)):
     """Snapshot recent WhatsApp/outreach/pipeline/interview activity into the
     memory tree. Safe + side-effect-free (sends no messages)."""
     return await agent_memory.run_sync(db)
+
+
+@router.get("/google-credentials")
+async def google_credentials_status(db: AsyncSession = Depends(get_db)):
+    """Whether unattended Google sync is configured (never returns the secret)."""
+    from app.services.app_settings import get_setting
+    return {"configured": bool(await get_setting(db, "google_sa_json")),
+            "impersonate_email": await get_setting(db, "google_sa_subject")}
+
+
+@router.post("/google-credentials")
+async def set_google_credentials(payload: GoogleCreds, db: AsyncSession = Depends(get_db)):
+    """Store a Google service-account key + the mailbox to read, so the 20-min sync
+    pulls Gmail/Calendar automatically (no agent needed). Secret is never returned."""
+    import json
+    from app.services.app_settings import set_setting
+    try:
+        info = json.loads(payload.service_account_json)
+        if "client_email" not in info or "private_key" not in info:
+            raise ValueError("missing fields")
+    except Exception:
+        raise HTTPException(status_code=400,
+                            detail="That doesn't look like a valid Google service-account JSON key.")
+    await set_setting(db, "google_sa_json", payload.service_account_json)
+    await set_setting(db, "google_sa_subject", payload.impersonate_email.strip())
+    await db.commit()
+    # Try an immediate sync so the briefing fills in right away.
+    from app.services.google_sync import sync_google
+    result = await sync_google(db)
+    return {"saved": True, "first_sync": result}
 
 
 @router.post("/external-snapshot")

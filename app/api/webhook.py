@@ -435,6 +435,18 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
 
         await db.commit()
 
+        # ── Self-learning: persist what we learned about this candidate so it
+        # carries across conversations (best-effort; never blocks the reply). ──
+        try:
+            from app.services.agent_memory import record_candidate_learning
+            await record_candidate_learning(
+                db, conv.candidate_id,
+                collected=new_collected, intent=intent, last_message=body_text,
+            )
+            await db.commit()
+        except Exception:
+            pass
+
 
 @router.post("/whatsapp")
 async def whatsapp_webhook(

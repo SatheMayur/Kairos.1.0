@@ -280,6 +280,9 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
     <a href="/ui/start" class="nav-item {% if active=='start' %}active{% endif %}">
       <span class="nav-icon">✦</span> Start Here
     </a>
+    <a href="/ui/morning" class="nav-item {% if active=='morning' %}active{% endif %}">
+      <span class="nav-icon">☀</span> Morning Briefing
+    </a>
     <a href="/ui/" class="nav-item {% if active=='dashboard' %}active{% endif %}" data-key="d">
       <span class="nav-icon">◈</span> Dashboard <span class="nav-kbd">G D</span>
     </a>
@@ -473,6 +476,7 @@ document.addEventListener('keydown',e=>{
 // ── Command palette ───────────────────────────────────────────────────────
 const CMD_PAGES=[
   {icon:'✦',label:'Start Here',sub:'How it works — in 3 simple steps',url:'/ui/start'},
+  {icon:'☀',label:'Morning Briefing',sub:'Overnight WhatsApp, calendar & to-dos',url:'/ui/morning'},
   {icon:'◈',label:'Dashboard',sub:'Overview & priorities',url:'/ui/',kbd:'G D'},
   {icon:'◫',label:'Jobs',sub:'Open requisitions',url:'/ui/jobs',kbd:'G J'},
   {icon:'◎',label:'Find Candidates',sub:'Best candidates for a job, right now',url:'/ui/discover',kbd:'G F'},

@@ -366,6 +366,14 @@ async def cron_daily():
     await _step("post_interview", cron_post_interview())
     await _step("reminders", cron_reminders())
 
+    # Refresh the agent's memory tree so the morning brief is current.
+    try:
+        from app.services.agent_memory import run_sync as _mem_sync
+        async with AsyncSessionLocal() as _db:
+            results["memory_sync"] = await _mem_sync(_db)
+    except Exception as exc:
+        logger.error("[CRON/daily] memory sync failed: %s", exc)
+
     # Final step: send the daily briefing summarising the run above
     digest_sent = False
     if settings.digest_enabled:

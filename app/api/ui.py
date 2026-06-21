@@ -33,6 +33,10 @@ async def dashboard(request: Request):
 async def start_here(request: Request):
     return _render(request, "start.html", "start")
 
+@router.get("/morning", response_class=HTMLResponse)
+async def morning(request: Request):
+    return _render(request, "morning.html", "morning")
+
 @router.get("/jobs", response_class=HTMLResponse)
 async def jobs(request: Request):
     return _render(request, "jobs.html", "jobs")

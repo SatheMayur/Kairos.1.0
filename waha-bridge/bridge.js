@@ -82,6 +82,21 @@ setInterval(() => {
   console.log(`[BRIDGE] ✅ Running — ${messagesSentToday} messages sent today (reconnects: ${reconnectCount})`);
 }, 60000);
 
+// ── Memory sync: refresh the agent's memory tree every 20 minutes ───────────
+// The bridge is the always-on machine, so it drives the 20-min sync (Vercel
+// Hobby crons only run once/day). Side-effect-free on the server (sends nothing).
+const MEMORY_SYNC_MS = 20 * 60 * 1000;
+async function memorySync() {
+  try {
+    const { data } = await axios.post(`${VERCEL}/api/v1/memory/sync`, {}, { timeout: 15000 });
+    console.log(`[MEMORY] synced — replies:${data.new_replies} wa:${data.whatsapp_sent} email:${data.email_sent} interested:${data.interested_now}`);
+  } catch (e) {
+    console.log('[MEMORY] sync failed (will retry in 20 min):', e.message);
+  }
+}
+setTimeout(memorySync, 30000);            // first sync 30s after start
+setInterval(memorySync, MEMORY_SYNC_MS);  // then every 20 minutes
+
 // ── Local health server (optional, port 3001) ──────────────────────────────
 const app = express();
 app.use(express.json());

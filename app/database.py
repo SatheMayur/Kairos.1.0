@@ -69,6 +69,7 @@ def _import_models() -> None:
     import app.models.app_setting   # noqa: F401
     import app.models.resume_doc     # noqa: F401
     import app.models.jd_doc         # noqa: F401
+    import app.models.agent_memory   # noqa: F401
 
 
 # Schema is ensured lazily on first DB use. Vercel's serverless runtime does not

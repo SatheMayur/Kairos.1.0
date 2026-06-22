@@ -106,8 +106,8 @@ def _extract_contact(item: dict, kind: str) -> Optional[str]:
     """
     if kind == "phone":
         keys = ("phone", "phoneNumber", "phone_number", "mobile", "mobileNumber",
-                "contactNumber", "whatsapp")
-        containers = ("phones", "phoneNumbers", "mobileNumbers")
+                "contactNumber", "whatsapp", "sanitized_phone")
+        containers = ("phones", "phoneNumbers", "mobileNumbers", "phone_numbers")
     else:
         keys = ("email", "emailAddress", "email_address", "workEmail", "personalEmail")
         containers = ("emails", "emailAddresses")
@@ -122,7 +122,9 @@ def _extract_contact(item: dict, kind: str) -> Optional[str]:
                     return r
             return None
         if isinstance(v, dict):
-            return _norm(v.get("value") or v.get("number") or v.get(kind))
+            # Apollo phone entries use sanitized_number / raw_number.
+            return _norm(v.get("value") or v.get("number") or v.get("sanitized_number")
+                         or v.get("raw_number") or v.get(kind))
         return None
 
     for k in keys:
@@ -235,6 +237,96 @@ class ApifyLinkedInAdapter(BasePortalAdapter):
             education=item.get("education", [{}])[0].get("school") if item.get("education") else None,
             source_ref=item.get("url") or item.get("linkedinUrl"),
             raw_profile=str(item),
+        )
+
+    async def health_check(self) -> bool:
+        return bool(self._token)
+
+
+def _apollo_search_url(keywords: list[str], location: Optional[str], override: str = "") -> str:
+    """Build an Apollo people-search URL from a job's title + location.
+
+    Apollo search URLs accept repeated personTitles[] / personLocations[] params.
+    `override` (a ready Apollo search URL) wins when provided."""
+    if override:
+        return override
+    import urllib.parse
+    parts = []
+    for t in [k for k in (keywords or []) if k][:3]:
+        parts.append("personTitles[]=" + urllib.parse.quote(t))
+    if location:
+        city = location.split(",")[0].strip()
+        parts.append("personLocations[]=" + urllib.parse.quote(f"{city}, India"))
+    parts.append("page=1")
+    return "https://app.apollo.io/#/people?" + "&".join(parts)
+
+
+class ApifyApolloAdapter(BasePortalAdapter):
+    """Sources candidates from Apollo.io via an Apify Apollo scraper actor.
+
+    Apollo carries work emails and (often) direct/mobile phones, so unlike
+    LinkedIn/Indeed/Apna it can yield candidates that pass the phone+email gate.
+    Labelled as LINKEDIN source (Apollo aggregates professional/LinkedIn data) to
+    avoid a DB enum migration; the Apollo profile URL is kept in source_ref."""
+
+    def __init__(self, api_token: str, actor: str = "", search_url: str = ""):
+        self._token = api_token
+        self._actor = actor or "coladeu/apollo-people-leads-scraper"
+        self._search_url = search_url
+
+    @property
+    def source(self) -> CandidateSource:
+        return CandidateSource.LINKEDIN
+
+    async def search(
+        self,
+        keywords: list[str],
+        location: Optional[str] = None,
+        experience_min: Optional[float] = None,
+        experience_max: Optional[float] = None,
+        limit: int = 25,
+    ) -> list[RawCandidate]:
+        url = _apollo_search_url(keywords, location, self._search_url)
+        run_input = {"url": url, "totalRecords": min(int(limit), 100), "cleanOutput": True}
+        try:
+            items = await asyncio.to_thread(_run_actor_sync, self._token, self._actor, run_input)
+        except Exception as exc:
+            logger.error("ApifyApollo error: %s", exc)
+            try:
+                from app.utils.error_log import log_error
+                await log_error(message=f"Apollo sourcing failed: {exc}",
+                                source="sourcing:apify_apollo", exc=exc)
+            except Exception:
+                pass
+            return []
+        logger.info("ApifyApollo: %d lead(s) via %s", len(items), self._actor)
+        out = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            rc = self._to_raw(item)
+            if rc:
+                out.append(rc)
+        return out
+
+    def _to_raw(self, item: dict) -> Optional[RawCandidate]:
+        name = (item.get("name")
+                or " ".join(filter(None, [item.get("first_name"), item.get("last_name")])).strip()
+                or "Unknown")
+        org = item.get("organization")
+        employer = org.get("name") if isinstance(org, dict) else (item.get("organization_name") or item.get("company"))
+        loc = ", ".join(filter(None, [item.get("city"), item.get("state")])) or item.get("location") or item.get("country")
+        return RawCandidate(
+            name=name,
+            source=CandidateSource.LINKEDIN,
+            email=_extract_contact(item, "email"),
+            phone=_extract_contact(item, "phone"),
+            whatsapp=_extract_contact(item, "phone"),
+            current_role=item.get("title") or item.get("headline"),
+            current_employer=employer,
+            location=loc,
+            source_ref=item.get("linkedin_url") or item.get("id") or "apollo.io",
+            raw_profile="Apollo.io lead",
         )
 
     async def health_check(self) -> bool:

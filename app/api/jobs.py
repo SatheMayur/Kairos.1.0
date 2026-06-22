@@ -197,15 +197,14 @@ async def delete_job(job_id: int, force: bool = False, db: AsyncSession = Depend
 
 
 @router.post("/{job_id}/source", summary="Trigger candidate sourcing for a job")
-async def trigger_sourcing(job_id: int, db: AsyncSession = Depends(get_db)):
-    """Fan out to all portal adapters, score, persist — and auto-contact the good,
-    reachable matches we just found (if auto-outreach is on)."""
+async def trigger_sourcing(job_id: int, outreach: Optional[bool] = None, db: AsyncSession = Depends(get_db)):
+    """Fan out to all portal adapters (incl. Apollo.io), score, persist — and
+    auto-contact the good, reachable matches (WhatsApp-first) unless outreach=false."""
     from app.config import get_settings
     job = await _get_or_404(job_id, db)
-    entries = await source_candidates_for_job(
-        job, db, auto_outreach=get_settings().auto_outreach_enabled
-    )
-    return {"sourced": len(entries), "job_id": job_id}
+    do_outreach = get_settings().auto_outreach_enabled if outreach is None else outreach
+    entries = await source_candidates_for_job(job, db, auto_outreach=do_outreach)
+    return {"sourced": len(entries), "job_id": job_id, "outreach": do_outreach}
 
 
 @router.post("/{job_id}/contact-all", summary="Contact all reachable, not-yet-contacted candidates for a job")

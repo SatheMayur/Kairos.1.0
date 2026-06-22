@@ -43,8 +43,15 @@ def build_registry(use_mock: bool, apify_token: str = "") -> dict[str, BasePorta
     # Production: only register adapters backed by real credentials.
     # Portals without credentials are absent — never return fake candidates.
     if apify_token:
-        from app.adapters.apify import ApifyLinkedInAdapter
+        from app.adapters.apify import ApifyLinkedInAdapter, ApifyApolloAdapter
         adapters[CandidateSource.LINKEDIN.value] = ApifyLinkedInAdapter(apify_token)
+        # Apollo.io people scraper — the one source that can return email+phone.
+        s = get_settings()
+        adapters["APOLLO"] = ApifyApolloAdapter(
+            apify_token,
+            actor=getattr(s, "apify_apollo_actor", ""),
+            search_url=getattr(s, "apify_apollo_search_url", ""),
+        )
 
     return adapters
 

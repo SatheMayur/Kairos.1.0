@@ -47,6 +47,9 @@ class Settings(BaseSettings):
 
     # Apify — web scraping for LinkedIn / Naukri sourcing
     apify_api_token: str = ""              # from apify.com account settings
+    # Apollo.io people scraper (Apify actor). Returns work emails + (often) phones.
+    apify_apollo_actor: str = "coladeu/apollo-people-leads-scraper"
+    apify_apollo_search_url: str = ""      # optional: a ready Apollo people-search URL to use as-is
 
     # OpenClaw / WAHA — WhatsApp outreach and auto-reply
     openclaw_api_url: str = ""             # WAHA base URL e.g. http://localhost:3000

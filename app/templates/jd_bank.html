@@ -48,7 +48,7 @@ const JD_SRC = {UPLOAD:'badge-blue', PASTE:'badge-grey'};
 const JD_LABEL = {UPLOAD:'Uploaded file', PASTE:'Typed / pasted'};
 let JD_CACHE = {};
 
-function fmtDate(s){ if(!s) return '—'; try{ return new Date(s).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }catch(e){ return s; } }
+function fmtDate(s){ return tISTdate(s); }   // UTC -> IST date (global helper)
 
 async function loadJDs(){
   const q = document.getElementById('jd-search').value.trim();

@@ -384,6 +384,32 @@ code{background:var(--bg-overlay);border:1px solid var(--border-default);padding
 <script>
 // ── Design system helpers ─────────────────────────────────────────────────
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// Server stores all times in UTC. If a timestamp has no timezone marker, treat it
+// as UTC, then always display in India time (Asia/Kolkata) — fixes the ~5.5h skew.
+function tIST(iso,opts){
+  if(!iso)return'';
+  let s=String(iso).trim();
+  if(!/([zZ]|[+\-]\d\d:?\d\d)$/.test(s))s+='Z';
+  const d=new Date(s);
+  if(isNaN(d.getTime()))return'';
+  return d.toLocaleString('en-IN',Object.assign({timeZone:'Asia/Kolkata',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'},opts||{}));
+}
+function tISTdate(iso){
+  if(!iso)return'—';
+  let s=String(iso).trim();
+  if(!/([zZ]|[+\-]\d\d:?\d\d)$/.test(s))s+='Z';
+  const d=new Date(s);
+  if(isNaN(d.getTime()))return'—';
+  return d.toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata',day:'numeric',month:'short',year:'numeric'});
+}
+// Parse a server timestamp into a correct Date (naive strings treated as UTC).
+// Use for comparisons/sorting so "upcoming/today/overdue" maths is right.
+function toDateUTC(iso){
+  if(!iso)return new Date(NaN);
+  let s=String(iso).trim();
+  if(!/([zZ]|[+\-]\d\d:?\d\d)$/.test(s))s+='Z';
+  return new Date(s);
+}
 function showToast(msg,type='info',duration=3400){
   const c=document.getElementById('toast-container');
   const icons={success:'✓',error:'✕',info:'○'};

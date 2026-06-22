@@ -87,7 +87,7 @@ async function loadOutreach() {
         <span class="text-muted text-sm">${esc((o.message||'').slice(0,80))}${(o.message||'').length>80?'…':''}</span>
       </td>
       <td><span class="badge ${ST_COLORS[o.status]||'badge-grey'}">${o.status}</span></td>
-      <td class="text-muted text-sm">${o.sent_at ? new Date(o.sent_at).toLocaleString() : '–'}</td>
+      <td class="text-muted text-sm">${o.sent_at ? tIST(o.sent_at) : '–'}</td>
       <td class="text-sm" style="color:#f87171;max-width:200px">${esc(o.error_detail||'')}</td>
     </tr>`).join('')}
   </table></div>`;

@@ -430,7 +430,7 @@ function waRenderTable(rows) {
     const statusLabel = stage ? stage.label : (WA_STATUS_LABELS[c.status] || c.status);
     const statusClass = stage ? stage.cls   : (WA_STATUS_BADGE[c.status]  || 'badge-grey');
     const typeLabel   = WA_TYPE_LABELS[c.type] || c.type;
-    const sentAt      = c.sent_at ? new Date(c.sent_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+    const sentAt      = c.sent_at ? tIST(c.sent_at,{day:'2-digit'}) : '—';
     const reply       = c.reply ? ('<span title="' + esc(c.reply) + '">' + esc(c.reply.substring(0,40)) + (c.reply.length > 40 ? '…' : '') + '</span>') : '<span style="color:var(--text-dim)">—</span>';
     const needsYou    = (c.pipeline_status || '').toUpperCase() === 'NEEDS_HUMAN';
     const phone       = (c.candidate_phone || '').replace(/\D/g, '');

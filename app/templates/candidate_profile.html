@@ -338,7 +338,7 @@ function renderTimeline(items) {
   const el = document.getElementById('c-timeline');
   if (!items.length) return;
   el.innerHTML = items.map(item => {
-    const ts = item.ts ? new Date(item.ts).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–';
+    const ts = item.ts ? tIST(item.ts,{day:'2-digit'}) : '–';
     let icon, label, color;
     if (item.type === 'reply') {
       icon = '💬'; color = '#34d399';

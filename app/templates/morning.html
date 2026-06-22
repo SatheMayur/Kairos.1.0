@@ -57,7 +57,7 @@
 
 {% block scripts %}
 <script>
-function fmtTime(iso){ if(!iso) return ''; try{ return new Date(iso).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso; } }
+function fmtTime(iso){ return tIST(iso); }   // UTC -> IST (global helper)
 
 async function loadBrief(){
   const body=document.getElementById('brief-body');

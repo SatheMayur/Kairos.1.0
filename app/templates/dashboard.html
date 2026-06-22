@@ -255,9 +255,9 @@ async function loadDashboard(){
     // PROPOSED slot the candidate hasn't accepted is NOT a scheduled interview;
     // a CONFIRMED slot whose date has passed needs wrapping up, not counting as
     // "upcoming". This is why the headline differs from the Interviews page total.
-    const ivUpcomingConfirmed=interviews.filter(i=>i.status==='CONFIRMED'&&i.scheduled_at&&new Date(i.scheduled_at).getTime()>=nowMs).length;
+    const ivUpcomingConfirmed=interviews.filter(i=>i.status==='CONFIRMED'&&i.scheduled_at&&toDateUTC(i.scheduled_at).getTime()>=nowMs).length;
     const ivAwaitingConfirm=interviews.filter(i=>i.status==='PROPOSED').length;
-    const ivToWrapUp=interviews.filter(i=>i.status==='CONFIRMED'&&i.scheduled_at&&new Date(i.scheduled_at).getTime()<nowMs).length;
+    const ivToWrapUp=interviews.filter(i=>i.status==='CONFIRMED'&&i.scheduled_at&&toDateUTC(i.scheduled_at).getTime()<nowMs).length;
 
     setKPI('kpi-jobs',activeJobs);
     setKPI('kpi-candidates',candidates.length);
@@ -286,14 +286,14 @@ async function loadDashboard(){
     const alerts=[];
     const contacted3=shortlistAll.filter(s=>{
       if(s.status!=='CONTACTED')return false;
-      const diff=(now-new Date(s.created_at))/86400000;
+      const diff=(now-toDateUTC(s.created_at))/86400000;
       return diff>=3;
     });
     if(contacted3.length) alerts.push({level:'yellow',icon:'⏳',text:`${contacted3.length} candidate${contacted3.length>1?'s':''} contacted 3+ days ago — follow-up due`,action:{label:'Run Follow-up',fn:()=>runCron('followup')}});
     if(shortlisted>0) alerts.push({level:'blue',icon:'📬',text:`${shortlisted} candidate${shortlisted>1?'s':''} shortlisted, waiting for outreach`,action:{label:'Send Now',fn:()=>runCron('outreach')}});
     const todayStr=new Date().toDateString();
     const todayIvw=interviews.filter(i=>{
-      const d=i.scheduled_at?new Date(i.scheduled_at):null;
+      const d=i.scheduled_at?toDateUTC(i.scheduled_at):null;
       return d&&d.toDateString()===todayStr&&i.status==='CONFIRMED';
     });
     if(todayIvw.length) alerts.push({level:'green',icon:'🗓',text:`${todayIvw.length} interview${todayIvw.length>1?'s':''} confirmed for today`});
@@ -318,11 +318,11 @@ async function loadDashboard(){
     // PROPOSED interviews with no confirmed time (scheduled_at null) are excluded —
     // an interview only shows here once it's actually booked for a moment in time.
     const upcoming=interviews.filter(i=>{
-      const d=i.scheduled_at?new Date(i.scheduled_at):null;
+      const d=i.scheduled_at?toDateUTC(i.scheduled_at):null;
       if(!d||isNaN(d))return false;
       const diff=d-now;
       return diff>=0&&diff<=172800000&&['PROPOSED','CONFIRMED'].includes(i.status);
-    }).sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
+    }).sort((a,b)=>toDateUTC(a.scheduled_at)-toDateUTC(b.scheduled_at));
 
     const jobMap=Object.fromEntries(jobs.map(j=>[j.id,j]));
     const candMap={};
@@ -336,9 +336,9 @@ async function loadDashboard(){
       :upcoming.map(i=>{
           const c=candMap[i.candidate_id];
           const j=jobMap[i.job_id];
-          const dt=new Date(i.scheduled_at);
+          const dt=toDateUTC(i.scheduled_at);
           const isToday=dt.toDateString()===todayStr;
-          const timeStr=dt.toLocaleString('en-IN',{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+          const timeStr=tIST(i.scheduled_at,{weekday:'short'});
           return`<div style="display:flex;gap:12px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border-subtle)">
             <div style="width:36px;height:36px;border-radius:var(--radius-sm);background:${isToday?'var(--accent-dim)':'var(--bg-overlay)'};border:1px solid ${isToday?'var(--accent-border)':'var(--border-default)'};display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">${isToday?'📍':'◷'}</div>
             <div style="flex:1;min-width:0">
@@ -449,7 +449,7 @@ async function loadDashboard(){
             <td style="font-size:12px;color:var(--text-secondary)">#${o.candidate_id}</td>
             <td style="font-size:11px;color:var(--text-muted)">${(o.outreach_type||'').replace(/_/g,' ')}</td>
             <td><span class="badge ${stColors[o.status]||'badge-grey'}">${o.status}</span></td>
-            <td style="font-size:11.5px;color:var(--text-muted)">${o.sent_at?new Date(o.sent_at).toLocaleString('en-IN',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'–'}</td>
+            <td style="font-size:11.5px;color:var(--text-muted)">${o.sent_at?tIST(o.sent_at):'–'}</td>
           </tr>`).join('')}</tbody>
         </table></div>`;
 
@@ -518,8 +518,7 @@ function renderPlan(plan){
     return;
   }
   if(plan.created_at){
-    const t=new Date(plan.created_at);
-    meta.textContent=(plan.source==='ai'?'AI':'Auto')+' · '+t.toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    meta.textContent=(plan.source==='ai'?'AI':'Auto')+' · '+tIST(plan.created_at,{day:'2-digit'});
   }
   const items=(plan.priorities||[]).slice(0,5).map((p,i)=>`
     <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)">

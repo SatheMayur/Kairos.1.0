@@ -183,6 +183,59 @@ async def quality_issues(limit: int = 1000, db: AsyncSession = Depends(get_db)):
     return analyze_candidates(candidates, bounced, awaiting)
 
 
+@router.post("/backfill-names")
+async def backfill_names(confirm: bool = False, llm_limit: int = 12, db: AsyncSession = Depends(get_db)):
+    """Fix candidates whose 'name' is really a WhatsApp handle/emoji. For each:
+    1) pull a stated name from their chat history (regex), 2) else ask the LLM to
+    read the history for a name (capped, the 'powerful' step), 3) else just clean
+    the handle (drop emojis/_/@). Dry-run by default; confirm=true applies."""
+    from app.utils.names import is_placeholder_name, clean_name, extract_name_from_text
+    from app.models.conversation import Conversation
+    from app.services.llm import llm_json, llm_provider
+
+    cands = (await db.execute(select(Candidate))).scalars().all()
+    targets = [c for c in cands if is_placeholder_name(c.name, c.phone or c.whatsapp)]
+
+    conv_by_cand: dict[int, list] = {}
+    for cv in (await db.execute(select(Conversation))).scalars().all():
+        conv_by_cand.setdefault(cv.candidate_id, []).append(cv)
+
+    changes, llm_used = [], 0
+    for c in targets:
+        texts = [h["text"] for cv in conv_by_cand.get(c.id, [])
+                 for h in (cv.history or []) if h.get("dir") == "in" and h.get("text")]
+        newname, how = None, None
+        for t in texts:                                   # 1) stated name
+            nm = extract_name_from_text(t)
+            if nm:
+                newname, how = nm, "stated"
+                break
+        if not newname and texts and llm_provider() != "none" and llm_used < llm_limit:
+            joined = " | ".join(texts)[:800]              # 2) LLM reads the history
+            r = await llm_json(
+                "From these WhatsApp messages a job candidate sent, what is the "
+                "person's full name? If no real name is present, use null. "
+                f'Reply ONLY JSON: {{"name": "<name or null>"}}. Messages: {joined}',
+                max_tokens=60)
+            llm_used += 1
+            cand_nm = (r or {}).get("name")
+            if cand_nm and str(cand_nm).lower() != "null" and not is_placeholder_name(str(cand_nm)):
+                newname = " ".join(w.capitalize() for w in clean_name(str(cand_nm)).split())[:120]
+                how = "ai"
+        if not newname:                                   # 3) clean the handle
+            cl = clean_name(c.name)
+            if cl and cl != c.name:
+                newname, how = cl[:120], "cleaned"
+        if newname and newname != c.name:
+            changes.append({"id": c.id, "from": c.name, "to": newname, "how": how})
+            if confirm:
+                c.name = newname
+    if confirm:
+        await db.commit()
+    return {"dry_run": not confirm, "placeholder_total": len(targets),
+            "to_change": len(changes), "llm_used": llm_used, "sample": changes[:60]}
+
+
 @router.post("/cleanup-no-contact")
 async def cleanup_no_contact(confirm: bool = False, db: AsyncSession = Depends(get_db)):
     """Find candidates already in the system with no usable email/phone/WhatsApp.

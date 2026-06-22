@@ -147,7 +147,12 @@ Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>",
     from app.models.shortlist import ShortlistEntry, ShortlistStatus
     from app.models.conversation import Conversation
 
-    name = (r.get("name") or push_name or "WhatsApp Lead").strip()[:120]
+    from app.utils.names import clean_name, is_placeholder_name
+    ai_name = (r.get("name") or "").strip()
+    if ai_name and not is_placeholder_name(ai_name):
+        name = (" ".join(w.capitalize() for w in clean_name(ai_name).split()) or ai_name)[:120]
+    else:
+        name = (clean_name(push_name) or "WhatsApp Lead")[:120]
     cand = Candidate(name=name, phone=phone_10, whatsapp=phone_10, source=CandidateSource.MANUAL)
     db.add(cand)
     await db.flush()
@@ -206,6 +211,19 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
             # Unknown sender → HR front desk: greet & capture genuine job-seekers.
             await _front_desk(db, phone_10, body_text, push_name, raw_jid)
             return
+
+        # If we only have a WhatsApp handle for this person and they now state a
+        # real name, capture it. Never overwrites an already-real name.
+        try:
+            from app.utils.names import is_placeholder_name, extract_name_from_text
+            if is_placeholder_name(candidate.name, candidate.phone or candidate.whatsapp):
+                stated = extract_name_from_text(body_text)
+                if stated:
+                    candidate.name = stated[:120]
+                    await db.commit()
+                    await _trace(db, "NAME_CAPTURED", f"candidate {candidate.id} -> '{stated}'")
+        except Exception:
+            pass
 
         # Prefer an active entry, but fall back to the most recent entry of ANY
         # status so a genuine reply is never silently dropped on a technicality.

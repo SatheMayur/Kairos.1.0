@@ -245,14 +245,17 @@ async def wa_conversations(db: AsyncSession = Depends(get_db)):
         sl_map[(e.candidate_id, e.job_id)] = e.status.value
 
     result = []
+    from app.utils.names import friendly_display_name, is_placeholder_name
     for log in logs:
         c = cands.get(log.candidate_id)
         j = jobs.get(log.job_id)
+        _phone = (c.whatsapp or c.phone) if c else ""
         result.append({
             "id": log.id,
             "candidate_id": log.candidate_id,
-            "candidate_name": c.name if c else f"#{log.candidate_id}",
-            "candidate_phone": c.whatsapp or c.phone if c else "",
+            "candidate_name": friendly_display_name(c.name, _phone) if c else f"#{log.candidate_id}",
+            "name_unconfirmed": bool(c and is_placeholder_name(c.name, _phone)),
+            "candidate_phone": _phone,
             "job_id": log.job_id,
             "job_title": j.title if j else f"Job #{log.job_id}",
             "type": log.outreach_type.value,
@@ -288,11 +291,13 @@ async def wa_conversations(db: AsyncSession = Depends(get_db)):
             hist = cv.history or []
             last_in = next((h.get("text") for h in reversed(hist) if h.get("dir") == "in"), None)
             last_out = next((h.get("text") for h in reversed(hist) if h.get("dir") == "out"), None)
+            _phone = (c.whatsapp or c.phone) if c else ""
             result.append({
                 "id": f"conv-{cv.id}",
                 "candidate_id": cv.candidate_id,
-                "candidate_name": c.name if c else f"#{cv.candidate_id}",
-                "candidate_phone": (c.whatsapp or c.phone) if c else "",
+                "candidate_name": friendly_display_name(c.name, _phone) if c else f"#{cv.candidate_id}",
+                "name_unconfirmed": bool(c and is_placeholder_name(c.name, _phone)),
+                "candidate_phone": _phone,
                 "job_id": cv.job_id,
                 "job_title": j.title if j else f"Job #{cv.job_id}",
                 "type": "REPLY",

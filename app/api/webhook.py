@@ -370,6 +370,20 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
         await _trace(db, "HANDLED",
                      f"candidate {candidate.id} ({candidate.name}) intent={intent} action={action}")
 
+        # If we still only have a WhatsApp handle for this person, gently ask their
+        # name once (during normal chat, not when sending slots / closing) and
+        # remember we asked so we don't repeat it. Their reply is captured above.
+        try:
+            from app.utils.names import is_placeholder_name
+            if (action not in ("close", "schedule") and auto_response
+                    and is_placeholder_name(candidate.name, candidate.phone or candidate.whatsapp)
+                    and not (new_collected or {}).get("_asked_name")):
+                auto_response = auto_response.rstrip() + "\n\nAlso, may I have your full name for our records?"
+                if isinstance(new_collected, dict):
+                    new_collected["_asked_name"] = True
+        except Exception:
+            pass
+
         # ── Act on the recruiter agent's decision ───────────────────────────
         # The agent screens first (asks CTC / notice / location) and only chooses
         # "schedule" once it has enough — so we never jump straight to slots.

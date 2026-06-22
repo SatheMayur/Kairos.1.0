@@ -437,7 +437,7 @@ function waRenderTable(rows) {
     const dispName    = waDisplayName(c);
     return `<tr style="cursor:pointer${needsYou ? ';background:rgba(239,68,68,.06)' : ''}"
         onclick="location.href='/ui/candidate/${c.candidate_id}'" title="Open the full conversation">
-      <td style="font-weight:500">${esc(dispName)}</td>
+      <td style="font-weight:500">${esc(dispName)}${c.name_unconfirmed ? ' <span class="badge badge-yellow" style="font-size:9px;font-weight:600" title="Name not confirmed — the assistant will ask the candidate">name?</span>' : ''}</td>
       <td style="font-family:monospace;font-size:11.5px">${esc(c.candidate_phone || '—')}</td>
       <td>${esc(c.job_title)}</td>
       <td>${esc(typeLabel)}</td>

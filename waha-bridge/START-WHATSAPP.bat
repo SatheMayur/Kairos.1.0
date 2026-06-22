@@ -39,9 +39,10 @@ if not exist "node_modules" (
   call npm install --no-audit --no-fund
 )
 
-REM --- 3) Point at the live site + shared secret, then run ---
-set "VERCEL_URL=https://kgirdharlal-recruitment.vercel.app"
-set "BRIDGE_API_KEY=kgirdharlal-bridge-secret"
+REM --- 3) Point at the app + shared secret, then run ---
+REM Honor a preset VERCEL_URL (e.g. the local app from START-HERE.bat); else cloud.
+if "%VERCEL_URL%"=="" set "VERCEL_URL=https://kgirdharlal-recruitment.vercel.app"
+if "%BRIDGE_API_KEY%"=="" set "BRIDGE_API_KEY=kgirdharlal-bridge-secret"
 
 echo.
 echo ============================================================

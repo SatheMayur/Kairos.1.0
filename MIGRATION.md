@@ -5,22 +5,30 @@ self-contained virtual environment. Written in plain steps — no prior coding n
 
 ---
 
-## ⭐ Easiest path — install nothing, almost one click
+## ⭐ One file runs everything — `START-HERE.bat`
 
-Your system mostly runs **in the cloud**, so for normal use you don't install or
-run anything:
+On the new PC, after you have the project folder, just **double-click
+`START-HERE.bat`**. That single file does it all:
 
-1. **Use the system** → double-click **`OPEN-DASHBOARD.bat`** (or just bookmark
-   **https://kgirdharlal-recruitment.vercel.app/ui/**). That's the full app —
-   candidates, outreach, briefing, everything. Nothing to install.
-2. **Turn on WhatsApp** → in the `waha-bridge` folder, double-click
-   **`START-WHATSAPP.bat`**. If the PC doesn't have Node.js, it **downloads a
-   portable copy by itself** (no install, no admin), then starts the bridge and
-   shows a QR code. Scan it: phone → WhatsApp → Settings → Linked Devices → Link a
-   Device. Keep that window open. **That's the only thing that needs to run on a PC.**
+1. **First run only:** builds the **virtual environment** and installs every
+   package (a few minutes).
+2. **Every run:** starts the whole **application**, starts **WhatsApp**
+   (downloading a portable Node by itself — no install), and **opens the
+   dashboard** in your browser at `http://127.0.0.1:8000/ui/`.
+3. The first time, a **QR code** appears in the WhatsApp window — scan it: phone →
+   WhatsApp → Settings → Linked Devices → Link a Device. Keep the windows open.
 
-That's it for everyday use. The sections below are only if you also want to run a
-full *local* copy of the app on the PC (optional, for offline/testing).
+**The only one-time requirement is Python 3.11+** (a 2-minute install). If it's
+missing, `START-HERE.bat` opens the download page for you — install it (tick
+**"Add Python to PATH"**) and double-click the file again.
+
+> **Want the local copy to show your REAL live data** (same candidates as the
+> website)? Open `.env` and set `DATABASE_URL` to the Neon URL from Vercel
+> (see Step 3). Otherwise it runs on a fresh, empty local database.
+
+> Prefer to just use the **cloud** version (zero install, already running 24/7)?
+> Double-click **`OPEN-DASHBOARD.bat`** for the app and, separately,
+> **`waha-bridge\START-WHATSAPP.bat`** for WhatsApp.
 
 ---
 

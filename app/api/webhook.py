@@ -133,10 +133,12 @@ Their WhatsApp name: {push_name or 'unknown'}
 Their message: "{body_text}"
 
 Decide if this is a genuine job-seeker / recruitment inquiry — NOT spam, a forward, a vendor,
-or personal chatter. If yes, write a warm, short WhatsApp reply: greet them, say we're hiring for
-{roles}, and ask which role interests them plus their name, current role and total experience.
+or personal chatter. If yes, write a warm, short WhatsApp reply: greet them, and if they mention
+a role we ARE hiring for ({roles}), confirm it enthusiastically and ask for their name, current
+role and total experience. If they want a role we don't have, say so kindly and point them to our
+open roles. Match their interest to ONE of our exact open roles when possible.
 
-Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>", "reply": "<reply or empty>"}}"""
+Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>", "role": "<the one open role from the list that best matches their interest, or empty>", "reply": "<reply or empty>"}}"""
 
     r = await llm_json(prompt, max_tokens=400)
     if not r or not r.get("is_jobseeker") or not r.get("reply"):
@@ -146,6 +148,19 @@ Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>",
     from app.models.candidate import Candidate, CandidateSource
     from app.models.shortlist import ShortlistEntry, ShortlistStatus
     from app.models.conversation import Conversation
+
+    # Route the lead to the role they actually want (not just the first open job).
+    target_job = jobs[0]
+    want = (r.get("role") or body_text or "").lower()
+    if want:
+        best = None
+        for j in jobs:
+            t = (j.title or "").lower()
+            if t and (t in want or want in t or (set(t.split()) & set(want.split()))):
+                best = j
+                break
+        if best:
+            target_job = best
 
     from app.utils.names import clean_name, is_placeholder_name
     ai_name = (r.get("name") or "").strip()
@@ -157,13 +172,13 @@ Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>",
     db.add(cand)
     await db.flush()
 
-    # Put the new lead into the pipeline so the recruiter sees them. Attach to the
-    # first open role as a placeholder; the greeting asks which role they actually want.
+    # Put the new lead into the pipeline so the recruiter sees them — attached to
+    # the role they're actually interested in (matched above), not just the first.
     if jobs:
-        db.add(ShortlistEntry(job_id=jobs[0].id, candidate_id=cand.id, score=0,
+        db.add(ShortlistEntry(job_id=target_job.id, candidate_id=cand.id, score=0,
                               status=ShortlistStatus.PENDING))
         db.add(Conversation(
-            candidate_id=cand.id, job_id=jobs[0].id, collected={}, status="ACTIVE",
+            candidate_id=cand.id, job_id=target_job.id, collected={}, status="ACTIVE",
             last_intent="GENERAL",
             history=[{"dir": "in", "text": body_text[:300]},
                      {"dir": "out", "text": r["reply"][:300]}],

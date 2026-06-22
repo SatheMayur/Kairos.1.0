@@ -7,9 +7,9 @@ The bridge (bridge.js) calls these endpoints every few seconds:
 
 This eliminates the need for any public URL on the bridge machine.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Header, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.config import get_settings
@@ -38,20 +38,32 @@ async def poll_queue(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(_auth),
 ):
-    """Return up to 20 PENDING outgoing messages. Bridge calls this every 3 s."""
-    # Track last poll time for watchdog dead-bridge detection
+    """Return up to 20 PENDING outgoing messages and CLAIM them, so the bridge's
+    next 3-second poll never re-fetches (and re-sends) the same message before the
+    ack lands. A claim that goes unacked for 3 min is retried (max 3 attempts),
+    so a crashed send isn't lost — but a slow ack can't cause duplicate sends."""
     from app.models.wa_connection import WaConnection
     conn_row = await db.get(WaConnection, 1)
     if conn_row:
         conn_row.last_poll_at = datetime.utcnow()
 
+    now = datetime.utcnow()
+    stale = now - timedelta(minutes=3)
     res = await db.execute(
         select(WAQueue)
-        .where(WAQueue.status == WAQueueStatus.PENDING)
+        .where(
+            WAQueue.status == WAQueueStatus.PENDING,
+            or_(WAQueue.last_retry_at.is_(None), WAQueue.last_retry_at < stale),  # unclaimed or stale
+            WAQueue.retry_count < 3,                                              # give up after 3 tries
+        )
         .order_by(WAQueue.created_at)
         .limit(20)
     )
     rows = res.scalars().all()
+    for r in rows:                       # claim: stops the next poll re-sending these
+        r.last_retry_at = now
+        r.retry_count = (r.retry_count or 0) + 1
+    await db.commit()                    # persist the claim before the bridge can re-poll
     return [{"id": r.id, "phone": r.phone, "message": r.message} for r in rows]
 
 

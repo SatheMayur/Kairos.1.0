@@ -249,9 +249,17 @@ async def reengage_role(
         from app.models.outreach import OutreachChannel, OutreachType
         channel, _ = await decide_primary_channel(db)
         used_channel = channel.value
+        from app.utils.phone import normalize_indian_mobile
+        seen_phones: set[str] = set()
         for c in matched:
             if not is_reachable(c):
                 continue
+            # De-dupe by phone so duplicate candidate records never double-message.
+            nm = normalize_indian_mobile(c.phone) or normalize_indian_mobile(c.whatsapp)
+            if nm:
+                if nm in seen_phones:
+                    continue
+                seen_phones.add(nm)
             first = (c.name or "there").split()[0]
             body = (f"Hi {first}! Apologies for the earlier mix-up — we *do* have an "
                     f"*{job.title}* opening at {job.company or 'K. Girdharlal International'}. "

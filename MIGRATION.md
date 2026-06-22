@@ -5,6 +5,25 @@ self-contained virtual environment. Written in plain steps — no prior coding n
 
 ---
 
+## ⭐ Easiest path — install nothing, almost one click
+
+Your system mostly runs **in the cloud**, so for normal use you don't install or
+run anything:
+
+1. **Use the system** → double-click **`OPEN-DASHBOARD.bat`** (or just bookmark
+   **https://kgirdharlal-recruitment.vercel.app/ui/**). That's the full app —
+   candidates, outreach, briefing, everything. Nothing to install.
+2. **Turn on WhatsApp** → in the `waha-bridge` folder, double-click
+   **`START-WHATSAPP.bat`**. If the PC doesn't have Node.js, it **downloads a
+   portable copy by itself** (no install, no admin), then starts the bridge and
+   shows a QR code. Scan it: phone → WhatsApp → Settings → Linked Devices → Link a
+   Device. Keep that window open. **That's the only thing that needs to run on a PC.**
+
+That's it for everyday use. The sections below are only if you also want to run a
+full *local* copy of the app on the PC (optional, for offline/testing).
+
+---
+
 ## First, what actually lives where (important)
 
 Your system has three parts:

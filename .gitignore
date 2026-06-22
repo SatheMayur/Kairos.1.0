@@ -15,3 +15,9 @@ venv/
 .env.vercel
 .env.local
 .env.*
+
+# WhatsApp bridge runtime (auto-downloaded / installed locally — never commit)
+waha-bridge/node_modules/
+waha-bridge/node-v*-win-x64/
+waha-bridge/node.zip
+waha-bridge/auth_info_baileys/

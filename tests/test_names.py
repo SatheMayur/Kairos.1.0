@@ -28,8 +28,12 @@ def test_friendly_display():
 
 def test_extract_name_from_text():
     assert extract_name_from_text("hi my name is Rahul Shah") == "Rahul Shah"
-    assert extract_name_from_text("I am Priya") == "Priya"
+    assert extract_name_from_text("myself Priya Sharma") == "Priya Sharma"
     assert extract_name_from_text("this is amit kumar patel") == "Amit Kumar Patel"
+    assert extract_name_from_text("name: Ghanshyam Borse") == "Ghanshyam Borse"
+    # sentence fragments must NOT be mistaken for names
+    assert extract_name_from_text("I am interested in this opportunity") is None
+    assert extract_name_from_text("please find my resume and details") is None
     assert extract_name_from_text("2") is None
     assert extract_name_from_text("Hi") is None
 

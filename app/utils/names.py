@@ -73,21 +73,37 @@ def friendly_display_name(name: str | None, phone: str | None = None) -> str:
     return f"WhatsApp user ••{tail}" if tail else "WhatsApp user"
 
 
+# Only explicit name statements (NOT bare "i am ...", which matches "i am interested").
 _NAME_PAT = re.compile(
-    r"\b(?:my name is|my name's|i am|i'm|this is|myself|name\s*[:\-]?)\s+"
+    r"\b(?:my name is|my name's|name is|name\s*[:\-]|myself|i am called|this is)\s+"
     r"([A-Za-z][A-Za-z'.\-]+(?:\s+[A-Za-z][A-Za-z'.\-]+){0,3})",
     flags=re.IGNORECASE,
 )
+# Common words that mean the capture is a sentence, not a name.
+_NOT_NAME = {
+    "my", "the", "a", "an", "this", "that", "i", "we", "you", "interested",
+    "currently", "available", "looking", "ready", "fine", "good", "from", "here",
+    "working", "fully", "very", "resume", "cv", "just", "also", "still", "not",
+    "now", "please", "sir", "madam", "hello", "hi", "thanks", "thank", "yes", "no",
+    "experienced", "fresher", "experience", "applying", "application", "job", "role",
+    "want", "need", "can", "will", "would", "have", "having", "am", "is", "are",
+}
 
 
 def extract_name_from_text(text: str | None) -> str | None:
-    """Pull a stated name from a candidate's message ('my name is Rahul Shah')."""
+    """Pull a stated name from a candidate's message ('my name is Rahul Shah').
+    Rejects sentence fragments like 'interested in this opportunity'."""
     if not text:
         return None
     m = _NAME_PAT.search(text)
     if not m:
         return None
     cand = clean_name(m.group(1))
-    if cand and not is_placeholder_name(cand):
-        return " ".join(w.capitalize() for w in cand.split())
-    return None
+    if not cand or is_placeholder_name(cand):
+        return None
+    words = cand.split()
+    if any(w.lower() in _NOT_NAME for w in words):     # any common word → not a name
+        return None
+    if not (1 <= len(words) <= 3):
+        return None
+    return " ".join(w.capitalize() for w in words)

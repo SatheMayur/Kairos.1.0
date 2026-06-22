@@ -183,6 +183,100 @@ async def quality_issues(limit: int = 1000, db: AsyncSession = Depends(get_db)):
     return analyze_candidates(candidates, bounced, awaiting)
 
 
+@router.post("/reengage-role")
+async def reengage_role(
+    job_id: int,
+    keywords: str = ("ai engineer,artificial intelligence,machine learning,ml engineer,"
+                     "data scientist,generative ai,gen ai,llm,deep learning,nlp,ai intern,ai/ml"),
+    outreach: bool = False,
+    dry_run: bool = True,
+    limit: int = 60,
+    db: AsyncSession = Depends(get_db),
+):
+    """Find candidates whose chat/profile was about an AI/ML role (often told 'no
+    opening' before the role existed), move them into `job_id`'s pipeline as
+    SHORTLISTED, and — if outreach=true — send a recovery message (WhatsApp-first).
+    Dry-run by default."""
+    from app.models.conversation import Conversation
+    from app.models.shortlist import ShortlistEntry, ShortlistStatus
+    from app.models.job import Job
+    from app.services.data_quality import is_reachable
+
+    job = await db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    kws = [k.strip().lower() for k in keywords.split(",") if k.strip()]
+
+    convs = (await db.execute(select(Conversation))).scalars().all()
+    matched_ids: set[int] = set()
+    for cv in convs:
+        text = " ".join((h.get("text") or "") for h in (cv.history or [])).lower()
+        if any(k in text for k in kws):
+            matched_ids.add(cv.candidate_id)
+    cands = {c.id: c for c in (await db.execute(select(Candidate))).scalars().all()}
+    for c in cands.values():
+        blob = " ".join(filter(None, [c.current_role, c.raw_profile, " ".join(c.skills or [])])).lower()
+        if any(k in blob for k in kws):
+            matched_ids.add(c.id)
+    matched = [cands[i] for i in matched_ids if i in cands][:limit]
+
+    _REOPEN = {ShortlistStatus.PENDING, ShortlistStatus.REJECTED,
+               ShortlistStatus.NOT_INTERESTED, ShortlistStatus.DROPPED}
+    repointed = 0
+    rows = []
+    for c in matched:
+        e = (await db.execute(select(ShortlistEntry).where(
+            ShortlistEntry.candidate_id == c.id, ShortlistEntry.job_id == job_id))).scalar_one_or_none()
+        will = "new_shortlist" if not e else ("reopen" if e.status in _REOPEN else f"keep:{e.status.value}")
+        rows.append({"id": c.id, "name": c.name, "reachable": is_reachable(c), "action": will})
+        if dry_run:
+            continue
+        if not e:
+            db.add(ShortlistEntry(candidate_id=c.id, job_id=job_id, score=0,
+                                  status=ShortlistStatus.SHORTLISTED))
+            repointed += 1
+        elif e.status in _REOPEN:
+            e.status = ShortlistStatus.SHORTLISTED
+            repointed += 1
+    if not dry_run:
+        await db.commit()
+
+    contacted = 0
+    used_channel = None
+    if outreach and not dry_run and matched:
+        from app.services.auto_outreach import decide_primary_channel
+        from app.services.outreach import send_outreach
+        from app.models.outreach import OutreachChannel, OutreachType
+        channel, _ = await decide_primary_channel(db)
+        used_channel = channel.value
+        for c in matched:
+            if not is_reachable(c):
+                continue
+            first = (c.name or "there").split()[0]
+            body = (f"Hi {first}! Apologies for the earlier mix-up — we *do* have an "
+                    f"*{job.title}* opening at {job.company or 'K. Girdharlal International'}. "
+                    f"Given your background, we'd love to take this forward. Are you still "
+                    f"interested? If so, please share your current CTC, expected CTC, notice "
+                    f"period and current location.")
+            try:
+                log = await send_outreach(candidate=c, job=job, channel=channel,
+                                          outreach_type=OutreachType.INITIAL_CONTACT, body=body, db=db)
+                if (log.status.value == "SENT"
+                        and log.channel in (OutreachChannel.WHATSAPP, OutreachChannel.EMAIL, OutreachChannel.SMS)):
+                    contacted += 1
+                    e = (await db.execute(select(ShortlistEntry).where(
+                        ShortlistEntry.candidate_id == c.id, ShortlistEntry.job_id == job_id))).scalar_one_or_none()
+                    if e and e.status in (ShortlistStatus.SHORTLISTED, ShortlistStatus.PENDING):
+                        e.status = ShortlistStatus.CONTACTED
+            except Exception:
+                pass
+        await db.commit()
+
+    return {"dry_run": dry_run, "job": job.title, "matched": len(matched),
+            "repointed": repointed, "contacted": contacted,
+            "channel": used_channel, "candidates": rows}
+
+
 @router.post("/backfill-names")
 async def backfill_names(confirm: bool = False, llm_limit: int = 12, db: AsyncSession = Depends(get_db)):
     """Fix candidates whose 'name' is really a WhatsApp handle/emoji. For each:

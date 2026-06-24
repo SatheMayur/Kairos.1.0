@@ -28,3 +28,16 @@ async def test_poll_claims_messages_no_duplicate_send(client, db_session):
 async def test_poll_requires_bridge_key(client):
     bad = await client.get("/api/v1/wa/poll", headers={"x-bridge-key": "wrong"})
     assert bad.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_inbound_message_id_is_unique(db_session):
+    """The idempotency key behind no-duplicate-replies: the same WhatsApp message
+    id can be recorded only once."""
+    from sqlalchemy.exc import IntegrityError
+    from app.models.wa_inbound import WaInbound
+    db_session.add(WaInbound(message_id="WAMSG-1", phone="919876543210"))
+    await db_session.commit()
+    db_session.add(WaInbound(message_id="WAMSG-1", phone="919876543210"))
+    with pytest.raises(IntegrityError):
+        await db_session.commit()

@@ -191,7 +191,8 @@ Return ONLY JSON: {{"is_jobseeker": true|false, "name": "<their name or empty>",
 
 
 async def _handle_inbound(from_jid: str, body_text: str, session: str,
-                          raw_jid: str | None = None, push_name: str | None = None):
+                          raw_jid: str | None = None, push_name: str | None = None,
+                          message_id: str | None = None):
     """Core logic — runs in background after 200 is returned to WAHA.
 
     Uses Claude AI to classify the reply intent, then auto-responds accordingly.
@@ -201,6 +202,19 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
     logger.info("Inbound WhatsApp from %s (%s): %r", from_jid, phone_10, body_text[:80])
 
     async with AsyncSessionLocal() as db:
+        # Idempotency: WhatsApp can re-deliver the same message (reconnects, dup
+        # upserts). Record its id once; a repeat is skipped so we never auto-reply
+        # to the same message twice.
+        if message_id:
+            from app.models.wa_inbound import WaInbound
+            db.add(WaInbound(message_id=str(message_id)[:160], phone=phone_10))
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                await _trace(db, "DUPLICATE", f"msg {message_id} already handled — skipped")
+                return
+
         raw_note = ""
         if raw_jid and raw_jid != from_jid:
             raw_note = f" (raw {raw_jid})"

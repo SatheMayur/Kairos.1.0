@@ -287,6 +287,7 @@ async function connectToWhatsApp() {
           from, body, session: 'default',
           push_name: msg.pushName || null,
           raw_jid: msg.key.remoteJid,   // original (lid) for diagnostics
+          message_id: msg.key.id || null,   // idempotency key — dedup re-deliveries
         }, { headers, timeout: 10000 });
       } catch (err) {
         console.error('[FORWARD ERR]', err.message);

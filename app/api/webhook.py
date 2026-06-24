@@ -445,9 +445,15 @@ async def _handle_inbound(from_jid: str, body_text: str, session: str,
                     f"  {i+1}. {s.strftime('%A %d %b, %I:%M %p IST')}"
                     for i, s in enumerate(slots)
                 )
+                # Superpower: if the candidate already told us when they're free,
+                # acknowledge it instead of ignoring it and dumping generic slots.
+                avail = (new_collected or {}).get("availability")
+                avail_line = (f"You mentioned you're available *{avail}* — noted! "
+                              f"If that still works, reply *YES*; or pick another time below.\n\n"
+                              if avail else "")
                 await send_whatsapp(
                     reply_to,
-                    f"{auto_response}\n\nHere are 3 available slots for your *{job.title}* "
+                    f"{auto_response}\n\n{avail_line}Here are 3 slots for your *{job.title}* "
                     f"interview at {company}:\n\n{slot_lines}\n\n"
                     f"Reply with *1*, *2*, or *3* to confirm your preferred slot.",
                     db=db,

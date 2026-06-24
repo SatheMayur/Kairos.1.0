@@ -19,6 +19,8 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session():
+    from app.database import _import_models
+    _import_models()                      # register every model so all tables are created
     engine = create_async_engine(TEST_DB_URL, future=True)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

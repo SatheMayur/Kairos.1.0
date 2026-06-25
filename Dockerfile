@@ -2,17 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source
 COPY . .
 
-# Create data directory for SQLite
-RUN mkdir -p /app/data
-
-ENV DATABASE_URL=sqlite+aiosqlite:////app/data/recruitment.db
 ENV APP_ENV=production
 
 EXPOSE 8000
